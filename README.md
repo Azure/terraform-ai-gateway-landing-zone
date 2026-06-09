@@ -12,10 +12,10 @@ Complete Terraform implementation of the [Azure AI Citadel Governance Hub](https
 │                                                             │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │            Virtual Network (hub or spoke)            │   │
-│  │  ┌───────────────┐ ┌──────────────┐ ┌────────────┐  │   │
-│  │  │  APIM Subnet  │ │   PE Subnet  │ │  LA Subnet │  │   │
-│  │  └──────┬────────┘ └──────┬───────┘ └─────┬──────┘  │   │
-│  └─────────┼────────────────┼───────────────┼──────────┘   │
+│  │  ┌───────────────┐ ┌──────────────┐ ┌────────────┐   │   │
+│  │  │  APIM Subnet  │ │   PE Subnet  │ │  LA Subnet │   │   │
+│  │  └──────┬────────┘ └──────┬───────┘ └─────┬──────┘   │   │
+│  └─────────┼────────────────┼───────────────┼───────────┘   │
 │            │                │               │               │
 │   ┌────────▼──────┐  Private Endpoints:     │               │
 │   │  API Mgmt     │  • Key Vault            │               │
@@ -24,8 +24,8 @@ Complete Terraform implementation of the [Azure AI Citadel Governance Hub](https
 │   └──────┬────────┘  • AI Services   │  (Usage      │       │
 │          │           • Storage       │   Ingestion) │       │
 │          │                           └──────┬───────┘       │
-│   Named Values:                            │               │
-│   • uami-client-id   ┌─────────────────────▼─────────┐     │
+│   Named Values:                             │               │
+│   • uami-client-id   ┌──────────────────────▼─────────┐     │
 │   • piiServiceUrl    │         Cosmos DB              │     │
 │   • entra-auth       │  usage-db / model-pricing      │     │
 │                      └────────────────────────────────┘     │
@@ -34,70 +34,6 @@ Complete Terraform implementation of the [Azure AI Citadel Governance Hub](https
 │               Event Hub · AI Foundry · Language Service     │
 │               Content Safety · API Center                   │
 └─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 📁 Project Structure
-
-```
-citadel-terraform/
-├── versions.tf              # Provider + Terraform version constraints
-├── providers.tf             # AzureRM, AzAPI, Random provider config
-├── main.tf                  # Root module — orchestrates all modules
-├── variables.tf             # All input variables (mirrors Bicep params)
-├── outputs.tf               # Key deployment outputs
-├── .gitignore
-│
-├── modules/
-│   ├── networking/          # VNet, subnets, NSGs, route tables, DNS zones
-│   ├── monitoring/          # Log Analytics, Application Insights, dashboards
-│   ├── security/            # Key Vault, RBAC assignments, private endpoints
-│   ├── cosmosdb/            # Cosmos DB account, databases, containers
-│   ├── eventhub/            # Event Hub namespace, hubs, auth rules
-│   ├── ai-services/         # Language Service, Content Safety, AI Foundry, API Center
-│   ├── apim/                # API Management + APIs + policies + named values
-│   │   └── policies/        # APIM policy XML templates
-│   └── logic-app/           # Logic App Standard for usage ingestion
-│
-├── llm-backend-onboarding/  # Standalone module — onboard LLM backends to an existing APIM
-│   ├── main.tf              # Backends, backend pools, policy fragments, named values
-│   ├── terraform.tfvars.example
-│   ├── policies/            # Routing policy-fragment templates
-│   └── scripts/             # deploy.sh / destroy.sh / test.sh
-│
-├── citadel-access-contracts/ # Standalone module — onboard a use-case to an existing APIM
-│   ├── main.tf              # APIM products, subscriptions, policies, KV secrets, Foundry conns
-│   ├── terraform.tfvars.example
-│   ├── contracts/           # Per-use-case contract definitions
-│   ├── policies/            # Inbound product policy XML (incl. default-ai-product-policy.xml)
-│   └── scripts/             # deploy.sh / destroy.sh / test.sh
-│
-├── environments/
-│   ├── dev.tfvars.example   # Development template — copy to dev.tfvars and fill in
-│   ├── dev.tfvars           # Development (Developer SKU, public access)
-│   ├── prod.tfvars.example  # Production template — copy to prod.tfvars and fill in
-│   └── prod.tfvars          # Production (PremiumV2, fully private)
-│
-├── scripts/
-│   ├── deploy.sh            # Full deploy script (init + plan + apply)
-│   ├── destroy.sh           # Teardown script
-│   ├── validate.sh          # Post-deployment smoke tests
-│   └── bootstrap-state.sh   # One-time remote state backend setup
-│
-├── shared/                  # Python helpers for the validation notebooks
-│   ├── utils.py             # Config bootstrap (+ Terraform-output bridge), APIM helpers
-│   ├── apimtools.py         # APIMClientTool — backend/policy/trace discovery (az + SDK)
-│   ├── requirements.txt     # Python deps for the notebooks
-│   └── snippets/            # Standalone az/REST example scripts
-│
-└── validation/              # Jupyter test notebooks (run against a live deployment)
-    ├── llm-backend-onboarding-runner.ipynb              # 1 — onboard LLM backends ⭐
-    ├── citadel-universal-llm-api-all-models-tests.ipynb # 2 — validate all models ⭐
-    ├── citadel-access-contracts-tests.ipynb            # 3 — provision access contracts ⭐
-    ├── citadel-model-aliases-tests.ipynb              # 4 — model alias routing
-    ├── README.md            # Variable map + Terraform autoload instructions
-    └── requirements.txt
 ```
 
 ---
@@ -404,6 +340,71 @@ Never commit real secrets to source control. Use one of:
 2. **Azure Key Vault references in tfvars** (requires azurerm data source)
 
 3. **CI/CD pipeline secret variables** (Azure DevOps / GitHub Actions secrets)
+
+---
+
+
+## 📁 Project Structure
+
+```
+citadel-terraform/
+├── versions.tf              # Provider + Terraform version constraints
+├── providers.tf             # AzureRM, AzAPI, Random provider config
+├── main.tf                  # Root module — orchestrates all modules
+├── variables.tf             # All input variables (mirrors Bicep params)
+├── outputs.tf               # Key deployment outputs
+├── .gitignore
+│
+├── modules/
+│   ├── networking/          # VNet, subnets, NSGs, route tables, DNS zones
+│   ├── monitoring/          # Log Analytics, Application Insights, dashboards
+│   ├── security/            # Key Vault, RBAC assignments, private endpoints
+│   ├── cosmosdb/            # Cosmos DB account, databases, containers
+│   ├── eventhub/            # Event Hub namespace, hubs, auth rules
+│   ├── ai-services/         # Language Service, Content Safety, AI Foundry, API Center
+│   ├── apim/                # API Management + APIs + policies + named values
+│   │   └── policies/        # APIM policy XML templates
+│   └── logic-app/           # Logic App Standard for usage ingestion
+│
+├── llm-backend-onboarding/  # Standalone module — onboard LLM backends to an existing APIM
+│   ├── main.tf              # Backends, backend pools, policy fragments, named values
+│   ├── terraform.tfvars.example
+│   ├── policies/            # Routing policy-fragment templates
+│   └── scripts/             # deploy.sh / destroy.sh / test.sh
+│
+├── citadel-access-contracts/ # Standalone module — onboard a use-case to an existing APIM
+│   ├── main.tf              # APIM products, subscriptions, policies, KV secrets, Foundry conns
+│   ├── terraform.tfvars.example
+│   ├── contracts/           # Per-use-case contract definitions
+│   ├── policies/            # Inbound product policy XML (incl. default-ai-product-policy.xml)
+│   └── scripts/             # deploy.sh / destroy.sh / test.sh
+│
+├── environments/
+│   ├── dev.tfvars.example   # Development template — copy to dev.tfvars and fill in
+│   ├── dev.tfvars           # Development (Developer SKU, public access)
+│   ├── prod.tfvars.example  # Production template — copy to prod.tfvars and fill in
+│   └── prod.tfvars          # Production (PremiumV2, fully private)
+│
+├── scripts/
+│   ├── deploy.sh            # Full deploy script (init + plan + apply)
+│   ├── destroy.sh           # Teardown script
+│   ├── validate.sh          # Post-deployment smoke tests
+│   └── bootstrap-state.sh   # One-time remote state backend setup
+│
+├── shared/                  # Python helpers for the validation notebooks
+│   ├── utils.py             # Config bootstrap (+ Terraform-output bridge), APIM helpers
+│   ├── apimtools.py         # APIMClientTool — backend/policy/trace discovery (az + SDK)
+│   ├── requirements.txt     # Python deps for the notebooks
+│   └── snippets/            # Standalone az/REST example scripts
+│
+└── validation/              # Jupyter test notebooks (run against a live deployment)
+    ├── llm-backend-onboarding-runner.ipynb              # 1 — onboard LLM backends ⭐
+    ├── citadel-universal-llm-api-all-models-tests.ipynb # 2 — validate all models ⭐
+    ├── citadel-access-contracts-tests.ipynb            # 3 — provision access contracts ⭐
+    ├── citadel-model-aliases-tests.ipynb              # 4 — model alias routing
+    ├── README.md            # Variable map + Terraform autoload instructions
+    └── requirements.txt
+```
 
 ---
 
