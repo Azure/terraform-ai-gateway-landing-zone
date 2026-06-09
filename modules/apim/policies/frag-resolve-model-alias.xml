@@ -1,0 +1,160 @@
+<fragment>
+    <!--
+        Fragment: Resolve Model Alias
+        Purpose: Resolves a client-facing model alias (e.g. "adv-gpt") to an actual underlying model
+                 (e.g. "gpt-5", "gpt-4.1") based on the configured strategy ("priority" or "weighted").
+                 Provides a SINGLE alias resolution path used consistently by Azure OpenAI API,
+                 Universal LLM API, and Unified AI API.
+
+        Resolution sources (in order):
+        1. config-model-aliases — JObject set by central-cache-manager (Unified AI path).
+        2. inline-model-aliases — Static JObject populated at deploy time from the modelAliases
+                                  Bicep parameter (used by Azure OpenAI / Universal LLM APIs that
+                                  don't load metadata-config).
+
+        Input Variables:
+        - requestedModel: Model name from request body or URL path (may be an alias).
+        - config-model-aliases (optional): Cached aliases from metadata-config (Unified AI).
+
+        Output Variables:
+        - requestedModel: Resolved actual model name (unchanged when not an alias).
+        - original-model-alias: Original alias name when resolution occurred (empty otherwise).
+        - is-alias: Boolean — true when the request was made through an alias.
+        - alias-models: JArray of all underlying models for the alias (used by unified-ai-api-policy
+                         retry block for cross-model fallback).
+
+        Side Effects:
+        - When requestedModel is in the JSON request body, the body is rewritten with the resolved
+          model so backends receive the actual model name.
+        - When requestedModel appears in the URL path as `/deployments/{alias}/`, the URL is rewritten
+          to `/deployments/{resolvedModel}/` so URL-based routing (Azure OpenAI) targets the correct
+          backend deployment.
+    -->
+
+    <!-- Static alias map populated at deploy time from the modelAliases Bicep parameter.
+         When no aliases are defined this evaluates to an empty JObject and the fragment is a no-op. -->
+    <set-variable name="inline-model-aliases" value="@{
+        return new JObject() {
+            //{inlineAliasesCode}
+        };
+    }" />
+
+    <!-- Initialize alias tracking variables (set even when no resolution occurs so downstream
+         fragments like set-response-headers and set-llm-usage can read them safely). -->
+    <set-variable name="original-model-alias" value="" />
+    <set-variable name="is-alias" value="@(false)" />
+    <set-variable name="alias-models" value="@(new JArray())" />
+
+    <choose>
+        <when condition="@{
+            var model = context.Variables.GetValueOrDefault<string>("requestedModel", "");
+            if (string.IsNullOrEmpty(model) || model.Equals("non-llm-request", StringComparison.OrdinalIgnoreCase)) {
+                return false;
+            }
+            // Prefer cached aliases (Unified AI) — fall back to static inline aliases.
+            var aliases = context.Variables.GetValueOrDefault<JObject>("config-model-aliases");
+            if (aliases == null || aliases.Count == 0) {
+                aliases = context.Variables.GetValueOrDefault<JObject>("inline-model-aliases");
+            }
+            return aliases != null && aliases.Property(model) != null;
+        }">
+            <set-variable name="original-model-alias" value="@(context.Variables.GetValueOrDefault<string>("requestedModel", ""))" />
+            <set-variable name="is-alias" value="@(true)" />
+            <set-variable name="alias-models" value="@{
+                var alias = context.Variables.GetValueOrDefault<string>("requestedModel", "");
+                var aliases = context.Variables.GetValueOrDefault<JObject>("config-model-aliases");
+                if (aliases == null || aliases.Count == 0) {
+                    aliases = context.Variables.GetValueOrDefault<JObject>("inline-model-aliases");
+                }
+                if (aliases == null) { return new JArray(); }
+                var prop = aliases.Property(alias);
+                if (prop == null) { return new JArray(); }
+                var aliasEntry = prop.Value as JObject;
+                if (aliasEntry == null) { return new JArray(); }
+                var modelsProp = aliasEntry.Property("models");
+                if (modelsProp == null) { return new JArray(); }
+                var models = modelsProp.Value as JArray;
+                return models ?? new JArray();
+            }" />
+            <set-variable name="requestedModel" value="@{
+                var alias = context.Variables.GetValueOrDefault<string>("original-model-alias", "");
+                var aliases = context.Variables.GetValueOrDefault<JObject>("config-model-aliases");
+                if (aliases == null || aliases.Count == 0) {
+                    aliases = context.Variables.GetValueOrDefault<JObject>("inline-model-aliases");
+                }
+                if (aliases == null) { return alias; }
+                var prop = aliases.Property(alias);
+                if (prop == null) { return alias; }
+                var aliasConfig = prop.Value as JObject;
+                if (aliasConfig == null) { return alias; }
+
+                var modelsProp = aliasConfig.Property("models");
+                if (modelsProp == null) { return alias; }
+                var models = modelsProp.Value as JArray;
+                if (models == null || models.Count == 0) { return alias; }
+
+                var strategyProp = aliasConfig.Property("strategy");
+                var strategy = strategyProp != null ? strategyProp.Value.ToString() : "priority";
+
+                if (strategy.Equals("weighted", StringComparison.OrdinalIgnoreCase))
+                {
+                    var weightsProp = aliasConfig.Property("weights");
+                    var weights = weightsProp != null ? weightsProp.Value as JArray : null;
+                    if (weights != null && weights.Count == models.Count)
+                    {
+                        // Random-weighted selection: yields the configured distribution over many requests.
+                        int totalWeight = 0;
+                        foreach (var w in weights) { totalWeight += w.Value<int>(); }
+                        if (totalWeight > 0)
+                        {
+                            int pick = new Random().Next(0, totalWeight);
+                            int cumulative = 0;
+                            for (int i = 0; i < models.Count; i++)
+                            {
+                                cumulative += weights[i].Value<int>();
+                                if (pick < cumulative) { return models[i].ToString(); }
+                            }
+                        }
+                    }
+                }
+                // Default 'priority' strategy: first model wins. The unified-ai-api retry block can
+                // walk through alias-models for cross-model fallback on transient failures.
+                return models[0].ToString();
+            }" />
+
+            <!-- Body rewrite: when the model field is present in the JSON body, replace the alias
+                 with the resolved model name so backends see the real model. Skip for GET/DELETE. -->
+            <choose>
+                <when condition="@(context.Request.Method != "GET" &amp;&amp; context.Request.Method != "DELETE")">
+                    <set-body>@{
+                        try {
+                            var bodyText = context.Request.Body.As<string>(preserveContent: true);
+                            if (string.IsNullOrEmpty(bodyText)) { return bodyText; }
+                            var body = JObject.Parse(bodyText);
+                            if (body["model"] != null) {
+                                body["model"] = (string)context.Variables["requestedModel"];
+                                return body.ToString();
+                            }
+                            return bodyText;
+                        } catch {
+                            return context.Request.Body.As<string>(preserveContent: true);
+                        }
+                    }</set-body>
+                </when>
+            </choose>
+
+            <!-- URL rewrite is owned by each API policy because APIM's `context.Request.Url.Path`
+                 always returns the ORIGINAL request path (it does not reflect prior `<rewrite-uri>`
+                 calls). Doing the rewrite here would be silently overridden by the API policy's
+                 final `<rewrite-uri>` which reads the original alias-containing path again.
+                 The Azure OpenAI API policy substitutes `original-model-alias` → `requestedModel`
+                 in its `openAIRewriteTemplate`. Universal LLM API has no /deployments/ segment in
+                 the URL (model is in the body, already rewritten above). The Unified AI API
+                 reconstructs the backend URL from `requestedModel` via the path-builder fragment. -->
+        </when>
+    </choose>
+
+    <trace source="Resolve-Model-Alias" severity="information">
+        <message>@($"Alias resolution: original='{context.Variables.GetValueOrDefault<string>("original-model-alias", "")}', resolved='{context.Variables.GetValueOrDefault<string>("requestedModel", "")}', is-alias={context.Variables.GetValueOrDefault<bool>("is-alias", false)}")</message>
+    </trace>
+</fragment>

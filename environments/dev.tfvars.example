@@ -1,0 +1,258 @@
+# =============================================================================
+# AI Citadel Governance Hub - Development Environment
+# T-Shirt Size: Small (Developer SKU, minimal capacity, public access)
+# -----------------------------------------------------------------------------
+# This file contains placeholders for EVERY root variable (see VARIABLES.md).
+# Uncomment and edit entries to override defaults.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. BASIC CONFIGURATION
+# -----------------------------------------------------------------------------
+environment_name             = "dev-01"
+location                     = "swedencentral"
+subscription_id              = "c25e83e9-00ef-4f10-8945-a9e113144476" # replace before deploying
+purge_soft_delete_on_destroy = true # dev convenience; not for prod
+
+tags = {
+  Environment       = "Development"
+  CostCenter        = "Engineering"
+  Owner             = "platform-team@contoso.com"
+  Criticality       = "Low"
+  ManagedBy         = "Terraform"
+  SecurityControl   = "Ignore"
+}
+
+# -----------------------------------------------------------------------------
+# 2. RESOURCE NAMING (blank = auto-generated)
+# -----------------------------------------------------------------------------
+resource_group_name         = "rg-citadel-dev-01"
+use_existing_resource_group = false
+# apim_service_name         = ""
+# cosmos_db_account_name    = ""
+# eventhub_namespace_name   = ""
+# log_analytics_name        = ""
+# key_vault_name            = ""
+
+# -----------------------------------------------------------------------------
+# 3. SECURITY / KEY VAULT
+# -----------------------------------------------------------------------------
+purge_protection_enabled   = false # dev convenience
+rbac_authorization_enabled = true
+soft_delete_retention_days = 7
+network_acl_default_action = "Allow" # relaxed for dev
+kv_public_network_access_enabled = true # relaxed for dev
+key_vault_sku              = "standard"
+kv_deployer_ip_rules       = []
+kv_auto_detect_deployer_ip = true # convenient for local dev; not recommended for CI with unstable egress IPs
+
+# -----------------------------------------------------------------------------
+# 4. NETWORKING (greenfield — creates new VNet)
+# -----------------------------------------------------------------------------
+use_existing_vnet = false
+# existing_vnet_rg             = ""
+# vnet_name                    = ""
+vnet_address_prefix            = "10.170.0.0/24"
+apim_subnet_name               = "snet-citadel-apim"
+apim_subnet_prefix             = "10.170.0.0/26"
+private_endpoint_subnet_name   = "snet-citadel-pe"
+private_endpoint_subnet_prefix = "10.170.0.64/26"
+logic_app_subnet_name          = "snet-citadel-functions"
+logic_app_subnet_prefix        = "10.170.0.128/26"
+
+enable_agent_subnet = true
+agent_subnet_name   = "snet-agents"
+agent_subnet_prefix = "10.170.0.192/26"
+
+apim_network_type              = "External"
+apim_v2_use_private_endpoint   = true
+apim_v2_public_network_access  = true
+# dns_zone_rg                  = ""
+# dns_subscription_id          = ""
+# existing_private_dns_zones   = {}
+
+# -----------------------------------------------------------------------------
+# 5. COMPUTE SKU & SIZING
+# -----------------------------------------------------------------------------
+apim_sku             = "Developer"
+apim_sku_units       = 1
+apim_publisher_email = "admin@contoso.com"
+apim_publisher_name  = "AI Citadel Admin"
+
+cosmos_db_rus                     = 400
+eventhub_capacity_units           = 1
+eventhub_partition_count          = 2
+eventhub_disaster_recovery_config = null # { partner_namespace_id, alias }
+
+logic_app_sku_tier   = "WorkflowStandard"
+logic_app_sku_size   = "WS1"
+language_service_sku = "S"
+content_safety_sku   = "S0"
+api_center_sku       = "Free"
+
+# -----------------------------------------------------------------------------
+# 6. FEATURE FLAGS
+# -----------------------------------------------------------------------------
+enable_api_center              = true # TODO: was false # reduces dev cost
+enable_pii_redaction           = true
+enable_content_safety          = true
+enable_redis_cache             = false
+create_app_insights_dashboards = true
+
+# -----------------------------------------------------------------------------
+# 7. LOG ANALYTICS STRATEGY
+# -----------------------------------------------------------------------------
+use_existing_log_analytics = false
+# existing_log_analytics_id              = ""
+# existing_log_analytics_subscription_id = ""
+
+# -----------------------------------------------------------------------------
+# 8. NETWORK ACCESS (relaxed for dev)
+# -----------------------------------------------------------------------------
+cosmos_db_public_access          = "Enabled"
+eventhub_network_access          = "Enabled"
+ai_foundry_external_access       = true
+
+# -----------------------------------------------------------------------------
+# 9. ENTRA ID AUTHENTICATION (API key only for dev)
+# -----------------------------------------------------------------------------
+entra_auth_enabled = false
+# entra_tenant_id   = ""
+# entra_client_id   = ""
+# entra_audience    = ""
+# entra_client_secret = ""   # sensitive; prefer TF_VAR_entra_client_secret
+
+# -----------------------------------------------------------------------------
+# 10. AI FOUNDRY
+# -----------------------------------------------------------------------------
+foundry_network_injection_enabled = true
+ai_foundry_instances = [
+  {
+    location                  = "swedencentral"
+    default_project_name      = "citadel-dev-project"
+    network_injection_enabled = true
+  }
+]
+
+ai_foundry_models = [
+  {
+    name             = "gpt-4.1"
+    version          = "2025-04-14"
+    sku              = "GlobalStandard"
+    capacity         = 50
+    publisher        = "OpenAI"
+    ai_service_index = 0
+  },
+  {
+    name             = "gpt-4.1-mini"
+    version          = "2025-04-14"
+    sku              = "GlobalStandard"
+    capacity         = 50
+    publisher        = "OpenAI"
+    ai_service_index = 0
+  }
+]
+
+# -----------------------------------------------------------------------------
+# 11. LLM BACKEND ROUTING
+# -----------------------------------------------------------------------------
+# Auto-derived from `enable_ai_foundry` + `ai_foundry_instances` + `ai_foundry_models`.
+llm_backend_config = []
+extra_llm_backends = []
+
+# -----------------------------------------------------------------------------
+# 12. DIAGNOSTIC LOGGING
+# -----------------------------------------------------------------------------
+apim_log_verbosity  = "verbose"
+apim_log_body_bytes = 8192
+# azure_monitor_log_settings = {
+#   enabled                 = true
+#   log_request_body_bytes  = 8192
+#   log_response_body_bytes = 8192
+# }
+# app_insights_log_settings = {
+#   enabled                 = true
+#   log_request_body_bytes  = 8192
+#   log_response_body_bytes = 8192
+#   sampling_percentage     = 100
+# }
+
+# -----------------------------------------------------------------------------
+# 13. REDIS (Azure Managed Redis) — only used if enable_redis_cache = true
+# -----------------------------------------------------------------------------
+redis_sku_name              = "Balanced_B10"
+redis_sku_capacity          = 2
+redis_public_network_access = "Disabled"
+redis_minimum_tls_version   = "1.2"
+
+# -----------------------------------------------------------------------------
+# 14. OPTIONAL APIM EXTRA APIs (off by default in dev)
+# -----------------------------------------------------------------------------
+enable_ai_model_inference       = true
+enable_document_intelligence    = true
+enable_azure_ai_search          = false
+enable_openai_realtime          = true
+enable_unified_ai_api           = true
+enable_ai_gateway_pii_redaction = true
+is_mcp_sample_deployed          = true
+
+# -----------------------------------------------------------------------------
+# 15. API CENTER
+# -----------------------------------------------------------------------------
+apic_location                = "westeurope"
+enable_api_center_onboarding = true
+
+# -----------------------------------------------------------------------------
+# 16. AI SEARCH INSTANCES (existing endpoints to register)
+# -----------------------------------------------------------------------------
+ai_search_instances = []
+# ai_search_instances = [
+#   { name = "dev-search", endpoint = "https://my-search.search.windows.net" }
+# ]
+
+# -----------------------------------------------------------------------------
+# 17. AZURE MONITOR PRIVATE LINK
+# -----------------------------------------------------------------------------
+use_azure_monitor_private_link_scope = false
+
+# -----------------------------------------------------------------------------
+# 18. FOUNDRY EMBEDDINGS (semantic cache)
+# -----------------------------------------------------------------------------
+primary_foundry_embedding_model_name = ""
+enable_embeddings_backend            = false
+embeddings_backend_url               = ""
+
+# -----------------------------------------------------------------------------
+# 19. LOGIC APP CONTENT SHARE
+# -----------------------------------------------------------------------------
+logic_content_share_name = "" # auto-derived if blank
+
+# Workflow-code publish (zip + `az functionapp deployment source config-zip`
+# of src/usage-ingestion-logicapp). See DEPLOYMENT_GUIDE.md §7.8.
+enable_logic_app_code_deploy = true
+logic_app_code_source_path  = "logicapp-src/usage-ingestion-logicapp" # blank → use vendored accelerator project
+
+# -----------------------------------------------------------------------------
+# 20. APIM LOGIC PLANE (JWT / PII / MCP)
+# -----------------------------------------------------------------------------
+configure_circuit_breaker = true
+enable_pii_anonymization  = true
+ms_learn_mcp_backend_url  = "https://learn.microsoft.com/api/mcp"
+enable_jwt_auth           = false
+jwt_tenant_id             = ""
+jwt_app_registration_id   = ""
+pii_service_key           = "replace-with-language-service-key-if-needed"
+azure_login_endpoint      = "https://login.microsoftonline.com/"
+
+# -----------------------------------------------------------------------------
+# 21. ENTRA ID ADD-ON (app registration)
+# -----------------------------------------------------------------------------
+enable_entra_id_setup             = false
+entra_app_display_name_prefix     = "ai-citadel-gateway"
+entra_client_secret_name          = "ENTRA-APP-CLIENT-SECRET"
+entra_client_secret_rotation_days = 730
+
+# -----------------------------------------------------------------------------
+# 22. FOUNDRY → APIM CONNECTION
+# -----------------------------------------------------------------------------
+enable_foundry_apim_connection = true
