@@ -1,0 +1,111 @@
+# =============================================================================
+# Citadel Access Contracts — Example Variables
+# =============================================================================
+# Copy this file to `terraform.tfvars` and update the values for your
+# environment before running `terraform apply` (or `./scripts/deploy.sh`).
+#
+# This onboards a use-case to an existing AI Governance Hub APIM instance:
+#   - Creates one APIM product + subscription per service code
+#   - Attaches the mapped (already-deployed) APIs to each product
+#   - Optionally writes endpoint + key secrets to Key Vault
+#   - Optionally creates an Azure AI Foundry connection per service
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# REQUIRED — Target APIM (Terraform provider is pinned to this subscription)
+# -----------------------------------------------------------------------------
+apim = {
+  subscription_id     = "00000000-0000-0000-0000-000000000000" # APIM subscription ID
+  resource_group_name = "rg-citadel-governance-hub"            # APIM resource group
+  name                = "apim-citadel-governance-hub"          # APIM instance name
+}
+
+# -----------------------------------------------------------------------------
+# REQUIRED — Use case identity
+# -----------------------------------------------------------------------------
+# Naming pattern: <code>-<business_unit>-<use_case_name>-<environment>
+#   Product ID:        LLM-Finance-CustomerSupport-PROD
+#   Subscription name: LLM-Finance-CustomerSupport-PROD-SUB-01
+use_case = {
+  business_unit = "Finance"
+  use_case_name = "CustomerSupport"
+  environment   = "DEV"
+}
+
+# -----------------------------------------------------------------------------
+# REQUIRED — API name mapping (APIs must already exist in APIM)
+# -----------------------------------------------------------------------------
+# Maps each service code to one or more API names already published in APIM.
+api_name_mapping = {
+  LLM   = ["universal-llm-api", "azure-openai-api"]
+  DOC   = ["document-intelligence-api"]
+  SRCH  = ["azure-ai-search-index-api"]
+  OAIRT = ["openai-realtime-ws-api"]
+}
+
+# -----------------------------------------------------------------------------
+# REQUIRED — Services to onboard
+# -----------------------------------------------------------------------------
+# Each service `code` must be a key in `api_name_mapping`.
+# `policy_xml` is optional — leave as "" to apply policies/default-ai-product-policy.xml.
+services = [
+  {
+    code                 = "LLM"
+    endpoint_secret_name = "OPENAI_ENDPOINT" # → openai-endpoint in Key Vault
+    api_key_secret_name  = "OPENAI_API_KEY"  # → openai-api-key in Key Vault
+    policy_xml           = ""
+  },
+  # {
+  #   code                 = "DOC"
+  #   endpoint_secret_name = "DOCINTELL_ENDPOINT"
+  #   api_key_secret_name  = "DOCINTELL_API_KEY"
+  #   policy_xml           = file("policies/doc-intel-policy.xml")
+  # },
+]
+
+# Optional terms of service shown to subscribers.
+product_terms = ""
+
+# -----------------------------------------------------------------------------
+# OPTIONAL — Key Vault secret storage
+# -----------------------------------------------------------------------------
+# true  (default): endpoint URLs + subscription keys are written to Key Vault.
+# false:           they are returned in the (sensitive) `endpoints` output.
+use_target_key_vault = false
+
+# Required when use_target_key_vault = true. May live in another subscription/RG.
+key_vault = {
+  subscription_id     = "00000000-0000-0000-0000-000000000000"
+  resource_group_name = "rg-citadel-governance-hub"
+  name                = "kv-citadel-hub"
+}
+
+# -----------------------------------------------------------------------------
+# OPTIONAL — Azure AI Foundry connection
+# -----------------------------------------------------------------------------
+# When true, a Foundry connection is created per service pointing at the gateway.
+use_target_foundry = false
+
+# Required when use_target_foundry = true.
+foundry = {
+  subscription_id     = "00000000-0000-0000-0000-000000000000"
+  resource_group_name = "rg-ai-foundry"
+  account_name        = "foundry-account-name"
+  project_name        = "foundry-project-name"
+}
+
+# Advanced Foundry connection configuration (all fields optional).
+foundry_config = {
+  connection_name_prefix = ""              # Empty = "Hub-<bu>-<usecase>-<env>"
+  connection_category    = "ApiManagement" # or "ModelGateway"
+  deployment_in_path     = "false"         # Model name in request body
+  is_shared_to_all       = false
+  inference_api_version  = ""              # Empty = APIM defaults
+  deployment_api_version = ""              # Empty = APIM defaults
+  static_models          = []              # Empty = dynamic discovery
+  list_models_endpoint   = ""              # Empty = APIM defaults
+  get_model_endpoint     = ""              # Empty = APIM defaults
+  deployment_provider    = ""              # "", "AzureOpenAI", or "OpenAI"
+  custom_headers         = {}
+  auth_config            = {}
+}

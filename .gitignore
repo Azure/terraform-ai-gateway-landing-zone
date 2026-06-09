@@ -427,3 +427,34 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+
+__pycache__/
+
+# Environment secrets — never commit real values
+environments/*.local.tfvars
+environments/*.secrets.tfvars
+.env
+*.bak
+
+# Editor
+.DS_Store
+.idea/
+*.swp
+
+# Sensitive outputs
+**/sensitive-outputs.txt
+
+# Logic App workflow-code zip artefacts
+modules/logic-app/.artifacts/
+
+gitignore

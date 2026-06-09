@@ -1,0 +1,298 @@
+# =============================================================================
+# AI Citadel Governance Hub - Production Environment
+# T-Shirt Size: Large (PremiumV2, multi-unit, fully private)
+# -----------------------------------------------------------------------------
+# This file contains placeholders for EVERY root variable (see VARIABLES.md).
+# Uncomment and edit entries to override defaults.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. BASIC CONFIGURATION
+# -----------------------------------------------------------------------------
+environment_name             = "citadel-nadeemis-prod-02"
+location                     = "switzerlandnorth" # choose based on region availability for all services, especially APIM and Foundry; see VARIABLES.md for details
+subscription_id              = "c25e83e9-00ef-4f10-8945-a9e113144476" # replace before deploying
+purge_soft_delete_on_destroy = false # set to true to permanently delete Key Vault on `terraform destroy` (use with caution; see VARIABLES.md for implications)
+
+tags = {
+  Environment     = "Production"
+  CostCenter      = "Platform"
+  Owner           = "platform-team@contoso.com"
+  Criticality     = "High"
+  ManagedBy       = "Terraform"
+  SecurityControl = "Ignore"
+}
+
+# -----------------------------------------------------------------------------
+# 2. RESOURCE NAMING (blank = auto-generated)
+# -----------------------------------------------------------------------------
+resource_group_name         = "rg-nadeemis-prod-02" # e.g. "rg-citadel-prod-01"; replace before deploying
+use_existing_resource_group = false
+# apim_service_name         = ""
+# cosmos_db_account_name    = ""
+# eventhub_namespace_name   = ""
+# log_analytics_name        = ""
+# key_vault_name            = ""
+
+# -----------------------------------------------------------------------------
+# 3. SECURITY / KEY VAULT
+# -----------------------------------------------------------------------------
+purge_protection_enabled   = true
+rbac_authorization_enabled = true
+soft_delete_retention_days = 90
+network_acl_default_action = "Deny"
+kv_public_network_access_enabled = false
+key_vault_sku              = "standard"
+kv_deployer_ip_rules       = [] # Narrow after bootstrap; example CIDRs for Contoso admin workstation and CI runner. See VARIABLES.md for details and recommendations.
+kv_auto_detect_deployer_ip = false
+
+# -----------------------------------------------------------------------------
+# 4. NETWORKING
+# -----------------------------------------------------------------------------
+# Brownfield example (uncomment to reuse existing enterprise VNet + DNS):
+use_existing_vnet = false
+# existing_vnet_rg             = "rg-network-hub-prod"
+# vnet_name                    = "vnet-hub-prod-eastus"
+# apim_subnet_name             = "snet-citadel-apim"
+# private_endpoint_subnet_name = "snet-citadel-pe"
+# logic_app_subnet_name        = "snet-citadel-functions"
+# dns_zone_rg                  = "rg-network-dns-prod"
+# dns_subscription_id          = "YOUR-DNS-SUBSCRIPTION-ID"
+# existing_private_dns_zones   = {}
+
+# Greenfield network settings (used when use_existing_vnet = false)
+vnet_address_prefix            = "10.180.0.0/24"
+apim_subnet_name               = "snet-citadel-apim"
+apim_subnet_prefix             = "10.180.0.0/26"
+private_endpoint_subnet_name   = "snet-citadel-pe"
+private_endpoint_subnet_prefix = "10.180.0.64/26"
+logic_app_subnet_name          = "snet-citadel-functions"
+logic_app_subnet_prefix        = "10.180.0.128/26"
+
+apim_network_type             = "External" # flip to "Internal" after custom domain/DNS
+apim_v2_use_private_endpoint  = true
+apim_v2_public_network_access = false
+
+# -----------------------------------------------------------------------------
+# 5. COMPUTE SKU & SIZING
+# -----------------------------------------------------------------------------
+apim_sku             = "StandardV2" # choose based on region availability and feature needs; see VARIABLES.md for details
+apim_sku_units       = 2
+apim_publisher_email = "admin@contoso.com"
+apim_publisher_name  = "AI Citadel Admin"
+
+cosmos_db_rus                     = 1000
+eventhub_capacity_units           = 2
+eventhub_partition_count          = 8
+eventhub_disaster_recovery_config = null
+# eventhub_disaster_recovery_config = {
+#   partner_namespace_id = "/subscriptions/.../Microsoft.EventHub/namespaces/evhns-citadel-prod-dr"
+#   alias                = "default"
+# }
+
+logic_app_sku_tier   = "WorkflowStandard"
+logic_app_sku_size   = "WS2"
+language_service_sku = "S"
+content_safety_sku   = "S0"
+api_center_sku       = "Free"
+
+# -----------------------------------------------------------------------------
+# 6. FEATURE FLAGS
+# -----------------------------------------------------------------------------
+enable_api_center              = true
+enable_pii_redaction           = true
+enable_content_safety          = true
+enable_redis_cache             = false # flip to true for semantic caching
+create_app_insights_dashboards = true
+
+# -----------------------------------------------------------------------------
+# 7. LOG ANALYTICS STRATEGY
+# -----------------------------------------------------------------------------
+use_existing_log_analytics = false
+# use_existing_log_analytics             = true
+# existing_log_analytics_id              = "/subscriptions/.../Microsoft.OperationalInsights/workspaces/law-enterprise-prod"
+# existing_log_analytics_subscription_id = ""
+
+# -----------------------------------------------------------------------------
+# 8. NETWORK ACCESS (locked down for prod)
+# -----------------------------------------------------------------------------
+cosmos_db_public_access          = "Disabled"
+eventhub_network_access          = "Enabled" # must be Enabled on first deploy; tighten post-apply
+ai_foundry_external_access       = false
+
+# -----------------------------------------------------------------------------
+# 9. ENTRA ID AUTHENTICATION (JWT + API key)
+# -----------------------------------------------------------------------------
+entra_auth_enabled = false # flip to true to enable JWT auth in APIM + app registration add-on
+entra_tenant_id    = "YOUR-ENTRA-TENANT-ID"
+entra_client_id    = "YOUR-ENTRA-CLIENT-ID"
+entra_audience     = "api://ai-citadel-prod"
+# entra_client_secret = ""   # sensitive; prefer TF_VAR_entra_client_secret
+
+# -----------------------------------------------------------------------------
+# 10. AI FOUNDRY (two instances for geo-redundancy)
+# -----------------------------------------------------------------------------
+ai_foundry_instances = [
+  {
+    location             = "switzerlandnorth" # e.g. "switzerlandnorth"; replace before deploying
+    default_project_name = "citadel-prod-project"
+  },
+  {
+    location             = "swedencentral" # e.g. "swedencentral"; replace before deploying
+    default_project_name = "citadel-prod-project-secondary"
+  }
+]
+
+ai_foundry_models = [
+  {
+    name             = "gpt-4.1"
+    version          = "2025-04-14"
+    sku              = "GlobalStandard"
+    capacity         = 50
+    publisher        = "OpenAI"
+    ai_service_index = 0
+  },
+  {
+    name             = "gpt-4.1-mini"
+    version          = "2025-04-14"
+    sku              = "GlobalStandard"
+    capacity         = 50
+    publisher        = "OpenAI"
+    ai_service_index = 0
+  },
+  {
+    name             = "text-embedding-3-large"
+    version          = "1"
+    sku              = "GlobalStandard"
+    capacity         = 100
+    ai_service_index = 0
+  }
+]
+
+# -----------------------------------------------------------------------------
+# 11. LLM BACKEND ROUTING
+# -----------------------------------------------------------------------------
+# Auto-derived from `enable_ai_foundry` + `ai_foundry_instances` + `ai_foundry_models`.
+# One APIM backend per Foundry instance (priority 1 for index 0, priority 2+
+# for subsequent), models grouped by `ai_service_index`.
+# Uncomment below ONLY to override (e.g. external Azure OpenAI, 3rd-party LLM).
+# To add external backends ALONGSIDE the auto-derived Foundry ones, use
+# `extra_llm_backends` instead.
+# llm_backend_config = [
+#   {
+#     backend_id   = "external-openai-0"
+#     backend_type = "azure-openai"
+#     endpoint     = "https://my-aoai-resource.openai.azure.com/"
+#     auth_scheme  = "apiKey"
+#     priority     = 1
+#     weight       = 100
+#     supported_models = [
+#       { name = "gpt-4.1", sku = "GlobalStandard", capacity = 100, modelFormat = "OpenAI", modelVersion = "2025-04-14" },
+#     ]
+#   },
+# ]
+# extra_llm_backends = []
+
+# -----------------------------------------------------------------------------
+# 12. DIAGNOSTIC LOGGING
+# -----------------------------------------------------------------------------
+apim_log_verbosity  = "information"
+apim_log_body_bytes = 4096
+azure_monitor_log_settings = {
+  enabled                 = true
+  log_request_body_bytes  = 4096
+  log_response_body_bytes = 4096
+}
+app_insights_log_settings = {
+  enabled                 = true
+  log_request_body_bytes  = 4096
+  log_response_body_bytes = 4096
+  sampling_percentage     = 100
+}
+
+# -----------------------------------------------------------------------------
+# 13. REDIS (Azure Managed Redis) — only used if enable_redis_cache = true
+# -----------------------------------------------------------------------------
+redis_sku_name              = "Balanced_B10"
+redis_sku_capacity          = 2
+redis_public_network_access = "Disabled"
+redis_minimum_tls_version   = "1.2"
+
+# -----------------------------------------------------------------------------
+# 14. OPTIONAL APIM EXTRA APIs
+# -----------------------------------------------------------------------------
+enable_ai_model_inference       = true
+enable_document_intelligence    = true
+enable_azure_ai_search          = true
+enable_openai_realtime          = true
+enable_unified_ai_api           = true
+enable_ai_gateway_pii_redaction = true
+is_mcp_sample_deployed          = true
+
+# -----------------------------------------------------------------------------
+# 15. API CENTER
+# -----------------------------------------------------------------------------
+# API Center is an optional module that deploys a sample API and onboarding experience for AI services.
+# Use a location with API Center availability (e.g. westeurope) and set enable_api_center_onboarding = true to deploy.
+# Available regions: https://learn.microsoft.com/en-us/azure/api-center/overview#available-regions
+apic_location                = "westeurope"
+enable_api_center_onboarding = true
+
+# -----------------------------------------------------------------------------
+# 16. AI SEARCH INSTANCES
+# -----------------------------------------------------------------------------
+# Must exist to be added to APIM.
+ai_search_instances = []
+# ai_search_instances = [
+#   { name = "prod-search", endpoint = "https://my-search.search.windows.net" }
+# ]
+
+# -----------------------------------------------------------------------------
+# 17. AZURE MONITOR PRIVATE LINK
+# -----------------------------------------------------------------------------
+use_azure_monitor_private_link_scope = true
+
+# -----------------------------------------------------------------------------
+# 18. FOUNDRY EMBEDDINGS (semantic cache)
+# -----------------------------------------------------------------------------
+primary_foundry_embedding_model_name = "text-embedding-3-large"
+enable_embeddings_backend            = false # flip to true once enable_redis_cache = true
+embeddings_backend_url               = ""
+
+# -----------------------------------------------------------------------------
+# 19. LOGIC APP CONTENT SHARE
+# -----------------------------------------------------------------------------
+logic_content_share_name = "" # auto-derived if blank
+
+# Workflow-code publish (zip + `az functionapp deployment source config-zip`
+# of src/usage-ingestion-logicapp). 
+# See DEPLOYMENT_GUIDE.md §7.8.
+# Requires az CLI with the `functionapp` extension on
+# the deployer + Logic App Contributor on the RG.
+enable_logic_app_code_deploy = true # flip to true to enable; requires deployer permissions for az functionapp deployment
+logic_app_code_source_path   = "gitignore/src/usage-ingestion-logicapp" # blank → use vendored accelerator project
+
+# -----------------------------------------------------------------------------
+# 20. APIM LOGIC PLANE (JWT / PII / MCP)
+# -----------------------------------------------------------------------------
+configure_circuit_breaker = true
+enable_pii_anonymization  = true
+ms_learn_mcp_backend_url  = "https://learn.microsoft.com/api/mcp"
+enable_jwt_auth           = false # flip to true to enable JWT auth in APIM; requires Entra app registration or other JWT issuer
+jwt_tenant_id             = "YOUR-ENTRA-TENANT-ID"
+jwt_app_registration_id   = "YOUR-ENTRA-CLIENT-ID"
+pii_service_key           = "replace-with-language-service-key-if-needed"
+azure_login_endpoint      = "https://login.microsoftonline.com/"
+
+# -----------------------------------------------------------------------------
+# 21. ENTRA ID ADD-ON (app registration)
+# -----------------------------------------------------------------------------
+enable_entra_id_setup             = false
+entra_app_display_name_prefix     = "ai-citadel-gateway"
+entra_client_secret_name          = "ENTRA-APP-CLIENT-SECRET"
+entra_client_secret_rotation_days = 730
+
+# -----------------------------------------------------------------------------
+# 22. FOUNDRY → APIM CONNECTION
+# -----------------------------------------------------------------------------
+enable_foundry_apim_connection = true

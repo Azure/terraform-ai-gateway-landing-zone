@@ -1,0 +1,302 @@
+# =============================================================================
+# LLM Backend Onboarding — Example Variables
+# =============================================================================
+# Copy this file to `terraform.tfvars` and update the values for your
+# environment before running `terraform apply`.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# REQUIRED: Azure Subscription & APIM Details
+# -----------------------------------------------------------------------------
+subscription_id     = "00000000-0000-0000-0000-000000000000" # Your Azure subscription ID
+resource_group_name = "rg-citadel-governance-hub"           # APIM resource group
+apim_name           = "apim-citadel-governance-hub"          # APIM instance name
+
+# -----------------------------------------------------------------------------
+# REQUIRED: APIM Managed Identity
+# -----------------------------------------------------------------------------
+# Client ID of the user-assigned managed identity configured on APIM.
+# This identity must have:
+#   - Cognitive Services OpenAI User (for Azure OpenAI backends)
+#   - Cognitive Services User (for AI Foundry backends)
+managed_identity_client_id = "00000000-0000-0000-0000-000000000000"
+
+# -----------------------------------------------------------------------------
+# OPTIONAL: Circuit Breaker
+# -----------------------------------------------------------------------------
+configure_circuit_breaker = true
+
+# -----------------------------------------------------------------------------
+# REQUIRED: LLM Backend Configuration
+# -----------------------------------------------------------------------------
+# Each entry represents an LLM endpoint. Models that appear in multiple
+# backends will automatically get a load-balanced backend pool.
+#
+# Supported backend types (set in backend_type property):
+#   - ai-foundry:         Azure AI Foundry (endpoint: https://<resource>.cognitiveservices.azure.com/)
+#   - azure-openai:       Azure OpenAI Service (endpoint: https://<resource>.openai.azure.com/)
+#   - aws-bedrock-mantle: AWS Bedrock Mantle OpenAI-compatible endpoints
+#   - gemini-openai:      Google Gemini OpenAI-compatible endpoints
+#   - external:           Other external providers
+#
+
+# Properties:
+#  - backend_id: Unique identifier (used in APIM backend resource name)
+#  - backend_type: 'ai-foundry' | 'azure-openai' | 'external'
+#  - endpoint: Base URL of the LLM service
+#  - auth_scheme
+#  - auth_type: 'managed-identity' | 'api-key-bearer' | 'api-key-header'
+#  -  auth_config (for api-key auth types):
+#    - named_value_key       APIM named value that holds the credential
+#    - key_vault_secret_uri   Key Vault secret reference (recommended)
+#    - secret_value           Explicit value (testing only — do NOT use in production)
+#  - supportedModels: Array of model objects (see below)
+# Optional properties (for load balancing):
+#  - priority: 1-5, default 1 (lower = higher priority for load balancing)
+#  - weight: 1-1000, default 100 (higher = more traffic share)
+#
+# Model Object Properties (in supportedModels array):
+#  - name: Model name (required) - e.g., 'gpt-4o', 'DeepSeek-R1'
+#  - sku: SKU name for the deployment (default: 'Standard')
+#  - capacity: Capacity/TPM quota (default: 100)
+#  - modelFormat: Model format identifier, e.g., 'OpenAI', 'DeepSeek', 'Microsoft' (default: 'OpenAI')
+#  - modelVersion: Version of the model (default: '1')
+#  - retirementDate: Retirement date in YYYY-MM-DD format (optional)
+#  - apiVersion: API version for OpenAI-type requests (default: '2024-02-15-preview')
+#  - timeout: Request timeout in seconds (default: 120)
+#  - inferenceApiVersion: API version for inference-type requests, e.g., '2024-05-01-preview' (optional, for non-OpenAI models)
+#
+# Example configurations for different scenarios are shown below.
+# ---
+
+llm_backend_config = [
+  # ----------------------------------
+  # AI Foundry Backend — Primary
+  # ----------------------------------
+  {
+    backend_id   = "aif-citadel-primary"
+    backend_type = "ai-foundry"
+    endpoint     = "https://aif-RESOURCE_TOKEN-0.cognitiveservices.azure.com/"
+    auth_scheme  = "managedIdentity"
+    auth_type    = "managed-identity"
+    supported_models = [
+      {
+        name            = "gpt-4o-mini"
+        sku             = "GlobalStandard"
+        capacity        = 100
+        modelFormat     = "OpenAI"
+        modelVersion    = "2024-07-18"
+        retirementDate  = "2026-09-30"
+      },
+      {
+        name            = "gpt-4o"
+        sku             = "GlobalStandard"
+        capacity        = 100
+        modelFormat     = "OpenAI"
+        modelVersion    = "2024-11-20"
+        retirementDate  = "2026-09-30"
+      },
+      {
+        name            = "gpt-4.1"
+        sku             = "GlobalStandard"
+        capacity        = 100
+        modelFormat     = "OpenAI"
+        modelVersion    = "2025-04-14"
+        retirementDate  = "2026-10-14"
+        apiVersion      = "2025-04-01-preview"
+        timeout         = 180
+      },
+      {
+        name                = "DeepSeek-R1"
+        sku                 = "GlobalStandard"
+        capacity            = 1
+        modelFormat         = "DeepSeek"
+        modelVersion        = "1"
+        retirementDate      = "2099-12-30"
+        inferenceApiVersion = "2024-05-01-preview"
+      },
+      {
+        name                = "Phi-4"
+        sku                 = "GlobalStandard"
+        capacity            = 1
+        modelFormat         = "Microsoft"
+        modelVersion        = "3"
+        retirementDate      = "2099-12-30"
+        inferenceApiVersion = "2024-05-01-preview"
+      },
+      {
+        name            = "text-embedding-3-large"
+        sku             = "GlobalStandard"
+        capacity        = 100
+        modelFormat     = "OpenAI"
+        modelVersion    = "1"
+        retirementDate  = "2027-04-14"
+      }
+    ]
+    priority = 1
+    weight   = 100
+  }
+
+  # ----------------------------------
+  # AI Foundry Backend — Secondary (Different Region)
+  # ----------------------------------
+  # For load balancing and failover, add backends in different regions.
+  # Models shared with the primary backend (e.g., DeepSeek-R1,
+  # text-embedding-3-large) are automatically placed in a backend pool.
+  # ,{
+  #   backend_id   = "aif-citadel-secondary"
+  #   backend_type = "ai-foundry"
+  #   endpoint     = "https://aif-RESOURCE_TOKEN-1.cognitiveservices.azure.com/"
+  #   auth_scheme  = "managedIdentity"
+  #   auth_type    = "managed-identity"
+  #   supported_models = [
+  #     {
+  #       name            = "gpt-5"
+  #       sku             = "GlobalStandard"
+  #       capacity        = 100
+  #       modelFormat     = "OpenAI"
+  #       modelVersion    = "2025-08-07"
+  #       retirementDate  = "2027-02-05"
+  #     },
+  #     {
+  #       name                = "DeepSeek-R1"
+  #       sku                 = "GlobalStandard"
+  #       capacity            = 1
+  #       modelFormat         = "DeepSeek"
+  #       modelVersion        = "1"
+  #       retirementDate      = "2099-12-30"
+  #       inferenceApiVersion = "2024-05-01-preview"
+  #     },
+  #     {
+  #       name            = "text-embedding-3-large"
+  #       sku             = "GlobalStandard"
+  #       capacity        = 100
+  #       modelFormat     = "OpenAI"
+  #       modelVersion    = "1"
+  #       retirementDate  = "2027-04-14"
+  #     }
+  #   ]
+  #   priority = 2
+  #   weight   = 50
+  # }
+
+  # ----------------------------------
+  # Azure OpenAI Backend (Optional)
+  # ----------------------------------
+  # Uncomment to add Azure OpenAI Service endpoints.
+  # ,{
+  #   backend_id   = "aoai-eastus-gpt4"
+  #   backend_type = "azure-openai"
+  #   endpoint     = "https://YOUR-AOAI-RESOURCE.openai.azure.com/"
+  #   auth_scheme  = "managedIdentity"
+  #   auth_type    = "managed-identity"
+  #   supported_models = [
+  #     { name = "gpt-4", sku = "Standard", capacity = 120, modelFormat = "OpenAI", modelVersion = "0613" },
+  #     { name = "gpt-35-turbo", sku = "Standard", capacity = 120, modelFormat = "OpenAI", modelVersion = "0613" },
+  #     { name = "text-embedding-ada-002", sku = "Standard", capacity = 120, modelFormat = "OpenAI", modelVersion = "2" }
+  #   ]
+  #   priority = 1
+  #   weight   = 100
+  # }
+
+  # ----------------------------------
+  # AWS Bedrock Mantle Backend (Optional — OpenAI-Compatible)
+  # ----------------------------------
+  # Uncomment to add AWS Bedrock Mantle OpenAI-compatible endpoints.
+  # ,{
+  #   backend_id   = "bedrock-mantle-us-east-1"
+  #   backend_type = "aws-bedrock-mantle"
+  #   endpoint     = "https://bedrock-mantle.us-east-1.api.aws"
+  #   auth_scheme  = "apiKey"
+  #   auth_type    = "api-key-bearer"
+  #   auth_config  = {
+  #     named_value_key      = "bedrock-mantle-api-key"
+  #     key_vault_secret_uri = "https://YOUR-KEYVAULT.vault.azure.net/secrets/bedrock-mantle-api-key"  # recommended
+  #     # secret_value       = "your-api-key-here"  # testing only — do NOT use in production
+  #   }
+  #   supported_models = [
+  #     { name = "us.anthropic.claude-3-5-sonnet-20241022-v2:0", sku = "OnDemand", capacity = 1, modelFormat = "Anthropic", modelVersion = "2" }
+  #   ]
+  #   priority = 1
+  #   weight   = 100
+  # }
+
+  # ----------------------------------
+  # Gemini OpenAI-Compatible Backend (Optional)
+  # ----------------------------------
+  # Uncomment to add Google Gemini OpenAI-compatible endpoints.
+  # ,{
+  #   backend_id   = "gemini-openai"
+  #   backend_type = "gemini-openai"
+  #   endpoint     = "https://generativelanguage.googleapis.com"
+  #   auth_scheme  = "apiKey"
+  #   auth_type    = "api-key-bearer"
+  #   auth_config  = {
+  #     named_value_key      = "gemini-api-key"
+  #     key_vault_secret_uri = "https://YOUR-KEYVAULT.vault.azure.net/secrets/gemini-api-key"  # recommended
+  #     # secret_value       = "your-api-key-here"  # testing only — do NOT use in production
+  #   }
+  #   supported_models = [
+  #     { name = "gemini-2.5-flash", sku = "OnDemand", capacity = 1, modelFormat = "Google", modelVersion = "1" }
+  #   ]
+  #   priority = 1
+  #   weight   = 100
+  # }
+
+  # ----------------------------------
+  # AI Foundry with API Key Auth (Optional — alternative to managed identity)
+  # ----------------------------------
+  # Example: same backend type (ai-foundry) with a different auth type.
+  # ,{
+  #   backend_id   = "aif-external-partner"
+  #   backend_type = "ai-foundry"
+  #   endpoint     = "https://partner-foundry.cognitiveservices.azure.com/"
+  #   auth_scheme  = "apiKey"
+  #   auth_type    = "api-key-header"
+  #   auth_config  = {
+  #     named_value_key      = "partner-foundry-api-key"
+  #     key_vault_secret_uri = "https://YOUR-KEYVAULT.vault.azure.net/secrets/partner-foundry-key"
+  #   }
+  #   supported_models = [
+  #     { name = "gpt-4o", sku = "GlobalStandard", capacity = 100, modelFormat = "OpenAI", modelVersion = "2024-11-20" }
+  #   ]
+  #   priority = 2
+  #   weight   = 50
+  # }
+]
+
+# -----------------------------------------------------------------------------
+# OPTIONAL: Model Aliases
+# -----------------------------------------------------------------------------
+# Group multiple models under a single client-facing name. Clients call the
+# alias name and the gateway resolves it to a real model.
+#   - strategy = "priority" (default): use models in order, first available wins
+#   - strategy = "weighted": distribute traffic by weights (requires weights[])
+model_aliases = []
+# model_aliases = [
+#   {
+#     name     = "gpt-advanced"
+#     models   = ["gpt-5", "gpt-4.1", "gpt-4o"]
+#     strategy = "priority"
+#   },
+#   {
+#     name     = "embeddings-default"
+#     models   = ["text-embedding-3-large"]
+#     strategy = "priority"
+#   }
+# ]
+
+# -----------------------------------------------------------------------------
+# OPTIONAL: AWS Bedrock (SigV4) Credentials
+# -----------------------------------------------------------------------------
+# Required only when using aws-bedrock backends with aws-sigv4 auth. Stored as
+# secret APIM named values (aws-access-key/aws-secret-key/aws-region).
+# aws_access_key = ""
+# aws_secret_key = ""
+# aws_region     = ""
+
+# -----------------------------------------------------------------------------
+# OPTIONAL: Key Vault
+# -----------------------------------------------------------------------------
+# Key Vault name for backend credential references (api-key auth types).
+# key_vault_name = ""
