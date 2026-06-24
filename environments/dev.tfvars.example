@@ -11,7 +11,7 @@
 # -----------------------------------------------------------------------------
 environment_name             = "dev-01"
 location                     = "swedencentral"
-subscription_id              = "c25e83e9-00ef-4f10-8945-a9e113144476" # replace before deploying
+subscription_id              = "" # replace before deploying
 purge_soft_delete_on_destroy = true # dev convenience; not for prod
 
 tags = {
