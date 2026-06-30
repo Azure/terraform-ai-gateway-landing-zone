@@ -55,11 +55,9 @@ Complete Terraform implementation of the [Azure AI Citadel Governance Hub](https
 ### 1 — Clone and configure
 
 ```bash
-git clone <your-fork>
+git clone https://github.com/Azure/terraform-ai-gateway-landing-zone.git
 cd citadel-terraform
 
-# Edit environments/dev.tfvars
-# Set: subscription_id = "your-actual-subscription-id"
 ```
 
 ### 2 — (Optional) Set up remote state backend
