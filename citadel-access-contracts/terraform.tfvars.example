@@ -16,8 +16,8 @@
 # -----------------------------------------------------------------------------
 apim = {
   subscription_id     = "00000000-0000-0000-0000-000000000000" # APIM subscription ID
-  resource_group_name = "rg-citadel-governance-hub"            # APIM resource group
-  name                = "apim-citadel-governance-hub"          # APIM instance name
+  resource_group_name = "REPLACE_WITH_RG_NAME"                 # APIM resource group
+  name                = "REPLACE_WITH_APIM_NAME".              # APIM instance name
 }
 
 # -----------------------------------------------------------------------------
@@ -76,8 +76,8 @@ use_target_key_vault = false
 # Required when use_target_key_vault = true. May live in another subscription/RG.
 key_vault = {
   subscription_id     = "00000000-0000-0000-0000-000000000000"
-  resource_group_name = "rg-citadel-governance-hub"
-  name                = "kv-citadel-hub"
+  resource_group_name = "REPLACE_WITH_RG_NAME"
+  name                = "REPLACE_WITH_KV_NAME"
 }
 
 # -----------------------------------------------------------------------------
@@ -89,9 +89,9 @@ use_target_foundry = false
 # Required when use_target_foundry = true.
 foundry = {
   subscription_id     = "00000000-0000-0000-0000-000000000000"
-  resource_group_name = "rg-ai-foundry"
-  account_name        = "foundry-account-name"
-  project_name        = "foundry-project-name"
+  resource_group_name = "REPLACE_WITH_RG_NAME"
+  account_name        = "replace-foundry-account-name"
+  project_name        = "replace-foundry-project-name"
 }
 
 # Advanced Foundry connection configuration (all fields optional).

@@ -46,6 +46,8 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
+
+
 # --- Flag parsing ---
 ENVIRONMENT="dev"
 AUTO_APPROVE=""
@@ -144,10 +146,15 @@ echo ""
 # --- Pre-flight checks ---
 info "Running pre-flight checks..."
 
+# --- Python interpreter (Windows Git Bash ships `python`, not `python3`) ---
+if command -v python3 >/dev/null 2>&1; then PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then PYTHON_BIN="python"
+else error "Python not found. Install Python 3 and ensure 'python3' or 'python' is on PATH"; fi
+
 command -v terraform >/dev/null 2>&1 || error "terraform not found. Install from https://developer.hashicorp.com/terraform/install"
 command -v az        >/dev/null 2>&1 || error "Azure CLI not found. Install from https://aka.ms/installazurecli"
 
-TF_VERSION=$(terraform version -json | python3 -c "import sys,json; print(json.load(sys.stdin)['terraform_version'])" 2>/dev/null || terraform version | head -1 | awk '{print $2}' | tr -d 'v')
+TF_VERSION=$(terraform version -json | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin)['terraform_version'])" 2>/dev/null || terraform version | head -1 | awk '{print $2}' | tr -d 'v')
 info "Terraform version: ${TF_VERSION}"
 
 [[ -f "$TFVARS_FILE" ]] || error "Vars file not found: ${TFVARS_FILE}"
@@ -155,9 +162,9 @@ info "Terraform version: ${TF_VERSION}"
 # --- Azure login check ---
 info "Verifying Azure CLI authentication..."
 ACCOUNT=$(az account show --query "{name:name, id:id, user:user.name}" -o json 2>/dev/null) || error "Not logged in to Azure. Run: az login"
-SUBSCRIPTION_NAME=$(echo "$ACCOUNT" | python3 -c "import sys,json; print(json.load(sys.stdin)['name'])")
-SUBSCRIPTION_ID=$(echo "$ACCOUNT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-LOGGED_USER=$(echo "$ACCOUNT" | python3 -c "import sys,json; print(json.load(sys.stdin)['user'])")
+SUBSCRIPTION_NAME=$(echo "$ACCOUNT" | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin)['name'])")
+SUBSCRIPTION_ID=$(echo "$ACCOUNT" | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin)['id'])")
+LOGGED_USER=$(echo "$ACCOUNT" | "$PYTHON_BIN" -c "import sys,json; print(json.load(sys.stdin)['user'])")
 
 success "Logged in as: ${LOGGED_USER}"
 info "Subscription: ${SUBSCRIPTION_NAME} (${SUBSCRIPTION_ID})"

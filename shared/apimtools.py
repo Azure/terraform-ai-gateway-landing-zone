@@ -1,7 +1,7 @@
 import os, sys, json, requests
 sys.path.insert(1, '../shared')  # add the shared directory to the Python path
 import utils
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, AzureCliCredential
 from azure.mgmt.apimanagement import ApiManagementClient
 from azure.mgmt.apimanagement.models import SubscriptionKeysContract 
 
@@ -28,7 +28,7 @@ class APIMClientTool:
                 else:
                     raise Exception(f"APIM resource not found in resource group {self.resource_group_name}.")
 
-            self.client = ApiManagementClient(credential=DefaultAzureCredential(), subscription_id=self.subscription_id)
+            self.client = ApiManagementClient(credential=AzureCliCredential(), subscription_id=self.subscription_id)
 
             api_management_service = self.client.api_management_service.get(self.resource_group_name, self.apim_resource_name)
 
@@ -186,7 +186,7 @@ class APIMClientTool:
         try:
             utils.print_info("Retrieving APIM backends using Azure REST API...")
             
-            credential = DefaultAzureCredential()
+            credential = AzureCliCredential()
             token = credential.get_token("https://management.azure.com/.default")
             
             api_version = "2024-05-01"

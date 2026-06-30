@@ -43,7 +43,7 @@ resource "azurerm_cosmosdb_account" "citadel" {
     storage_redundancy  = "Local"
   }
 
-  local_authentication_disabled = false
+  local_authentication_enabled = true
 }
 
 # -----------------------------------------------------------------------------

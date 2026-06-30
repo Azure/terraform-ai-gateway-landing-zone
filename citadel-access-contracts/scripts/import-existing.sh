@@ -21,6 +21,11 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
+# Python interpreter (Windows Git Bash ships `python`, not `python3`).
+if command -v python3 >/dev/null 2>&1; then PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then PYTHON_BIN="python"
+else error "Python not found. Install Python 3 and ensure 'python3' or 'python' is on PATH"; fi
+
 # --- Parse arguments ---
 VAR_FILE="terraform.tfvars"
 while [[ $# -gt 0 ]]; do
@@ -132,7 +137,7 @@ for code in $SERVICE_CODES; do
   # Product → API links (discover the APIs already attached to the product)
   PRODUCT_APIS=$(az rest --method GET \
     --url "https://management.azure.com${APIM_BASE_ID}/products/${PRODUCT_ID}/apis?api-version=2024-05-01" \
-    2>/dev/null | python3 -c "
+    2>/dev/null | "$PYTHON_BIN" -c "
 import json, sys
 try:
     data = json.load(sys.stdin)

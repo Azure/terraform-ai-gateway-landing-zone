@@ -33,6 +33,11 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
+# Python interpreter (Windows Git Bash ships `python`, not `python3`).
+if command -v python3 >/dev/null 2>&1; then PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then PYTHON_BIN="python"
+else error "Python not found. Install Python 3 and ensure 'python3' or 'python' is on PATH"; fi
+
 # --- Parse arguments ---
 AUTO_APPROVE=""
 PLAN_ONLY=""
@@ -115,7 +120,7 @@ else
   success "Citadel Access Contracts onboarding complete!"
   echo ""
   info "Deployed products:"
-  terraform output -json products 2>/dev/null | python3 -c "
+  terraform output -json products 2>/dev/null | "$PYTHON_BIN" -c "
 import json, sys
 try:
     data = json.load(sys.stdin)
