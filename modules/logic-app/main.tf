@@ -16,15 +16,15 @@ resource "azurerm_storage_account" "logic_app" {
   account_replication_type = "LRS"
   tags                     = var.tags
 
-  allow_nested_items_to_be_public  = false
-  shared_access_key_enabled        = true
-  min_tls_version                  = "TLS1_2"
+  allow_nested_items_to_be_public = false
+  shared_access_key_enabled       = true
+  min_tls_version                 = "TLS1_2"
 }
 
 resource "azurerm_storage_share" "logic_app_content" {
-  name                 = local.content_share
-  storage_account_id   = azurerm_storage_account.logic_app.id
-  quota                = 100
+  name               = local.content_share
+  storage_account_id = azurerm_storage_account.logic_app.id
+  quota              = 100
 }
 
 locals {
@@ -135,7 +135,7 @@ resource "azurerm_service_plan" "logic_app" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_logic_app_standard" "usage_ingestion" {
-  name                       = "logic-usage-${var.environment_name}"
+  name                       = "logic-usage-${var.environment_name}-${var.random_suffix}"
   location                   = var.location
   resource_group_name        = var.resource_group_name
   app_service_plan_id        = azurerm_service_plan.logic_app.id
@@ -154,13 +154,13 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
 
   # Bicep parity: functionAppSiteConfig — TLS 1.2, FTPS-only, pre-warmed, CORS.
   site_config {
-    vnet_route_all_enabled                    = true
-    ftps_state                                = "FtpsOnly"
-    min_tls_version                           = "1.2"
-    scm_min_tls_version                       = "1.2"
-    pre_warmed_instance_count                 = 1
-    elastic_instance_minimum                  = 1
-    runtime_scale_monitoring_enabled          = true
+    vnet_route_all_enabled           = true
+    ftps_state                       = "FtpsOnly"
+    min_tls_version                  = "1.2"
+    scm_min_tls_version              = "1.2"
+    pre_warmed_instance_count        = 1
+    elastic_instance_minimum         = 1
+    runtime_scale_monitoring_enabled = true
 
     cors {
       allowed_origins     = ["https://portal.azure.com", "https://ms.portal.azure.com"]
@@ -190,12 +190,12 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
 
     # Cosmos DB app settings
     "AzureCosmosDB_connectionString" = var.cosmos_db_connection_string
-    "CosmosDBAccount"           = var.cosmos_db_account_name
-    "CosmosDBDatabase"          = var.cosmos_db_database_name
-    "CosmosDBContainerConfig"   = var.cosmos_db_container_config
-    "CosmosDBContainerUsage"    = var.cosmos_db_container_usage
-    "CosmosDBContainerPII"      = var.cosmos_db_container_pii
-    "CosmosDBContainerLLMUsage" = var.cosmos_db_container_llm_usage
+    "CosmosDBAccount"                = var.cosmos_db_account_name
+    "CosmosDBDatabase"               = var.cosmos_db_database_name
+    "CosmosDBContainerConfig"        = var.cosmos_db_container_config
+    "CosmosDBContainerUsage"         = var.cosmos_db_container_usage
+    "CosmosDBContainerPII"           = var.cosmos_db_container_pii
+    "CosmosDBContainerLLMUsage"      = var.cosmos_db_container_llm_usage
 
     # App Insights workbook lookup info
     "AppInsights_SubscriptionId" = var.subscription_id
@@ -226,13 +226,13 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
 # -----------------------------------------------------------------------------
 
 resource "azapi_resource" "azuremonitor_connection" {
-  count     = var.create_azuremonitor_api_connection ? 1 : 0
+  count                     = var.create_azuremonitor_api_connection ? 1 : 0
   schema_validation_enabled = false
-  type      = "Microsoft.Web/connections@2018-07-01-preview"
-  name      = "azuremonitorlogs"
-  parent_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
-  location  = var.location
-  tags      = var.tags
+  type                      = "Microsoft.Web/connections@2018-07-01-preview"
+  name                      = "azuremonitorlogs"
+  parent_id                 = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
+  location                  = var.location
+  tags                      = var.tags
 
   # `kind = "V2"` is REQUIRED for the connection to support `accessPolicies`
   # children. Without it the connection is created as V1 and the subsequent
@@ -241,17 +241,17 @@ resource "azapi_resource" "azuremonitor_connection" {
     kind = "V2"
     properties = {
       alternativeParameterValues = {}
-      displayName = "conn-azure-monitor"
+      displayName                = "conn-azure-monitor"
       api = {
-        id = "/subscriptions/${var.subscription_id}/providers/Microsoft.Web/locations/${var.location}/managedApis/azuremonitorlogs"
+        id       = "/subscriptions/${var.subscription_id}/providers/Microsoft.Web/locations/${var.location}/managedApis/azuremonitorlogs"
         location = "global"
       }
-      authenticatedUser = {}
-      connectionState = "Enabled"
+      authenticatedUser     = {}
+      connectionState       = "Enabled"
       customParameterValues = {}
       parameterValueSet = {
-                    name = "managedIdentityAuth"
-                    values = {}
+        name   = "managedIdentityAuth"
+        values = {}
       }
     }
   }

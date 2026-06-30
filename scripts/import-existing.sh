@@ -26,6 +26,11 @@ success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
+# Python interpreter (Windows Git Bash ships `python`, not `python3`).
+if command -v python3 >/dev/null 2>&1; then PYTHON_BIN="python3"
+elif command -v python >/dev/null 2>&1; then PYTHON_BIN="python"
+else error "Python not found. Install Python 3 and ensure 'python3' or 'python' is on PATH"; fi
+
 ENVIRONMENT="${1:-dev}"
 MAX_RETRIES=5
 [[ "${2:-}" == "--max-retries" && -n "${3:-}" ]] && MAX_RETRIES="$3"
@@ -45,6 +50,14 @@ mkdir -p "$TMP_DIR"
 LOG_FILE="$(mktemp "${TMP_DIR}/tf-apply.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+# Path handed to native Windows Python: convert "/c/..." → "C:\..." so it can
+# be opened. On Linux/macOS cygpath is absent and the path is used as-is.
+if command -v cygpath >/dev/null 2>&1; then
+  PY_LOG_FILE="$(cygpath -w "$LOG_FILE")"
+else
+  PY_LOG_FILE="$LOG_FILE"
+fi
+
 attempt=0
 while (( attempt < MAX_RETRIES )); do
   attempt=$((attempt + 1))
@@ -57,7 +70,7 @@ while (( attempt < MAX_RETRIES )); do
   set +e
   terraform apply -var-file="$TFVARS_FILE" -auto-approve -json \
     2>&1 | tee "$LOG_FILE" \
-    | python3 -c "
+    | "$PYTHON_BIN" -c "
 import json, sys
 for line in sys.stdin:
     try:
@@ -79,7 +92,7 @@ for line in sys.stdin:
   fi
 
   # Parse the JSON event stream. Each diagnostic error has structured
-  # fields (`diagnostic.summary`, `diagnostic.detail`, `diagnostic.address`),
+  # fields (`diagnostic.summarPY_y`, `diagnostic.detail`, `diagnostic.address`),
   # so we only need a small regex against `detail` to pull out the Azure ID
   # or role-assignment GUID — no more multi-line scraping of "│"-prefixed
   # output.
@@ -87,7 +100,7 @@ for line in sys.stdin:
   # Emits two streams to stdout:
   #   IMPORT\t<addr>\t<azure-id>
   #   ROLE\t<addr>\t<guid>
-  PARSED="$(python3 - "$LOG_FILE" <<'PY'
+  PARSED="$("$PYTHON_BIN" - "$LOG_FILE" <<'PY'
 import json, re, sys, pathlib
 
 ID_RE   = re.compile(r'"(/subscriptions/[^"]+)"\s+already exists')
@@ -198,7 +211,7 @@ PY
       continue
     fi
 
-    scope=$(terraform show -json "$ra_plan" 2>/dev/null | python3 -c "
+    scope=$(terraform show -json "$ra_plan" 2>/dev/null | "$PYTHON_BIN" -c "
 import json, sys
 addr = sys.argv[1]
 data = json.load(sys.stdin)

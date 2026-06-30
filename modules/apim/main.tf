@@ -27,10 +27,10 @@ removed {
 locals {
   # Map SKU names to the format Terraform expects
   sku_name_map = {
-    "Developer"   = "Developer_1"
-    "StandardV2"  = "StandardV2_1"
-    "Premium"     = "Premium_1"
-    "PremiumV2"   = "PremiumV2_1"
+    "Developer"  = "Developer_1"
+    "StandardV2" = "StandardV2_1"
+    "Premium"    = "Premium_1"
+    "PremiumV2"  = "PremiumV2_1"
   }
 
   apim_sku_string = var.sku_capacity > 1 ? replace(
@@ -98,7 +98,7 @@ resource "azurerm_api_management" "citadel" {
   dynamic "security" {
     for_each = var.sku_name == "Consumption" ? [] : [1]
     content {
-      backend_ssl30_enabled = false
+      backend_ssl30_enabled  = false
       backend_tls10_enabled  = false
       backend_tls11_enabled  = false
       frontend_ssl30_enabled = false
@@ -265,11 +265,17 @@ resource "terraform_data" "azure_monitor_logger_windows" {
     }
     command = <<-EOT
       $ErrorActionPreference = 'Stop'
-      az rest --method PUT `
-        --url "$env:LOGGER_URL" `
-        --body "$env:LOGGER_BODY" `
-        --headers "Content-Type=application/json" `
-        | Out-Null
+      $tmp = New-TemporaryFile
+      [System.IO.File]::WriteAllText($tmp, $env:LOGGER_BODY)
+      try {
+        az rest --method PUT `
+          --url "$env:LOGGER_URL" `
+          --body "@$tmp" `
+          --headers "Content-Type=application/json" `
+          | Out-Null
+      } finally {
+        Remove-Item $tmp -ErrorAction SilentlyContinue
+      }
       Write-Host "[apim] azuremonitor logger upserted on $env:APIM_ID"
     EOT
   }
@@ -314,11 +320,11 @@ resource "azurerm_api_management_diagnostic" "global" {
   api_management_name      = azurerm_api_management.citadel.name
   api_management_logger_id = azurerm_api_management_logger.app_insights.id
 
-  sampling_percentage       = 100
-  always_log_errors         = true
-  log_client_ip             = true
-  verbosity                 = var.log_verbosity
-  operation_name_format     = "Url"
+  sampling_percentage   = 100
+  always_log_errors     = true
+  log_client_ip         = true
+  verbosity             = var.log_verbosity
+  operation_name_format = "Url"
 
   frontend_request {
     body_bytes = var.log_body_bytes
@@ -376,7 +382,7 @@ resource "azapi_resource_action" "apim_diagnostics" {
 
   body = {
     properties = {
-      workspaceId                = var.log_analytics_id
+      workspaceId                 = var.log_analytics_id
       logAnalyticsDestinationType = "Dedicated"
       logs = [
         { categoryGroup = "AllLogs", enabled = true }
@@ -508,8 +514,8 @@ module "universal_llm" {
   deployments_op_policy_xml_path        = "${path.module}/policies/universal-llm-api-deployments-policy.xml"
   deployment_by_name_op_policy_xml_path = "${path.module}/policies/universal-llm-api-deployment-by-name-policy.xml"
   # OpenAIV1-only operations (listModels / retrieveModel)
-  list_models_op_policy_xml_path        = "${path.module}/policies/universal-llm-api-deployments-policy.xml"
-  retrieve_model_op_policy_xml_path     = "${path.module}/policies/universal-llm-api-deployment-by-name-policy.xml"
+  list_models_op_policy_xml_path    = "${path.module}/policies/universal-llm-api-deployments-policy.xml"
+  retrieve_model_op_policy_xml_path = "${path.module}/policies/universal-llm-api-deployment-by-name-policy.xml"
 
   app_insights_logger_id = azurerm_api_management_logger.app_insights.id
   # Azure Monitor logger is created via az-rest (terraform_data); construct
