@@ -8,6 +8,11 @@ variable "subnet_id"              { type = string }
 variable "vnet_id"                { type = string }
 variable "dns_zone_id"            { type = string }
 variable "managed_identity_principal_id" { type = string }
+variable "local_authentication_enabled" {
+  description = "Allow key/connection-string auth on the Cosmos DB data plane. When false, only Entra ID (RBAC) is accepted."
+  type        = bool
+  default     = false
+}
 variable "log_analytics_id"       { 
     type = string
     default = "" 

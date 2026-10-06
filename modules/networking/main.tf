@@ -41,16 +41,37 @@ data "azurerm_subnet" "existing_agent" {
   resource_group_name  = var.existing_vnet_rg
 }
 
+data "azurerm_subnet" "existing_ase" {
+  count                = var.use_existing_vnet && var.enable_ase_subnet ? 1 : 0
+  name                 = var.ase_subnet_name
+  virtual_network_name = var.vnet_name
+  resource_group_name  = var.existing_vnet_rg
+}
+
 # -----------------------------------------------------------------------------
 # NEW VNET
 # -----------------------------------------------------------------------------
+
+locals {
+  # The ASE v3 subnet needs far more room than the default /24 VNet has left.
+  # If its prefix is not already inside vnet_address_prefix, append it as an
+  # extra VNet address space. cidrhost() masks host bits, so re-basing the ASE
+  # network address onto the VNet prefix length tests containment.
+  vnet_prefix_length = tonumber(split("/", var.vnet_address_prefix)[1])
+  ase_prefix_in_vnet = var.enable_ase_subnet ? (
+    tonumber(split("/", var.ase_subnet_prefix)[1]) >= local.vnet_prefix_length &&
+    cidrhost(format("%s/%d", split("/", var.ase_subnet_prefix)[0], local.vnet_prefix_length), 0) == cidrhost(var.vnet_address_prefix, 0)
+  ) : true
+
+  vnet_address_space = local.ase_prefix_in_vnet ? [var.vnet_address_prefix] : [var.vnet_address_prefix, var.ase_subnet_prefix]
+}
 
 resource "azurerm_virtual_network" "citadel" {
   count               = var.use_existing_vnet ? 0 : 1
   name                = var.vnet_name
   location            = var.location
   resource_group_name = var.resource_group_name
-  address_space       = [var.vnet_address_prefix]
+  address_space       = local.vnet_address_space
   tags                = var.tags
 }
 
@@ -279,6 +300,41 @@ resource "azurerm_subnet_network_security_group_association" "agent" {
   count                     = !var.use_existing_vnet && var.enable_agent_subnet ? 1 : 0
   subnet_id                 = azurerm_subnet.agent[0].id
   network_security_group_id = azurerm_network_security_group.agent[0].id
+}
+
+# -----------------------------------------------------------------------------
+# ASE v3 SUBNET (only when the Logic App is hosted on App Service Environment v3)
+# Must be empty and delegated to Microsoft.Web/hostingEnvironments.
+# -----------------------------------------------------------------------------
+
+resource "azurerm_subnet" "ase" {
+  count                = !var.use_existing_vnet && var.enable_ase_subnet ? 1 : 0
+  name                 = var.ase_subnet_name
+  resource_group_name  = var.resource_group_name
+  virtual_network_name = azurerm_virtual_network.citadel[0].name
+  address_prefixes     = [var.ase_subnet_prefix]
+
+  delegation {
+    name = "Microsoft.Web.hostingEnvironments"
+    service_delegation {
+      name    = "Microsoft.Web/hostingEnvironments"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
+    }
+  }
+}
+
+resource "azurerm_network_security_group" "ase" {
+  count               = !var.use_existing_vnet && var.enable_ase_subnet ? 1 : 0
+  name                = "nsg-${var.ase_subnet_name}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  tags                = var.tags
+}
+
+resource "azurerm_subnet_network_security_group_association" "ase" {
+  count                     = !var.use_existing_vnet && var.enable_ase_subnet ? 1 : 0
+  subnet_id                 = azurerm_subnet.ase[0].id
+  network_security_group_id = azurerm_network_security_group.ase[0].id
 }
 
 # -----------------------------------------------------------------------------

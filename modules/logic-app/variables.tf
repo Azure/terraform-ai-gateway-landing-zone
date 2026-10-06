@@ -6,6 +6,58 @@ variable "random_suffix"                 { type = string }
 variable "sku_tier"                      { type = string }
 variable "sku_size"                      { type = string }
 variable "subnet_id"                     { type = string }
+
+# -----------------------------------------------------------------------------
+# Hosting model (WorkflowStandard | AppServiceEnvironmentV3) — see ase.tf
+# -----------------------------------------------------------------------------
+
+variable "hosting_model" {
+  description = "WorkflowStandard (WS plan + VNet integration, key-based storage) or AppServiceEnvironmentV3 (Isolated v2 plan in an ASE v3, keyless storage)."
+  type        = string
+  default     = "WorkflowStandard"
+
+  validation {
+    condition     = contains(["WorkflowStandard", "AppServiceEnvironmentV3"], var.hosting_model)
+    error_message = "hosting_model must be WorkflowStandard or AppServiceEnvironmentV3."
+  }
+}
+
+variable "ase_subnet_id" {
+  description = "Dedicated subnet (delegated to Microsoft.Web/hostingEnvironments) for the ASE v3."
+  type        = string
+  default     = ""
+}
+
+variable "vnet_id" {
+  description = "VNet ID used to link the ASE private DNS zone."
+  type        = string
+  default     = ""
+}
+
+variable "ase_sku_size" {
+  type    = string
+  default = "I1v2"
+}
+
+variable "ase_worker_count" {
+  type    = number
+  default = 1
+}
+
+variable "ase_internal_load_balancing_mode" {
+  type    = string
+  default = "Web, Publishing"
+}
+
+variable "ase_zone_redundant" {
+  type    = bool
+  default = false
+}
+
+variable "ase_create_private_dns_zone" {
+  type    = bool
+  default = true
+}
 variable "eventhub_endpoint_host"        { 
     type = string
     description = "EventHub namespace FQDN (e.g. evhns-xxx.servicebus.windows.net)"
@@ -41,12 +93,6 @@ variable "eventhub_ai_usage_hub_name" {
 variable "eventhub_pii_usage_hub_name" {
   type    = string
   default = ""
-}
-
-variable "cosmos_db_connection_string" {
-  description = "Cosmos DB connection string for AppSettings AzureCosmosDB_connectionString. Must be provided if enable_cosmos_role_assignment=true since the Logic App needs it to connect and verify the role assignment at startup."
-  type        = string
-  default     = ""
 }
 
 variable "cosmos_db_account_name" {
