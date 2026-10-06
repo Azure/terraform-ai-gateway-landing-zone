@@ -552,6 +552,8 @@ module "apim" {
 
   # DNS
   dns_zone_id_apim = module.networking.dns_zone_ids["apim_gateway"]
+  # Internal-mode APIM hostname zones; skipped when DNS is managed centrally (BYO zones).
+  create_internal_dns = local.create_dns_zones
 
   # APIM logic plane (§19.12 — Bicep parity for llm-backends/pools, fragments,
   # extra APIs, MCP, API Center onboarding)

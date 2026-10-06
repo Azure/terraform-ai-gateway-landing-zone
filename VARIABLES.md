@@ -92,7 +92,7 @@ Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`).
 | ☆ `agent_subnet_prefix` | string | `10.170.0.192/26` | Agent subnet address prefix (for new VNet). |
 | ☆ `ase_subnet_name` | string | `snet-citadel-ase` | ASE v3 subnet; only used when `logic_app_hosting_model = "AppServiceEnvironmentV3"`. With `use_existing_vnet=true` it must already exist, be empty and be delegated to `Microsoft.Web/hostingEnvironments`. |
 | ☆ `ase_subnet_prefix` | string | `10.170.1.0/24` | ASE v3 subnet prefix (new VNet). Min `/27`, `/24` recommended. Appended to the VNet as an extra address space when it is outside `vnet_address_prefix`. |
-| ☆ `apim_network_type` | string | `External` | `External`, `Internal`, or `None`. V1 SKUs only. |
+| ☆ `apim_network_type` | string | `External` | `External`, `Internal`, or `None`. V1 SKUs only. With `Internal`, per-hostname private DNS zones (`<apim>.azure-api.net`, `.portal`, `.developer`, `.management`, `.scm`) pointing at the APIM private IP are created and linked to the VNet (skipped when BYO DNS zones are used). Changing `External` ↔ `Internal` on an existing APIM forces **replacement** in the azurerm provider. |
 | ☆ `apim_v2_use_private_endpoint` | bool | `true` | V2 SKUs: create private endpoint. |
 | ☆ `apim_v2_public_network_access` | bool | `true` | V2 SKUs: allow public plane. |
 | ☆ `dns_zone_rg` | string | `""` | Existing private DNS zones RG. |
