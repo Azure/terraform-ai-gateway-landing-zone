@@ -371,7 +371,8 @@ Port of `entra-id-setup/setup.ps1`. When enabled, creates an app registration + 
 
 | Variable | Type | Default | Notes |
 |---|---|---|---|
-| ☆ `enable_foundry_apim_connection` | bool | `false` | Dedicated APIM subscription + per-project connections. |
+| ☆ `enable_foundry_apim_connection` | bool | `false` | Creates the dedicated `foundry-apim-connection` APIM subscription and, in every Foundry project, one `ApiManagement` connection per `foundry_apim_connections` entry (ApiKey = that subscription's key). |
+| ☆ `foundry_apim_connections` | list(object) | Universal LLM API (`/models`, discovery via `/deployments`) | APIs exposed to Foundry projects. Fields mirror the Foundry connection metadata: `api_name`, `api_path`, `connection_name` (default `apim-<apim>-<api>`), `deployment_in_path`, `inference_api_version`, `list_models_endpoint` / `get_model_endpoint` / `deployment_provider` (dynamic discovery) or `static_models`, `custom_headers`. |
 
 ---
 

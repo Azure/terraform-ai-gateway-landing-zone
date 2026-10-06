@@ -1065,9 +1065,41 @@ variable "enable_api_center_onboarding" {
 }
 
 variable "enable_foundry_apim_connection" {
-  description = "Create a dedicated APIM subscription for Foundry → APIM connections + optional per-project connections."
+  description = "Create a dedicated APIM subscription (foundry-apim-connection) and, for every Foundry project, one ApiManagement connection per entry in foundry_apim_connections that authenticates with that subscription's key."
   type        = bool
   default     = false
+}
+
+variable "foundry_apim_connections" {
+  description = <<-EOT
+    APIs to expose to each Foundry project as ApiManagement connections (used
+    when enable_foundry_apim_connection = true). Default: the Universal LLM API
+    with dynamic model discovery via its /deployments operations.
+  EOT
+  type = list(object({
+    api_name               = string
+    api_path               = string
+    connection_name        = optional(string, "")
+    is_shared_to_all       = optional(bool, false)
+    deployment_in_path     = optional(string, "true")
+    inference_api_version  = optional(string, "")
+    deployment_api_version = optional(string, "")
+    list_models_endpoint   = optional(string, "")
+    get_model_endpoint     = optional(string, "")
+    deployment_provider    = optional(string, "")
+    static_models          = optional(list(any), [])
+    custom_headers         = optional(map(string), {})
+  }))
+  default = [
+    {
+      api_name             = "universal-llm-api"
+      api_path             = "models"
+      deployment_in_path   = "false"
+      list_models_endpoint = "/deployments"
+      get_model_endpoint   = "/deployments/{deploymentName}"
+      deployment_provider  = "AzureOpenAI"
+    }
+  ]
 }
 
 variable "embeddings_backend_url" {

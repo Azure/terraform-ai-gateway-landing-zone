@@ -380,6 +380,12 @@ module "foundry" {
   foundry_network_injection_enabled = var.foundry_network_injection_enabled
   agent_subnet_id                   = module.networking.agent_subnet_id
 
+  # Foundry project -> APIM connections (ApiKey = dedicated foundry-apim-connection subscription)
+  enable_apim_connections = var.enable_foundry_apim_connection
+  apim_service_name       = local.apim_service_name
+  apim_gateway_url        = module.apim.gateway_url
+  apim_primary_key        = module.apim.foundry_connection_primary_key
+  apim_connections        = var.foundry_apim_connections
 }
 
 # =============================================================================
