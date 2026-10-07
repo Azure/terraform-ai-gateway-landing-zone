@@ -14,6 +14,18 @@ variable "logic_app_subnet_prefix" { type = string }
 variable "enable_agent_subnet" { type = bool }
 variable "agent_subnet_name" { type = string }
 variable "agent_subnet_prefix" { type = string }
+variable "enable_ase_subnet" {
+  type    = bool
+  default = false
+}
+variable "ase_subnet_name" {
+  type    = string
+  default = "snet-citadel-ase"
+}
+variable "ase_subnet_prefix" {
+  type    = string
+  default = "10.170.1.0/24"
+}
 variable "apim_network_type" { type = string }
 variable "is_apim_vnet" { type = bool }
 variable "create_dns_zones" { type = bool }

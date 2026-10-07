@@ -27,11 +27,14 @@ resource "null_resource" "publish_workflows" {
 
   # Re-run whenever the site is re-created or any source file changes.
   triggers = {
-    logic_app_id = azurerm_logic_app_standard.usage_ingestion.id
+    logic_app_id = local.logic_app_id
     code_sha256  = data.archive_file.workflow_code[0].output_sha256
     zip_path     = data.archive_file.workflow_code[0].output_path
   }
 
+  # On an internal (ILB) ASE v3 the zip is pushed to the app's SCM endpoint
+  # (<app>.scm.<ase>.appserviceenvironment.net), which only resolves and is only
+  # reachable from inside the VNet — run apply from a VNet-connected agent.
   provisioner "local-exec" {
     interpreter = ["bash", "-c"]
     command     = <<-EOT
@@ -46,14 +49,14 @@ resource "null_resource" "publish_workflows" {
       # zip-deploy command is the supported control-plane path. No extension
       # install needed (ships in core az CLI).
       echo "[INFO] Publishing Logic App workflow code"
-      echo "       site: ${azurerm_logic_app_standard.usage_ingestion.name}"
+      echo "       site: ${local.logic_app_name}"
       echo "       rg  : ${var.resource_group_name}"
       echo "       zip : ${data.archive_file.workflow_code[0].output_path}"
       echo "       sha : ${data.archive_file.workflow_code[0].output_sha256}"
 
       az functionapp deployment source config-zip \
         --resource-group "${var.resource_group_name}" \
-        --name           "${azurerm_logic_app_standard.usage_ingestion.name}" \
+        --name           "${local.logic_app_name}" \
         --src            "${data.archive_file.workflow_code[0].output_path}" \
         ${var.subscription_id != "" ? format("--subscription %q", var.subscription_id) : ""} \
         --only-show-errors
@@ -67,6 +70,9 @@ resource "null_resource" "publish_workflows" {
   # missing app settings, etc.).
   depends_on = [
     azurerm_logic_app_standard.usage_ingestion,
+    azapi_resource.usage_ingestion_ase,
+    azurerm_private_dns_a_record.ase,
+    azurerm_private_dns_zone_virtual_network_link.ase,
     azurerm_role_assignment.logic_app_system_eh_owner,
     azurerm_role_assignment.logic_app_system_monitor_reader,
     azurerm_cosmosdb_sql_role_assignment.logic_app_system_mi,

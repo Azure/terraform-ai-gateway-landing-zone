@@ -50,3 +50,11 @@ output "agent_subnet_id" {
 output "agent_subnet_name" {
   value = var.enable_agent_subnet ? var.agent_subnet_name : ""
 }
+
+output "ase_subnet_id" {
+  value = var.enable_ase_subnet ? (
+    var.use_existing_vnet
+    ? data.azurerm_subnet.existing_ase[0].id
+    : azurerm_subnet.ase[0].id
+  ) : ""
+}

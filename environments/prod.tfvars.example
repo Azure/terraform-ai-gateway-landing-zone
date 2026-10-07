@@ -92,6 +92,11 @@ eventhub_disaster_recovery_config = null
 
 logic_app_sku_tier   = "WorkflowStandard"
 logic_app_sku_size   = "WS2"
+# Keyless Logic App storage (allowSharedKeyAccess=false) requires ASE v3 hosting:
+# logic_app_hosting_model    = "AppServiceEnvironmentV3"
+# logic_app_ase_sku_size     = "I1v2"
+# logic_app_ase_worker_count = 1
+# ase_subnet_prefix          = "10.170.1.0/24"   # added as extra VNet address space
 language_service_sku = "S"
 content_safety_sku   = "S0"
 api_center_sku       = "Free"

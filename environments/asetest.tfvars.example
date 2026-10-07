@@ -1,0 +1,193 @@
+# =============================================================================
+# AI Citadel Governance Hub - Standalone TEST environment (throwaway)
+# Purpose: validate keyless Logic App hosting (App Service Environment v3) and
+#          the Cosmos DB managed-identity connection end to end, then destroy.
+# -----------------------------------------------------------------------------
+# HOW TO RUN
+#
+#   !! STATE ISOLATION !!  deploy.ps1/deploy.sh use ONE local terraform.tfstate
+#   per working folder (no per-environment state). Never run this from a
+#   checkout that holds another environment's state — it would plan to replace
+#   that environment. Use a separate worktree:
+#
+#     git worktree add ..\citadel-asetest <branch-under-test>
+#     cd ..\citadel-asetest
+#     copy environments\asetest.tfvars.example environments\asetest.tfvars
+#     # set subscription_id (sandbox subscription) below
+#
+#   If a remote backend is configured in versions.tf, use a dedicated state key.
+#
+#   PHASE A — Workflow Service Plan (WS1) + Cosmos managed identity
+#     (Skip if a policy forces allowSharedKeyAccess=false on storage accounts —
+#      WS1 cannot run there; that is exactly what phase B solves.)
+#     ./scripts/deploy.ps1 asetest            (~45 min, APIM Developer SKU)
+#     ./scripts/validate.ps1 asetest          (smoke test also emits usage events)
+#     -> run the VERIFY checklist at the bottom
+#
+#   PHASE B — switch the SAME environment to ASE v3 (tests the migration path)
+#     set logic_app_hosting_model = "AppServiceEnvironmentV3" below, then:
+#     ./scripts/deploy.ps1 asetest -SkipLogicAppCode   (ASE creation: 1h+)
+#     Publish workflow code from a machine INSIDE the VNet (ILB ASE — the SCM
+#     endpoint is private). Tested approach: a small Linux VM in snet-citadel-pe
+#     (no public IP) with a system-assigned identity holding "Website
+#     Contributor" on the Logic App site, driven via `az vm run-command`:
+#       TOKEN=$(curl -s -H Metadata:true "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+#       curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary @app.zip \
+#         "https://<logic_app_name>.scm.<ase-name>.appserviceenvironment.net/api/zipdeploy?isAsync=false"
+#     Delete that VM before `destroy` (it blocks deletion of the PE subnet).
+#     (No VNet access available? Set ase_internal_load_balancing_mode = "None"
+#      and deploy without -SkipLogicAppCode — less prod-like, but quick.)
+#     ./scripts/validate.ps1 asetest
+#     -> run the VERIFY checklist again
+#
+#   TEARDOWN (same day — the ASE bills at least one I1v2 instance while it exists)
+#     ./scripts/destroy.ps1 asetest
+#     git worktree remove ..\citadel-asetest
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. BASIC CONFIGURATION
+# -----------------------------------------------------------------------------
+environment_name             = "asetest"
+location                     = "swedencentral" # must support ASE v3 + APIM + the models below
+subscription_id              = ""              # sandbox subscription — replace before deploying
+purge_soft_delete_on_destroy = true            # clean teardown
+
+tags = {
+  Environment = "Test"
+  Purpose     = "ase-v3-keyless-validation"
+  Owner       = "platform-team@contoso.com"
+  Criticality = "Low"
+  ManagedBy   = "Terraform"
+  DeleteAfter = "2026-10-31" # adjust; reminder that this env is disposable
+}
+
+# -----------------------------------------------------------------------------
+# 2. RESOURCE NAMING
+# -----------------------------------------------------------------------------
+resource_group_name         = "rg-citadel-asetest"
+use_existing_resource_group = false
+
+# -----------------------------------------------------------------------------
+# 3. SECURITY / KEY VAULT (relaxed so teardown and bootstrap work from a laptop)
+# -----------------------------------------------------------------------------
+purge_protection_enabled         = false
+network_acl_default_action       = "Allow"
+kv_public_network_access_enabled = true
+kv_auto_detect_deployer_ip       = true
+
+# -----------------------------------------------------------------------------
+# 4. NETWORKING (greenfield VNet; ASE subnet is added automatically in phase B)
+# -----------------------------------------------------------------------------
+use_existing_vnet   = false
+vnet_address_prefix = "10.170.0.0/24"
+apim_network_type   = "External"
+
+# ASE v3 settings (used only in phase B)
+ase_subnet_name                  = "snet-citadel-ase"
+ase_subnet_prefix                = "10.170.1.0/24" # appended as 2nd VNet address space
+ase_internal_load_balancing_mode = "Web, Publishing" # ILB, prod-like
+ase_zone_redundant               = false
+ase_create_private_dns_zone      = true
+
+# -----------------------------------------------------------------------------
+# 5. COMPUTE SKU & SIZING (smallest that exercises the full pipeline)
+# -----------------------------------------------------------------------------
+# Developer = classic SKU with VNet injection, so APIM can reach the private
+# Foundry endpoint (needed for the end-to-end usage test).
+apim_sku       = "Developer"
+apim_sku_units = 1
+
+cosmos_db_rus            = 400
+eventhub_capacity_units  = 1
+eventhub_partition_count = 2
+
+# PHASE A: "WorkflowStandard"   PHASE B: "AppServiceEnvironmentV3"
+logic_app_hosting_model    = "WorkflowStandard"
+logic_app_sku_size         = "WS1"
+logic_app_ase_sku_size     = "I1v2"
+logic_app_ase_worker_count = 1
+
+# -----------------------------------------------------------------------------
+# 6. FEATURE FLAGS (trimmed to the usage pipeline)
+# -----------------------------------------------------------------------------
+enable_api_center              = false
+enable_pii_redaction           = true
+enable_content_safety          = true
+enable_redis_cache             = false
+create_app_insights_dashboards = false
+
+# -----------------------------------------------------------------------------
+# 8. NETWORK ACCESS
+# -----------------------------------------------------------------------------
+# Cosmos public access only so you can inspect items in the portal Data
+# Explorer from your laptop; the Logic App always uses the private endpoint.
+# Set "Disabled" for a fully prod-like run.
+cosmos_db_public_access      = "Enabled"
+cosmos_db_local_auth_enabled = false # keyless — the thing under test
+eventhub_network_access      = "Enabled"
+ai_foundry_external_access   = true
+
+# -----------------------------------------------------------------------------
+# 10. AI FOUNDRY (one small model is enough to generate usage events)
+# -----------------------------------------------------------------------------
+ai_foundry_instances = [
+  {
+    location             = "swedencentral"
+    default_project_name = "citadel-asetest-project"
+  }
+]
+
+ai_foundry_models = [
+  {
+    name     = "gpt-4.1-mini"
+    version  = "2025-04-14"
+    sku      = "GlobalStandard"
+    capacity = 20
+  }
+]
+
+# -----------------------------------------------------------------------------
+# 14. OPTIONAL APIM EXTRA APIs (off — not under test)
+# -----------------------------------------------------------------------------
+enable_ai_model_inference    = false
+enable_document_intelligence = false
+enable_azure_ai_search       = false
+enable_openai_realtime       = false
+enable_unified_ai_api        = false
+is_mcp_sample_deployed       = false
+enable_api_center_onboarding = false
+
+# -----------------------------------------------------------------------------
+# 19. LOGIC APP WORKFLOW CODE (publishes the updated connections.json)
+# -----------------------------------------------------------------------------
+enable_logic_app_code_deploy = true
+logic_app_code_source_path   = "logicapp-src/usage-ingestion-logicapp"
+
+# -----------------------------------------------------------------------------
+# 22. FOUNDRY -> APIM CONNECTION (not under test)
+# -----------------------------------------------------------------------------
+enable_foundry_apim_connection = false
+
+# =============================================================================
+# VERIFY CHECKLIST (after each phase)
+# -----------------------------------------------------------------------------
+# RG=rg-citadel-asetest
+# 1. Traffic   : ./scripts/validate.ps1 asetest  -> chat/completions returns 200
+# 2. Event Hub : portal -> evhns-* -> ai-usage -> "Incoming Messages" > 0
+# 3. Logic App : portal -> logic-usage-* -> Workflows -> ai-usage-ingestion and
+#                llm-usage-ingestion runs Succeeded; Cosmos actions show no 401/403.
+#                Open the Cosmos action -> connection shows "Managed identity".
+# 4. Cosmos    : grant yourself data-plane read (keys are disabled), then check
+#                items in ai-usage-container via portal Data Explorer:
+#                  az cosmosdb sql role assignment create -g $RG -a <cosmos-name> \
+#                    --role-definition-id 00000000-0000-0000-0000-000000000001 \
+#                    --principal-id $(az ad signed-in-user show --query id -o tsv) \
+#                    --scope $(az cosmosdb show -g $RG -n <cosmos-name> --query id -o tsv)
+# 5. Keys off  : az cosmosdb show -g $RG -n <cosmos-name> --query disableLocalAuth        -> true
+#                az storage account show -g $RG -n <stla*> --query allowSharedKeyAccess    -> false (phase B)
+#                az webapp config appsettings list -g $RG -n <logic_app_name> \
+#                  --query "[?contains(value,'AccountKey')].name"                         -> [] (phase B)
+# 6. Runtime   : App Insights appi-logic-asetest -> no storage auth errors; host started
+# 7. Phase B   : terraform plan (re-run) shows no changes -> config is stable
+# =============================================================================

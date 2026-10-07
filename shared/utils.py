@@ -511,6 +511,79 @@ def run(command, ok_message = '', error_message = '', print_output = False, prin
 
     return Output(success, output_text)
 
+def _resolve_bash():
+    """Return a bash executable usable for the modules' scripts/*.sh on any OS.
+
+    On Windows, prefer Git Bash: C:\\Windows\\System32\\bash.exe is the WSL
+    launcher, which runs in a separate Linux environment without the Windows
+    terraform/az/python on PATH (or fails when no distro is installed).
+    """
+    import shutil
+    if os.name == "nt":
+        candidates = []
+        git = shutil.which("git")
+        if git:
+            git_root = os.path.dirname(os.path.dirname(os.path.realpath(git)))  # ...\Git\cmd\git.exe -> ...\Git
+            candidates.append(os.path.join(git_root, "bin", "bash.exe"))
+        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"), os.environ.get("ProgramFiles(x86)")):
+            if base:
+                candidates.append(os.path.join(base, "Git", "bin", "bash.exe"))
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+        raise FileNotFoundError("Git Bash not found. Install Git for Windows (provides bin\\bash.exe) to run the Terraform module scripts.")
+    bash = shutil.which("bash")
+    if not bash:
+        raise FileNotFoundError("bash not found on PATH.")
+    return bash
+
+def run_module_script(tf_dir, script, args=(), ok_message='', error_message='', workspace=None):
+    """Run a Terraform module script (e.g. scripts/deploy.sh) cross-platform.
+
+    Optionally selects (or creates) a Terraform workspace first. Commands are run
+    as argument lists with cwd=tf_dir, so no shell-specific syntax is involved.
+    Returns an Output, like run().
+    """
+    start_time = time.time()
+    combined = ""
+    try:
+        if workspace:
+            sel = subprocess.run(["terraform", "workspace", "select", workspace], cwd=tf_dir,
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if sel.returncode != 0:
+                new = subprocess.run(["terraform", "workspace", "new", workspace], cwd=tf_dir,
+                                     capture_output=True, text=True, encoding="utf-8", errors="replace")
+                if new.returncode != 0:
+                    combined = (new.stdout or "") + (new.stderr or "")
+                    print_error(error_message or f"Workspace '{workspace}' could not be selected or created", combined)
+                    return Output(False, combined)
+
+        # Forward slashes: valid for Windows terraform.exe and for Git Bash file tests.
+        script_args = [str(a).replace("\\", "/") if os.path.isabs(str(a)) else str(a) for a in args]
+        cmd = [_resolve_bash(), script.replace("\\", "/")] + script_args
+        print_command(" ".join(cmd) + f"   (cwd: {tf_dir})")
+        proc = subprocess.run(cmd, cwd=tf_dir, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        output_text = proc.stdout or ""
+        combined = output_text + ("\n" + proc.stderr if proc.stderr else "")
+        success = proc.returncode == 0
+    except FileNotFoundError as e:
+        output_text, combined, success = "", str(e), False
+
+    minutes, seconds = divmod(time.time() - start_time, 60)
+    if ok_message or error_message:
+        (print_ok if success else print_error)(ok_message if success else error_message,
+                                               "" if success else combined, f"[{int(minutes)}m:{int(seconds)}s]")
+    return Output(success, output_text)
+
+def terraform_output_json(tf_dir, ok_message='', error_message=''):
+    """`terraform output -json` in tf_dir (current workspace), cross-platform. Returns an Output."""
+    proc = subprocess.run(["terraform", "output", "-json"], cwd=tf_dir,
+                          capture_output=True, text=True, encoding="utf-8", errors="replace")
+    success = proc.returncode == 0
+    if ok_message or error_message:
+        (print_ok if success else print_error)(ok_message if success else error_message, "" if success else proc.stderr)
+    return Output(success, proc.stdout or "")
+
 def create_bicep_params(policy_xml_filepath, parameters_filepath, bicep_parameters, replacements_list):
     # Read the specified policy XML file
     with open(policy_xml_filepath, 'r') as policy_xml_file:

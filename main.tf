@@ -149,6 +149,9 @@ module "networking" {
   enable_agent_subnet     = var.enable_agent_subnet
   agent_subnet_name       = var.agent_subnet_name
   agent_subnet_prefix     = var.agent_subnet_prefix
+  enable_ase_subnet       = var.logic_app_hosting_model == "AppServiceEnvironmentV3"
+  ase_subnet_name         = var.ase_subnet_name
+  ase_subnet_prefix       = var.ase_subnet_prefix
 
   # APIM network type
   apim_network_type = var.apim_network_type
@@ -268,6 +271,8 @@ module "cosmosdb" {
   throughput_rus        = var.cosmos_db_rus
   public_network_access = var.cosmos_db_public_access
 
+  local_authentication_enabled = var.cosmos_db_local_auth_enabled
+
   # Identity (for RBAC - Cosmos DB Built-in Data Contributor on Usage MI)
   managed_identity_principal_id = local.usage_identity_principal
 
@@ -374,6 +379,13 @@ module "foundry" {
   dns_zone_ids                      = module.networking.dns_zone_ids
   foundry_network_injection_enabled = var.foundry_network_injection_enabled
   agent_subnet_id                   = module.networking.agent_subnet_id
+
+  # Foundry project -> APIM connections (ApiKey = dedicated foundry-apim-connection subscription)
+  enable_apim_connections = var.enable_foundry_apim_connection
+  apim_service_name       = local.apim_service_name
+  apim_gateway_url        = module.apim.gateway_url
+  apim_primary_key        = module.apim.foundry_connection_primary_key
+  apim_connections        = var.foundry_apim_connections
 }
 
 # =============================================================================
@@ -546,6 +558,8 @@ module "apim" {
 
   # DNS
   dns_zone_id_apim = module.networking.dns_zone_ids["apim_gateway"]
+  # Internal-mode APIM hostname zones; skipped when DNS is managed centrally (BYO zones).
+  create_internal_dns = local.create_dns_zones
 
   # APIM logic plane (§19.12 — Bicep parity for llm-backends/pools, fragments,
   # extra APIs, MCP, API Center onboarding)
@@ -597,6 +611,16 @@ module "logic_app" {
   sku_tier = var.logic_app_sku_tier
   sku_size = var.logic_app_sku_size
 
+  # Hosting model — ASE v3 enables keyless (shared-key disabled) runtime storage
+  hosting_model                    = var.logic_app_hosting_model
+  ase_subnet_id                    = module.networking.ase_subnet_id
+  vnet_id                          = module.networking.vnet_id
+  ase_sku_size                     = var.logic_app_ase_sku_size
+  ase_worker_count                 = var.logic_app_ase_worker_count
+  ase_internal_load_balancing_mode = var.ase_internal_load_balancing_mode
+  ase_zone_redundant               = var.ase_zone_redundant
+  ase_create_private_dns_zone      = var.ase_create_private_dns_zone
+
   # Networking
   subnet_id    = module.networking.logic_app_subnet_id
   pe_subnet_id = module.networking.pe_subnet_id
@@ -612,10 +636,9 @@ module "logic_app" {
   eventhub_ai_usage_hub_name  = module.eventhub.apim_usage_hub_name
   eventhub_pii_usage_hub_name = module.eventhub.pii_usage_hub_name
 
-  cosmos_db_endpoint          = module.cosmosdb.endpoint
-  cosmos_db_account_name      = module.cosmosdb.account_name
-  cosmos_db_account_id        = module.cosmosdb.account_id
-  cosmos_db_connection_string = module.cosmosdb.connection_string
+  cosmos_db_endpoint     = module.cosmosdb.endpoint
+  cosmos_db_account_name = module.cosmosdb.account_name
+  cosmos_db_account_id   = module.cosmosdb.account_id
 
   # cosmos container names
   cosmos_db_database_name       = module.cosmosdb.database_name
