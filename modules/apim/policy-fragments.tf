@@ -325,7 +325,6 @@ resource "azurerm_api_management_policy_fragment" "static" {
     azurerm_api_management_named_value.jwt_app_registration_id,
     azurerm_api_management_named_value.jwt_issuer,
     azurerm_api_management_named_value.jwt_openid_config_url,
-    azurerm_api_management_named_value.pii_service_key,
   ]
 }
 
@@ -408,7 +407,6 @@ resource "azapi_resource" "pii_fragment" {
   # Same named-value dependency chain as the azurerm static fragments.
   depends_on = [
     azurerm_api_management_named_value.uami_client_id,
-    azurerm_api_management_named_value.pii_service_url,
-    azurerm_api_management_named_value.pii_service_key,
+    azurerm_api_management_named_value.pii_service_url
   ]
 }

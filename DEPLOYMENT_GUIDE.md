@@ -126,7 +126,7 @@ The effective order for a full deployment is:
    ├─ fragments       ── 21 static + 3 dynamic policy fragments
    ├─ extra-apis      ── Unified AI, AI Search, DocIntel×2, Inference,
    │                    Realtime, Weather, Weather MCP, MS Learn MCP
-   ├─ named-values    ── JWT-*, piiServiceKey + 4 operation policies
+   ├─ named-values    ── JWT-*, AWS placeholders + 4 operation policies
    ├─ apic-onboarding ── (optional) register each API in APIC
    └─ foundry-sub     ── (optional) dedicated APIM subscription for Foundry
 7. logic_app          ── Logic App Standard + 4 storage PEs + MI RBAC
@@ -165,7 +165,7 @@ the `--with-*` shortcuts in [scripts/deploy.sh](scripts/deploy.sh).
 | `enable_ai_model_inference` | depends on tfvars | — | Model Inference API. |
 | `enable_openai_realtime` | depends on tfvars | — | WebSocket Realtime API. |
 | `enable_embeddings_backend` | `false` | — | Dedicated embeddings backend for semantic cache. |
-| `enable_pii_anonymization` | `false` | — | PII redaction policy + `piiServiceKey` named value (secret). |
+| `enable_pii_anonymization` | `false` | — | PII redaction policy (authenticates to the Language service with the APIM managed identity). |
 | `enable_api_center` | `true` | — | Provisions the API Center service (workspace, environments, metadata schemas). |
 | `eventhub_disaster_recovery_config` | empty | — | Optional EH DR namespace pairing. |
 | `configure_circuit_breaker` | `false` | — | Adds circuit-breaker rules to LLM backends. |

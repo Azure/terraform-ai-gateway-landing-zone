@@ -1018,13 +1018,6 @@ variable "jwt_app_registration_id" {
   default = ""
 }
 
-variable "pii_service_key" {
-  description = "Language Service key. Only consumed when MI auth is disabled."
-  type        = string
-  sensitive   = true
-  default     = "replace-with-language-service-key-if-needed"
-}
-
 variable "azure_login_endpoint" {
   description = "Entra login endpoint (default: Azure public cloud)."
   type        = string

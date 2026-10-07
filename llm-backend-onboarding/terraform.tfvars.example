@@ -289,11 +289,16 @@ model_aliases = []
 # -----------------------------------------------------------------------------
 # OPTIONAL: AWS Bedrock (SigV4) Credentials
 # -----------------------------------------------------------------------------
-# Required only when using aws-bedrock backends with aws-sigv4 auth. Stored as
-# secret APIM named values (aws-access-key/aws-secret-key/aws-region).
-# aws_access_key = ""
-# aws_secret_key = ""
-# aws_region     = ""
+# Required only when using aws-bedrock backends with aws-sigv4 auth. The access
+# key ID and secret access key must be stored in Azure Key Vault; the APIM named
+# values aws-access-key / aws-secret-key reference them via versionless secret
+# URIs (resolved with APIM's user-assigned managed identity, which needs
+# "Key Vault Secrets User"). aws-region is a plain (non-secret) named value.
+# When left empty, the named values are created as non-secret NOT_CONFIGURED
+# placeholders.
+# aws_access_key_secret_uri = "https://<kv>.vault.azure.net/secrets/aws-access-key"
+# aws_secret_key_secret_uri = "https://<kv>.vault.azure.net/secrets/aws-secret-key"
+# aws_region                = "us-east-1"
 
 # -----------------------------------------------------------------------------
 # OPTIONAL: Key Vault

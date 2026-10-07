@@ -156,6 +156,7 @@ module "networking" {
   # APIM network type
   apim_network_type = var.apim_network_type
   is_apim_vnet      = local.is_apim_vnet
+  is_apim_v2        = local.is_apim_v2
 
   # DNS
   create_dns_zones           = local.create_dns_zones
@@ -580,7 +581,6 @@ module "apim" {
   enable_jwt_auth         = local.effective_enable_jwt_auth
   jwt_tenant_id           = local.effective_jwt_tenant_id
   jwt_app_registration_id = local.effective_jwt_app_registration_id
-  pii_service_key         = var.pii_service_key
   subscription_id         = data.azurerm_client_config.current.subscription_id
   azure_login_endpoint    = var.azure_login_endpoint
 

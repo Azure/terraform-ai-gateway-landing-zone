@@ -50,23 +50,18 @@ resource "azurerm_api_management_named_value" "jwt_openid_config_url" {
   secret              = false
 }
 
-resource "azurerm_api_management_named_value" "pii_service_key" {
-  count               = var.enable_pii_redaction ? 1 : 0
-  name                = "piiServiceKey"
-  display_name        = "piiServiceKey"
-  api_management_name = azurerm_api_management.citadel.name
-  resource_group_name = var.resource_group_name
-  value               = var.pii_service_key
-  secret              = true
-}
-
 resource "azurerm_api_management_named_value" "aws_access_key" {
   name                = "aws-access-key"
   api_management_name = azurerm_api_management.citadel.name
   resource_group_name = var.resource_group_name
   display_name        = "aws-access-key"
-  value               = var.aws_access_key != "" ? var.aws_access_key : "NOT_CONFIGURED"
-  secret              = true
+  value               = "NOT_CONFIGURED"
+  secret              = false
+
+  # Real credentials are owned by llm-backend-onboarding (Key Vault reference)
+  lifecycle {
+    ignore_changes = [value, secret, value_from_key_vault]
+  }
 }
 
 resource "azurerm_api_management_named_value" "aws_secret_key" {
@@ -74,8 +69,13 @@ resource "azurerm_api_management_named_value" "aws_secret_key" {
   api_management_name = azurerm_api_management.citadel.name
   resource_group_name = var.resource_group_name
   display_name        = "aws-secret-key"
-  value               = var.aws_secret_key != "" ? var.aws_secret_key : "NOT_CONFIGURED"
-  secret              = true
+  value               = "NOT_CONFIGURED"
+  secret              = false
+
+  # Real credentials are owned by llm-backend-onboarding (Key Vault reference)
+  lifecycle {
+    ignore_changes = [value, secret, value_from_key_vault]
+  }
 }
 
 resource "azurerm_api_management_named_value" "aws_region" {

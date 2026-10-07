@@ -43,8 +43,9 @@ This module enables dynamic LLM backend routing without modifying APIM policies:
   - `Cognitive Services User` for Microsoft Foundry
 - For Amazon Bedrock:
   - AWS IAM user with Bedrock access and access keys generated
-  - Provide `aws_access_key`, `aws_secret_key`, and `aws_region` variables when deploying — these are stored as secret APIM named values (`aws-access-key`, `aws-secret-key`, `aws-region`)
-  - If these variables are not provided, the named values are created with a `NOT_CONFIGURED` placeholder and the gateway returns a `500 AWSCredentialsNotConfigured` error at runtime when a Bedrock backend is invoked
+  - Store the AWS access key ID and secret access key as secrets in Azure Key Vault, and grant APIM's user-assigned managed identity `Key Vault Secrets User` on that vault (already granted on the landing-zone Key Vault)
+  - Provide `aws_access_key_secret_uri`, `aws_secret_key_secret_uri` (versionless Key Vault secret URIs), and `aws_region` when deploying — the keys become Key Vault–referenced secret APIM named values (`aws-access-key`, `aws-secret-key`), compliant with the Azure Policy *API Management secret named values should be stored in Azure Key Vault*; `aws-region` is a plain named value
+  - If these variables are not provided, the named values are created as non-secret `NOT_CONFIGURED` placeholders and the gateway returns a `500 AWSCredentialsNotConfigured` error at runtime when a Bedrock backend is invoked
 - Terraform >= 1.5 and Azure CLI installed
 - Authenticated to Azure (`az login`)
 
@@ -181,9 +182,9 @@ Each model in the `supported_models` array has these properties:
 
 - Uses Amazon Bedrock runtime endpoints
 - Endpoint format: `https://bedrock-runtime.<aws-region>.amazonaws.com`
-- Authentication: AWS Signature Version 4 (SigV4) using IAM access keys stored as APIM named values
+- Authentication: AWS Signature Version 4 (SigV4) using IAM access keys stored in Azure Key Vault and exposed as Key Vault–referenced APIM named values
 - Path construction: `/model/{model-id}/converse`
-- Requires additional variables: `aws_access_key`, `aws_secret_key`, `aws_region`
+- Requires additional variables: `aws_access_key_secret_uri`, `aws_secret_key_secret_uri`, `aws_region`
 - See [Microsoft Learn: Import Amazon Bedrock API](https://learn.microsoft.com/en-us/azure/api-management/amazon-bedrock-passthrough-llm-api) for detailed APIM integration guidance
 
 ## Example Configurations
@@ -317,13 +318,20 @@ llm_backend_config = [
   }
 ]
 
-# AWS credentials for Bedrock authentication
-aws_access_key = "<your-aws-access-key-id>"
-aws_secret_key = "<your-aws-secret-access-key>"
-aws_region     = "us-east-1"
+# AWS credentials for Bedrock authentication (Key Vault secret URIs, versionless)
+aws_access_key_secret_uri = "https://<your-key-vault>.vault.azure.net/secrets/aws-access-key"
+aws_secret_key_secret_uri = "https://<your-key-vault>.vault.azure.net/secrets/aws-secret-key"
+aws_region                = "us-east-1"
 ```
 
-> **Important**: Store AWS access keys securely. Consider using Azure Key Vault references for the APIM named values in production. See [Create IAM user access keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/access-key-self-managed.html#Using_CreateAccessKey) for generating AWS access keys.
+Create the secrets before applying, for example:
+
+```bash
+az keyvault secret set --vault-name <your-key-vault> --name aws-access-key --value "<your-aws-access-key-id>"
+az keyvault secret set --vault-name <your-key-vault> --name aws-secret-key --value "<your-aws-secret-access-key>"
+```
+
+> **Important**: AWS access keys are never passed to Terraform or stored inline in APIM. APIM resolves them from Key Vault using its user-assigned managed identity, which must have `Key Vault Secrets User` on the vault and network reach to it. Use versionless secret URIs so APIM picks up rotated keys automatically. See [Create IAM user access keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/access-key-self-managed.html#Using_CreateAccessKey) for generating AWS access keys.
 
 ## Request Flow
 
@@ -617,7 +625,7 @@ dataset
 1. Verify APIM's managed identity has the required roles:
    - `Cognitive Services OpenAI User` for Azure OpenAI
    - `Cognitive Services User` for AI Foundry
-2. For Amazon Bedrock: Verify AWS IAM access keys are valid and stored as named values (`aws-access-key`, `aws-secret-key`, `aws-region`)
+2. For Amazon Bedrock: Verify AWS IAM access keys are valid in Key Vault and that the named values `aws-access-key` / `aws-secret-key` show a successful Key Vault sync status in the Azure Portal (and `aws-region` is set)
 3. `Unauthorized model access` indicates the used access contract product is restricted for the model
 4. Check the named value `uami-client-id` is set correctly to APIM's managed identity client ID
 
@@ -625,8 +633,10 @@ dataset
 
 This error means an `aws-bedrock` backend was matched but the AWS credentials named values are still set to the `NOT_CONFIGURED` placeholder. To fix:
 
-1. Re-apply with the `aws_access_key`, `aws_secret_key`, and `aws_region` variables set to valid values, **or**
-2. Manually update the APIM named values `aws-access-key`, `aws-secret-key`, and `aws-region` in the Azure Portal
+1. Store the AWS keys in Key Vault and re-apply with `aws_access_key_secret_uri`, `aws_secret_key_secret_uri`, and `aws_region` set, **or**
+2. Manually update the APIM named values `aws-access-key` / `aws-secret-key` in the Azure Portal to Key Vault references (avoid plain secret values — they are flagged by the *API Management secret named values should be stored in Azure Key Vault* policy), and set `aws-region`
+
+If the named values reference Key Vault but still fail, check the named value's Key Vault status in the portal — typical causes are a missing `Key Vault Secrets User` role for APIM's managed identity or APIM lacking network access to the vault.
 
 ## Scripts
 

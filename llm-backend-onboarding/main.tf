@@ -445,8 +445,16 @@ resource "azurerm_api_management_named_value" "aws_access_key" {
   resource_group_name = data.azurerm_api_management.citadel.resource_group_name
   api_management_name = data.azurerm_api_management.citadel.name
   display_name        = "aws-access-key"
-  value               = var.aws_access_key != "" ? var.aws_access_key : "NOT_CONFIGURED"
-  secret              = true
+  secret              = var.aws_access_key_secret_uri != ""
+  value               = var.aws_access_key_secret_uri == "" ? "NOT_CONFIGURED" : null
+
+  dynamic "value_from_key_vault" {
+    for_each = var.aws_access_key_secret_uri != "" ? [1] : []
+    content {
+      secret_id          = var.aws_access_key_secret_uri
+      identity_client_id = var.managed_identity_client_id
+    }
+  }
 }
 
 resource "azurerm_api_management_named_value" "aws_secret_key" {
@@ -454,8 +462,16 @@ resource "azurerm_api_management_named_value" "aws_secret_key" {
   resource_group_name = data.azurerm_api_management.citadel.resource_group_name
   api_management_name = data.azurerm_api_management.citadel.name
   display_name        = "aws-secret-key"
-  value               = var.aws_secret_key != "" ? var.aws_secret_key : "NOT_CONFIGURED"
-  secret              = true
+  secret              = var.aws_secret_key_secret_uri != ""
+  value               = var.aws_secret_key_secret_uri == "" ? "NOT_CONFIGURED" : null
+
+  dynamic "value_from_key_vault" {
+    for_each = var.aws_secret_key_secret_uri != "" ? [1] : []
+    content {
+      secret_id          = var.aws_secret_key_secret_uri
+      identity_client_id = var.managed_identity_client_id
+    }
+  }
 }
 
 resource "azurerm_api_management_named_value" "aws_region" {
@@ -488,15 +504,16 @@ resource "azurerm_api_management_named_value" "backend_api_key" {
   resource_group_name = data.azurerm_api_management.citadel.resource_group_name
   api_management_name = data.azurerm_api_management.citadel.name
   display_name        = each.key
-  secret              = true
-
+  
   # Use Key Vault reference if a secret URI is provided, otherwise explicit value.
+  secret = each.value.key_vault_secret_uri != "" || each.value.secret_value != ""
   value = each.value.key_vault_secret_uri == "" ? (each.value.secret_value != "" ? each.value.secret_value : "NOT_CONFIGURED") : null
 
   dynamic "value_from_key_vault" {
     for_each = each.value.key_vault_secret_uri != "" ? [1] : []
     content {
       secret_id = each.value.key_vault_secret_uri
+      identity_client_id = var.managed_identity_client_id
     }
   }
 }
