@@ -280,7 +280,7 @@ there.
 | `eventhub` | Event Hub namespace, `apim-usage` + `pii-usage` hubs, auth rules, consumer groups |
 | `ai-services` | Language Service (PII), Content Safety, AI Foundry (n instances + models), API Center |
 | `apim` | APIM instance, Universal LLM API, Azure OpenAI API, named values, loggers, diagnostic settings |
-| `logic-app` | Logic App Standard, App Service Plan, Storage Account (runtime) |
+| `logic-app` | Logic App Standard, App Service Plan, Storage Account (runtime); optional App Service Environment v3 for keyless storage (`logic_app_hosting_model`) |
 
 ---
 

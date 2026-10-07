@@ -45,6 +45,12 @@ variable "log_verbosity"                   { type = string }
 variable "log_body_bytes"                  { type = number }
 variable "dns_zone_id_apim"               { type = string }
 
+variable "create_internal_dns" {
+  description = "For apim_network_type = Internal (Developer/Premium), create per-hostname private DNS zones for the gateway/portal/developer/management/scm endpoints and link them to the VNet."
+  type        = bool
+  default     = true
+}
+
 # -----------------------------------------------------------------------------
 # APIM hardening
 # -----------------------------------------------------------------------------

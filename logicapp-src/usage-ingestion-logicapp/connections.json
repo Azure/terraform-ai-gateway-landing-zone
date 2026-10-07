@@ -25,8 +25,12 @@
   "serviceProviderConnections": {
     "AzureCosmosDB": {
       "displayName": "conn-cosmos-db",
+      "parameterSetName": "ManagedServiceIdentity",
       "parameterValues": {
-        "connectionString": "@appsetting('AzureCosmosDB_connectionString')"
+        "accountUri": "@appsetting('AzureCosmosDB_accountEndpoint')",
+        "authProvider": {
+          "Type": "ManagedServiceIdentity"
+        }
       },
       "serviceProvider": {
         "id": "/serviceProviders/AzureCosmosDB"

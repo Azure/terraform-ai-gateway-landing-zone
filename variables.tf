@@ -408,9 +408,90 @@ variable "logic_app_sku_tier" {
 }
 
 variable "logic_app_sku_size" {
-  description = "Logic App (Standard) SKU size"
+  description = "Logic App (Standard) SKU size. Used only when logic_app_hosting_model = \"WorkflowStandard\"."
   type        = string
   default     = "WS1"
+}
+
+variable "logic_app_hosting_model" {
+  description = <<-EOT
+    Hosting option for the usage-ingestion Logic App (Standard):
+
+      - "WorkflowStandard"        (default) Workflow Service Plan (WS1/WS2/WS3) with
+                                  regional VNet integration. The runtime needs an
+                                  Azure Files content share, so the storage account
+                                  MUST keep shared-key access enabled.
+      - "AppServiceEnvironmentV3" Isolated v2 plan inside a dedicated App Service
+                                  Environment v3. Runtime storage uses the usage UAMI
+                                  (AzureWebJobsStorage__* settings), no content share
+                                  is needed, and shared-key access on the storage
+                                  account is disabled.
+
+    See https://learn.microsoft.com/azure/logic-apps/create-single-tenant-workflows-azure-portal#set-up-managed-identity-access-to-your-storage-account
+  EOT
+  type        = string
+  default     = "WorkflowStandard"
+
+  validation {
+    condition     = contains(["WorkflowStandard", "AppServiceEnvironmentV3"], var.logic_app_hosting_model)
+    error_message = "logic_app_hosting_model must be WorkflowStandard or AppServiceEnvironmentV3."
+  }
+}
+
+variable "logic_app_ase_sku_size" {
+  description = "Isolated v2 App Service plan SKU for the Logic App when logic_app_hosting_model = \"AppServiceEnvironmentV3\"."
+  type        = string
+  default     = "I1v2"
+
+  validation {
+    condition     = can(regex("^I[1-6]m?v2$", var.logic_app_ase_sku_size))
+    error_message = "logic_app_ase_sku_size must be an Isolated v2 SKU (I1v2..I6v2 or I1mv2..I5mv2)."
+  }
+}
+
+variable "logic_app_ase_worker_count" {
+  description = "Number of Isolated v2 instances for the Logic App plan inside the ASE v3."
+  type        = number
+  default     = 1
+}
+
+variable "ase_subnet_name" {
+  description = "Subnet for the App Service Environment v3 (only used when logic_app_hosting_model = \"AppServiceEnvironmentV3\"). Must be empty and delegated to Microsoft.Web/hostingEnvironments when using an existing VNet."
+  type        = string
+  default     = "snet-citadel-ase"
+}
+
+variable "ase_subnet_prefix" {
+  description = <<-EOT
+    Address prefix for the ASE v3 subnet (new VNet only). Minimum /27; Microsoft
+    recommends /24 for production scale. If this range is not inside
+    vnet_address_prefix it is added to the VNet as an extra address space.
+  EOT
+  type        = string
+  default     = "10.170.1.0/24"
+}
+
+variable "ase_internal_load_balancing_mode" {
+  description = "ASE v3 ingress: \"Web, Publishing\" (internal/ILB — app and SCM endpoints reachable only from the VNet) or \"None\" (external, public VIP)."
+  type        = string
+  default     = "Web, Publishing"
+
+  validation {
+    condition     = contains(["None", "Web, Publishing"], var.ase_internal_load_balancing_mode)
+    error_message = "ase_internal_load_balancing_mode must be \"None\" or \"Web, Publishing\"."
+  }
+}
+
+variable "ase_zone_redundant" {
+  description = "Deploy the ASE v3 as zone redundant (region must support availability zones; increases minimum billed instances)."
+  type        = bool
+  default     = false
+}
+
+variable "ase_create_private_dns_zone" {
+  description = "For an internal (ILB) ASE v3, create the <ase>.appserviceenvironment.net private DNS zone (*, *.scm, @ records) and link it to the VNet. Set false when DNS is managed centrally (hub)."
+  type        = bool
+  default     = true
 }
 
 variable "language_service_sku" {
@@ -506,6 +587,18 @@ variable "cosmos_db_public_access" {
   description = "Cosmos DB public network access: Enabled or Disabled"
   type        = string
   default     = "Disabled"
+}
+
+variable "cosmos_db_local_auth_enabled" {
+  description = <<-EOT
+    Allow key / connection-string authentication on Cosmos DB. Default false:
+    the Logic App connects with its managed identity (Cosmos Built-in Data
+    Contributor), so no account key is needed. Set true only if an external
+    client (e.g. a Power BI report refreshed with the account key) still
+    depends on keys.
+  EOT
+  type        = bool
+  default     = false
 }
 
 variable "eventhub_network_access" {
@@ -864,7 +957,7 @@ variable "entra_client_secret" {
 # -----------------------------------------------------------------------------
 
 variable "logic_content_share_name" {
-  description = "Content share name used by the Logic App (WEBSITE_CONTENTSHARE)."
+  description = "Content share name used by the Logic App (WEBSITE_CONTENTSHARE). Ignored when logic_app_hosting_model = \"AppServiceEnvironmentV3\"."
   type        = string
   default     = ""
 }
@@ -965,9 +1058,41 @@ variable "enable_api_center_onboarding" {
 }
 
 variable "enable_foundry_apim_connection" {
-  description = "Create a dedicated APIM subscription for Foundry → APIM connections + optional per-project connections."
+  description = "Create a dedicated APIM subscription (foundry-apim-connection) and, for every Foundry project, one ApiManagement connection per entry in foundry_apim_connections that authenticates with that subscription's key."
   type        = bool
   default     = false
+}
+
+variable "foundry_apim_connections" {
+  description = <<-EOT
+    APIs to expose to each Foundry project as ApiManagement connections (used
+    when enable_foundry_apim_connection = true). Default: the Universal LLM API
+    with dynamic model discovery via its /deployments operations.
+  EOT
+  type = list(object({
+    api_name               = string
+    api_path               = string
+    connection_name        = optional(string, "")
+    is_shared_to_all       = optional(bool, false)
+    deployment_in_path     = optional(string, "true")
+    inference_api_version  = optional(string, "")
+    deployment_api_version = optional(string, "")
+    list_models_endpoint   = optional(string, "")
+    get_model_endpoint     = optional(string, "")
+    deployment_provider    = optional(string, "")
+    static_models          = optional(list(any), [])
+    custom_headers         = optional(map(string), {})
+  }))
+  default = [
+    {
+      api_name             = "universal-llm-api"
+      api_path             = "models"
+      deployment_in_path   = "false"
+      list_models_endpoint = "/deployments"
+      get_model_endpoint   = "/deployments/{deploymentName}"
+      deployment_provider  = "AzureOpenAI"
+    }
+  ]
 }
 
 variable "embeddings_backend_url" {

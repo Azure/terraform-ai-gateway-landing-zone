@@ -90,7 +90,9 @@ Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`).
 | ☆ `enable_agent_subnet` | bool | `true` | Create a dedicated subnet for Foundry agent network injection. |
 | ☆ `agent_subnet_name` | string | `snet-agents` | Agent subnet name. |
 | ☆ `agent_subnet_prefix` | string | `10.170.0.192/26` | Agent subnet address prefix (for new VNet). |
-| ☆ `apim_network_type` | string | `External` | `External`, `Internal`, or `None`. Developer/Premium only (VNet injection). Ignored for V2 SKUs, which always use outbound VNet integration on the APIM subnet (Bicep parity). Inbound access for V2 is controlled by `apim_v2_use_private_endpoint` / `apim_v2_public_network_access`. |
+| ☆ `ase_subnet_name` | string | `snet-citadel-ase` | ASE v3 subnet; only used when `logic_app_hosting_model = "AppServiceEnvironmentV3"`. With `use_existing_vnet=true` it must already exist, be empty and be delegated to `Microsoft.Web/hostingEnvironments`. |
+| ☆ `ase_subnet_prefix` | string | `10.170.1.0/24` | ASE v3 subnet prefix (new VNet). Min `/27`, `/24` recommended. Appended to the VNet as an extra address space when it is outside `vnet_address_prefix`. |
+| ☆ `apim_network_type` | string | `External` | `External`, `Internal`, or `None`. V1 SKUs only. With `Internal`, per-hostname private DNS zones (`<apim>.azure-api.net`, `.portal`, `.developer`, `.management`, `.scm`) pointing at the APIM private IP are created and linked to the VNet (skipped when BYO DNS zones are used). Changing `External` ↔ `Internal` on an existing APIM forces **replacement** in the azurerm provider. |
 | ☆ `apim_v2_use_private_endpoint` | bool | `true` | V2 SKUs: create private endpoint. |
 | ☆ `apim_v2_public_network_access` | bool | `true` | V2 SKUs: allow public plane. |
 | ☆ `dns_zone_rg` | string | `""` | Existing private DNS zones RG. |
@@ -110,10 +112,33 @@ Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`).
 | ☆ `eventhub_partition_count` | number | `4` | |
 | ☆ `eventhub_disaster_recovery_config` | object | `null` | `{partner_namespace_id, alias}` for geo-DR pairing. |
 | ☆ `logic_app_sku_tier` | string | `WorkflowStandard` | |
-| ☆ `logic_app_sku_size` | string | `WS1` | `WS1`/`WS2`/`WS3`. |
+| ☆ `logic_app_sku_size` | string | `WS1` | `WS1`/`WS2`/`WS3`. Used only with `logic_app_hosting_model = "WorkflowStandard"`. |
+| ☆ `logic_app_hosting_model` | string | `WorkflowStandard` | `WorkflowStandard` (WS plan + regional VNet integration; storage account **must keep shared-key access** for the Azure Files content share) or `AppServiceEnvironmentV3` (Isolated v2 plan in a dedicated ASE v3; runtime storage via the usage UAMI, no content share, **shared-key access disabled**). See [Logic App hosting on ASE v3](#logic-app-hosting-on-ase-v3). |
+| ☆ `logic_app_ase_sku_size` | string | `I1v2` | Isolated v2 SKU (`I1v2`–`I6v2`, `I1mv2`–`I5mv2`). ASE v3 only. |
+| ☆ `logic_app_ase_worker_count` | number | `1` | Isolated v2 instance count. ASE v3 only. |
+| ☆ `ase_internal_load_balancing_mode` | string | `Web, Publishing` | `Web, Publishing` = internal (ILB) ASE; `None` = external (public VIP). |
+| ☆ `ase_zone_redundant` | bool | `false` | Zone-redundant ASE v3 (region must support AZs; raises minimum billed instances). |
+| ☆ `ase_create_private_dns_zone` | bool | `true` | ILB ASE only: create `<ase>.appserviceenvironment.net` (`*`, `*.scm`, `@` → ILB IP) and link it to the VNet. Set `false` when DNS is centralised in a hub. |
 | ☆ `language_service_sku` | string | `S` | |
 | ☆ `content_safety_sku` | string | `S0` | |
 | ☆ `api_center_sku` | string | `Free` | |
+
+### Logic App hosting on ASE v3
+
+Logic Apps Standard on the **Workflow Service Plan** (WS1/WS2/WS3) keeps its site content on an Azure Files share that is mounted with the storage account key, so [shared-key access cannot be disabled](https://learn.microsoft.com/azure/logic-apps/create-single-tenant-workflows-azure-portal#set-up-managed-identity-access-to-your-storage-account). Set `logic_app_hosting_model = "AppServiceEnvironmentV3"` when policy requires `allowSharedKeyAccess = false`. This mode:
+
+- Creates a dedicated subnet `ase_subnet_name` / `ase_subnet_prefix`, delegated to `Microsoft.Web/hostingEnvironments`. The default `/24` VNet is full, so the ASE prefix (default `10.170.1.0/24`) is added as a second VNet address space.
+- Deploys an App Service Environment v3 (internal by default), an Isolated v2 plan (`logic_app_ase_sku_size`) and, for ILB, the `<ase>.appserviceenvironment.net` private DNS zone.
+- Deploys the Logic App via `azapi` (`Microsoft.Web/sites`, kind `functionapp,workflowapp`) because `azurerm_logic_app_standard` always requires a storage key. Runtime storage uses `AzureWebJobsStorage__*` identity settings with the usage UAMI; no content share is created and `shared_access_key_enabled = false`.
+- The existing `snet-citadel-functions` subnet is kept but unused.
+
+Things to plan for:
+
+- **Cost:** an ASE v3 is billed for at least one Windows I1v2 instance even when empty, so it costs considerably more than WS1.
+- **Duration:** first-time ASE creation is slow and can take an hour or more.
+- **Code publish:** with an ILB ASE, `enable_logic_app_code_deploy` pushes the zip to `<app>.scm.<ase>.appserviceenvironment.net`, which is only reachable from inside the VNet. Run `terraform apply` from a VNet-connected agent.
+- **Switching:** switching an existing deployment between hosting models replaces the App Service plan and the Logic App site. The storage account is kept and only its shared-key setting changes.
+- **Cosmos DB:** independent of hosting model, the workflows' Cosmos DB connection uses the Logic App's managed identity and Cosmos key auth is off by default (`cosmos_db_local_auth_enabled`).
 
 ## 6. Feature Flags
 
@@ -138,6 +163,7 @@ Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`).
 | Variable | Type | Default | Notes |
 |---|---|---|---|
 | ☆ `cosmos_db_public_access` | string | `Disabled` | `Enabled`/`Disabled`. |
+| ☆ `cosmos_db_local_auth_enabled` | bool | `false` | Key / connection-string auth on Cosmos DB. `false` = Entra ID (RBAC) only; the Logic App's Cosmos connection uses its system-assigned managed identity. Set `true` only if an external client (e.g. a Power BI report refreshed with the account key) still needs keys. |
 | ☆ `eventhub_network_access` | string | `Enabled` | Must be Enabled on first deploy. |
 | ☆ `ai_foundry_external_access` | bool | `false` | |
 
@@ -313,7 +339,7 @@ Used only when `enable_redis_cache = true`.
 
 | Variable | Type | Default | Notes |
 |---|---|---|---|
-| ☆ `logic_content_share_name` | string | `""` | `WEBSITE_CONTENTSHARE`; auto-derived if blank. |
+| ☆ `logic_content_share_name` | string | `""` | `WEBSITE_CONTENTSHARE`; auto-derived if blank. Ignored with `logic_app_hosting_model = "AppServiceEnvironmentV3"` (no content share). |
 | ☆ `enable_logic_app_code_deploy` | bool | `true` | Zip + publish the Logic App Standard workflows via `az functionapp deployment source config-zip` after infra is ready. Requires the `az` CLI on the deployer (no extra extension). The publish only runs when `logic_app_code_source_path` is non-empty. See [DEPLOYMENT_GUIDE.md §7.8](DEPLOYMENT_GUIDE.md#78-logic-app-workflow-code-on-by-default). |
 | ☆ `logic_app_code_source_path` | string | `""` | Path to the Logic App Standard project folder to publish (the examples use `logicapp-src/usage-ingestion-logicapp`). **Blank disables the workflow-code publish** — there is no vendored fallback path. |
 
@@ -344,7 +370,8 @@ Port of `entra-id-setup/setup.ps1`. When enabled, creates an app registration + 
 
 | Variable | Type | Default | Notes |
 |---|---|---|---|
-| ☆ `enable_foundry_apim_connection` | bool | `false` | Dedicated APIM subscription + per-project connections. |
+| ☆ `enable_foundry_apim_connection` | bool | `false` | Creates the dedicated `foundry-apim-connection` APIM subscription and, in every Foundry project, one `ApiManagement` connection per `foundry_apim_connections` entry (ApiKey = that subscription's key). |
+| ☆ `foundry_apim_connections` | list(object) | Universal LLM API (`/models`, discovery via `/deployments`) | APIs exposed to Foundry projects. Fields mirror the Foundry connection metadata: `api_name`, `api_path`, `connection_name` (default `apim-<apim>-<api>`), `deployment_in_path`, `inference_api_version`, `list_models_endpoint` / `get_model_endpoint` / `deployment_provider` (dynamic discovery) or `static_models`, `custom_headers`. |
 
 ---
 
@@ -371,13 +398,13 @@ Receives the `enable_pii_redaction`, `enable_content_safety`, and `enable_api_ce
 Receives Log Analytics config (new vs existing), `create_dashboards`, and AMPLS settings (`use_azure_monitor_private_link_scope`, subnet/dns zone).
 
 ### [modules/cosmosdb](modules/cosmosdb/variables.tf)
-Receives account name, `cosmos_db_rus` → `throughput_rus`, `cosmos_db_public_access`, subnet/dns wiring, and MI principal.
+Receives account name, `cosmos_db_rus` → `throughput_rus`, `cosmos_db_public_access`, `cosmos_db_local_auth_enabled` → `local_authentication_enabled`, subnet/dns wiring, and MI principal.
 
 ### [modules/eventhub](modules/eventhub/variables.tf)
 Receives namespace name, capacity/partition sizing, `eventhub_network_access`, APIM + Logic App MI principals, and `disaster_recovery_config`.
 
 ### [modules/logic-app](modules/logic-app/variables.tf)
-Consumes `logic_app_sku_tier`/`logic_app_sku_size`, Cosmos/Event Hub endpoints, MI trio, `logic_content_share_name`, PE subnet + DNS zones for the storage account, toggles for storage PEs / Cosmos role / azuremonitorlogs API connection, and the workflow-code publish inputs (`enable_code_deploy`, `code_source_path`) wired from the root `enable_logic_app_code_deploy` / `logic_app_code_source_path`.
+Consumes `logic_app_sku_tier`/`logic_app_sku_size`, the hosting model (`logic_app_hosting_model` → `hosting_model`, plus `logic_app_ase_*` / `ase_*` settings, `module.networking.ase_subnet_id` and `vnet_id`), Cosmos/Event Hub endpoints, MI trio, `logic_content_share_name` (WorkflowStandard only), PE subnet + DNS zones for the storage account, toggles for storage PEs / Cosmos role / azuremonitorlogs API connection, and the workflow-code publish inputs (`enable_code_deploy`, `code_source_path`) wired from the root `enable_logic_app_code_deploy` / `logic_app_code_source_path`.
 
 ### [modules/redis](modules/redis/variables.tf)
 Mirrors all `redis_*` root variables plus `use_private_endpoint`, subnet + DNS zone.
