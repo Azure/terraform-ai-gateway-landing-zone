@@ -230,13 +230,6 @@ variable "jwt_app_registration_id" {
   default = ""
 }
 
-variable "pii_service_key" {
-  description = "Language Service key — only used when MI auth is not available."
-  type        = string
-  sensitive   = true
-  default     = "replace-with-language-service-key-if-needed"
-}
-
 variable "subscription_id" {
   type    = string
 }
@@ -291,20 +284,11 @@ variable "model_aliases" {
   default = []
 }
 
-variable "aws_access_key" { 
-  type = string
-  sensitive = true
-  default = ""
-}
-variable "aws_secret_key" { 
-  type = string
-  sensitive = true
-  default = ""
-}
 variable "aws_region" { 
   type = string
   default = ""
 }
+
 variable "key_vault_name" { 
   type = string
   default = ""

@@ -16,6 +16,13 @@ variable "agent_subnet_name" { type = string }
 variable "agent_subnet_prefix" { type = string }
 variable "apim_network_type" { type = string }
 variable "is_apim_vnet" { type = bool }
+
+# V2 SKUs (StandardV2/PremiumV2) use outbound VNet integration: the APIM subnet
+# is delegated to Microsoft.Web/serverFarms (Bicep parity).
+variable "is_apim_v2" {
+  type    = bool
+  default = false
+}
 variable "create_dns_zones" { type = bool }
 
 # When AMPLS (Azure Monitor Private Link Scope) is NOT enabled, the

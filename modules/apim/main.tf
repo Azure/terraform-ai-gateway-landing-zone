@@ -40,6 +40,12 @@ locals {
   is_vnet_injection = var.apim_network_type != "None" && !var.is_apim_v2
   is_internal       = var.apim_network_type == "Internal"
 
+  # Bicep parity: V2 SKUs always use outbound VNet integration
+  # (virtualNetworkType = External + subnet delegated to Microsoft.Web/serverFarms).
+  # Inbound stays public / private endpoint; apim_network_type is ignored for V2.
+  is_vnet_integration  = var.is_apim_v2
+  virtual_network_type = local.is_vnet_injection ? var.apim_network_type : (local.is_vnet_integration ? "External" : "None")
+
   # APIM logger `endpointAddress` expects hostname (optionally with :port), not a
   # URL. Bicep does: replace(eventHubEndpoint, 'https://', ''). Terraform's
   # azurerm_api_management_logger.eventhub.endpoint_uri is forwarded verbatim,
@@ -81,15 +87,15 @@ resource "azurerm_api_management" "citadel" {
     identity_ids = [var.managed_identity_id]
   }
 
-  # VNet integration for Developer/Premium SKUs (non-V2).
+  # VNet injection for Developer/Premium SKUs; outbound VNet integration for V2 SKUs.
   dynamic "virtual_network_configuration" {
-    for_each = local.is_vnet_injection ? [1] : []
+    for_each = local.is_vnet_injection || local.is_vnet_integration ? [1] : []
     content {
       subnet_id = var.apim_subnet_id
     }
   }
 
-  virtual_network_type = local.is_vnet_injection ? var.apim_network_type : "None"
+  virtual_network_type = local.virtual_network_type
 
   # Bicep parity: customProperties — TLS/cipher hardening.
   # Disable TLS 1.0 / 1.1 / SSL 3.0 on both frontend and backend.

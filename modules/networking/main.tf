@@ -157,9 +157,9 @@ resource "azurerm_network_security_group" "apim" {
     }
   }
 
-  # Outbound: Key Vault
+  # Outbound: Key Vault (also required for V2 VNet integration)
   dynamic "security_rule" {
-    for_each = var.is_apim_vnet ? [1] : []
+    for_each = var.is_apim_vnet || var.is_apim_v2 ? [1] : []
     content {
       name                       = "AllowKeyVault"
       priority                   = 3020
@@ -219,6 +219,18 @@ resource "azurerm_subnet" "apim" {
   virtual_network_name = azurerm_virtual_network.citadel[0].name
   address_prefixes     = [var.apim_subnet_prefix]
   service_endpoints    = ["Microsoft.CognitiveServices"]
+
+  # V2 SKUs: outbound VNet integration requires a dedicated subnet delegated to Microsoft.Web/serverFarms.
+  dynamic "delegation" {
+    for_each = var.is_apim_v2 ? [1] : []
+    content {
+      name = "delegation-apim-v2"
+      service_delegation {
+        name    = "Microsoft.Web/serverFarms"
+        actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
+      }
+    }
+  }
 }
 
 resource "azurerm_subnet_network_security_group_association" "apim" {

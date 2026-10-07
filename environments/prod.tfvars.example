@@ -281,7 +281,6 @@ ms_learn_mcp_backend_url  = "https://learn.microsoft.com/api/mcp"
 enable_jwt_auth           = false # flip to true to enable JWT auth in APIM; requires Entra app registration or other JWT issuer
 jwt_tenant_id             = "YOUR-ENTRA-TENANT-ID"
 jwt_app_registration_id   = "YOUR-ENTRA-CLIENT-ID"
-pii_service_key           = "replace-with-language-service-key-if-needed"
 azure_login_endpoint      = "https://login.microsoftonline.com/"
 
 # -----------------------------------------------------------------------------

@@ -81,15 +81,16 @@ variable "model_aliases" {
   default = []
 }
 
-variable "aws_access_key" { 
-  type = string
-  sensitive = true
-  default = ""
+variable "aws_access_key_secret_uri" {
+  description = "Versionless Key Vault secret URI holding the AWS access key ID. Empty = NOT_CONFIGURED placeholder."
+  type        = string
+  default     = ""
 }
-variable "aws_secret_key" { 
-  type = string
-  sensitive = true
-  default = ""
+
+variable "aws_secret_key_secret_uri" {
+  description = "Versionless Key Vault secret URI holding the AWS secret access key. Empty = NOT_CONFIGURED placeholder."
+  type        = string
+  default     = ""
 }
 variable "aws_region" { 
   type = string

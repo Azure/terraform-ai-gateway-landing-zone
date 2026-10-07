@@ -172,9 +172,13 @@ policy or fragment that references them. Declared in two files:
 | `contentSafetyServiceUrl` | [main.tf](modules/apim/main.tf) | `var.content_safety_endpoint` (count-gated on content safety) |
 | `tenant-id`, `client-id`, `audience`, `entra-auth` | [main.tf](modules/apim/main.tf) | `var.entra_*` with safe placeholder fallbacks |
 | `JWT-TenantId`, `JWT-AppRegistrationId`, `JWT-Issuer`, `JWT-OpenIdConfigUrl` | [named-values-extras.tf](modules/apim/named-values-extras.tf) | `var.jwt_*` or `not-configured` |
-| `piiServiceKey` (secret) | [named-values-extras.tf](modules/apim/named-values-extras.tf) | `var.pii_service_key` |
-| `aws-access-key`, `aws-secret-key` (secret), `aws-region` | [named-values-extras.tf](modules/apim/named-values-extras.tf) | `var.aws_*` or `NOT_CONFIGURED` — always created so the `set-backend-authorization` fragment compiles even without an AWS Bedrock backend |
-| `backend_api_key` (per-backend, secret) | [named-values-extras.tf](modules/apim/named-values-extras.tf) | One per backend whose `auth_config.named_value_key` is set; a Key Vault reference when `key_vault_secret_uri` is supplied, otherwise an explicit value |
+| `aws-access-key`, `aws-secret-key`, `aws-region` | [named-values-extras.tf](modules/apim/named-values-extras.tf) | Non-secret `NOT_CONFIGURED` placeholders — always created so the `set-backend-authorization` fragment compiles even without an AWS Bedrock backend. `lifecycle.ignore_changes` lets [llm-backend-onboarding](llm-backend-onboarding/main.tf) own the real values (Key Vault references) |
+| `backend_api_key` (per-backend) | [llm-backend-onboarding/main.tf](llm-backend-onboarding/main.tf) | One per backend whose `auth_config.named_value_key` is set; a secret Key Vault reference when `key_vault_secret_uri` is supplied, otherwise an explicit `secret_value` (testing only, non-compliant) or a non-secret `NOT_CONFIGURED` placeholder |
+
+Secret named values are only ever created as Key Vault references (resolved
+via the APIM user-assigned identity) to satisfy the Azure Policy *API
+Management secret named values should be stored in Azure Key Vault*; the
+sole exception is the testing-only `backend_api_key` `secret_value` path.
 
 Every static-fragment resource declares `depends_on` on **all** named
 values above so APIM can resolve `{{…}}` tokens at fragment-create time.
@@ -298,7 +302,7 @@ Terraform's graph resolves to roughly this order inside the APIM module:
 
 ```text
 1. azurerm_api_management.citadel
-2. Named values (uami, pii, content-safety, entra-*, JWT-*, piiServiceKey)
+2. Named values (uami, pii, content-safety, entra-*, JWT-*, aws-*)
 3. azurerm_api_management_policy_fragment.static            (for_each map)
    azurerm_api_management_policy_fragment.set_backend_pools  (dynamic)
    azurerm_api_management_policy_fragment.get_available_models
@@ -329,7 +333,7 @@ about `<include-fragment>` text inside an XML file.
 |---|---|---|
 | `enable_unified_ai_api` | Creates 4 unified-AI fragments (`central-cache-manager`, `request-processor`, `path-builder`, `set-response-headers`) | Creates unified-AI API + its policy + 2 op policies + product + product policy |
 | `enable_pii_anonymization` | Creates 3 PII fragments via `azapi_resource.pii_fragment` | No direct policy; referenced from universal-llm + unified-ai |
-| `enable_pii_redaction` | — | Creates `piiServiceUrl` + `piiServiceKey` named values + `pii-usage-eventhub-logger` |
+| `enable_pii_redaction` | — | Creates `piiServiceUrl` named value + `pii-usage-eventhub-logger` (Language service auth uses the APIM managed identity) |
 | `enable_content_safety` | — | Creates `contentSafetyServiceUrl` named value + content-safety backend |
 | `enable_jwt_auth` | — | Populates 4 JWT-* named values (else placeholders) |
 | `enable_azure_ai_search` | — | Creates `azure-ai-search-index-api` + its policy + `ai_search` backends |
@@ -396,4 +400,4 @@ It creates:
 - `azapi_resource.llm_backend` (`Microsoft.ApiManagement/service/backends@2024-06-01-preview`) per backend, with circuit-breaker rules gated on `var.configure_circuit_breaker`, and `<model>-backend-pool`s for any model served by 2+ backends.
 - The 3 dynamic fragments (`set-backend-pools`, `get-available-models`, `metadata-config`) plus `resolve-model-alias`, all with `var.model_aliases` support.
 - A focused static-fragment set: `set-backend-authorization`, `set-target-backend-pool`, `set-llm-requested-model`, `set-llm-usage`, `validate-model-access`, `responses-id-security`, `responses-id-cache-store`.
-- Named values `aws-access-key` / `aws-secret-key` / `aws-region` (AWS Bedrock auth, `NOT_CONFIGURED` defaults) and a per-backend `backend_api_key` named value (Key Vault reference or explicit value) for each backend with `auth_config.named_value_key`.
+- Named values `aws-access-key` / `aws-secret-key` (Key Vault references via `aws_access_key_secret_uri` / `aws_secret_key_secret_uri`, otherwise non-secret `NOT_CONFIGURED` placeholders) and `aws-region` (AWS Bedrock auth), and a per-backend `backend_api_key` named value (Key Vault reference or explicit value) for each backend with `auth_config.named_value_key`.

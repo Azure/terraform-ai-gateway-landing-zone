@@ -81,7 +81,7 @@ Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`).
 | ☆ `existing_vnet_rg` | string | `""` | Required when `use_existing_vnet=true`. |
 | ☆ `vnet_name` | string | `""` | Existing VNet or name for new one. |
 | ☆ `vnet_address_prefix` | string | `10.170.0.0/24` | Only for greenfield. |
-| ☆ `apim_subnet_name` | string | `snet-citadel-apim` | |
+| ☆ `apim_subnet_name` | string | `snet-citadel-apim` | V2 SKUs: dedicated to APIM outbound VNet integration and delegated to `Microsoft.Web/serverFarms` (automatic for a new VNet; with `use_existing_vnet=true` the subnet must already be empty and delegated). |
 | ☆ `apim_subnet_prefix` | string | `10.170.0.0/26` | |
 | ☆ `private_endpoint_subnet_name` | string | `snet-citadel-pe` | |
 | ☆ `private_endpoint_subnet_prefix` | string | `10.170.0.64/26` | |
@@ -90,7 +90,7 @@ Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`).
 | ☆ `enable_agent_subnet` | bool | `true` | Create a dedicated subnet for Foundry agent network injection. |
 | ☆ `agent_subnet_name` | string | `snet-agents` | Agent subnet name. |
 | ☆ `agent_subnet_prefix` | string | `10.170.0.192/26` | Agent subnet address prefix (for new VNet). |
-| ☆ `apim_network_type` | string | `External` | `External`, `Internal`, or `None`. V1 SKUs only. |
+| ☆ `apim_network_type` | string | `External` | `External`, `Internal`, or `None`. Developer/Premium only (VNet injection). Ignored for V2 SKUs, which always use outbound VNet integration on the APIM subnet (Bicep parity). Inbound access for V2 is controlled by `apim_v2_use_private_endpoint` / `apim_v2_public_network_access`. |
 | ☆ `apim_v2_use_private_endpoint` | bool | `true` | V2 SKUs: create private endpoint. |
 | ☆ `apim_v2_public_network_access` | bool | `true` | V2 SKUs: allow public plane. |
 | ☆ `dns_zone_rg` | string | `""` | Existing private DNS zones RG. |
@@ -327,7 +327,6 @@ Used only when `enable_redis_cache = true`.
 | ☆ `enable_jwt_auth` | bool | `false` | Populate JWT-* named values. |
 | ☆ `jwt_tenant_id` | string | `""` | |
 | ☆ `jwt_app_registration_id` | string | `""` | |
-| ☆🔒 `pii_service_key` | string | `"replace-with-language-service-key-if-needed"` | Only when MI auth unavailable. |
 | ☆ `azure_login_endpoint` | string | `https://login.microsoftonline.com/` | For sovereign clouds. |
 
 ## 21. Entra ID Add-On (App Registration)
@@ -357,7 +356,7 @@ Sub-modules are not configured directly — their inputs are wired from root var
 Consumes the full LLM/policy surface plus APIM-specific identity + eventhub wiring. All user-facing toggles (`enable_*`, `llm_backend_config`, `entra_*`, `jwt_*`, `configure_circuit_breaker`, MCP URLs, API-Center onboarding) flow through from root.
 
 ### [modules/networking](modules/networking/variables.tf)
-Consumes `use_existing_vnet`, VNet/subnet names + prefixes, `apim_network_type`, DNS zone configuration, and the computed `is_apim_vnet` / `create_dns_zones` flags.
+Consumes `use_existing_vnet`, VNet/subnet names + prefixes, `apim_network_type`, DNS zone configuration, and the computed `is_apim_vnet` / `is_apim_v2` / `create_dns_zones` flags.
 
 ### [modules/security](modules/security/variables.tf)
 Receives Key Vault naming/SKU, soft-delete/purge/RBAC toggles, tenant + deployer + MI object IDs, and Foundry principal IDs for RBAC grants.
