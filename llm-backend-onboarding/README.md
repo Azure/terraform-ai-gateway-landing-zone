@@ -46,7 +46,7 @@ This module enables dynamic LLM backend routing without modifying APIM policies:
   - Store the AWS access key ID and secret access key as secrets in Azure Key Vault, and grant APIM's user-assigned managed identity `Key Vault Secrets User` on that vault (already granted on the landing-zone Key Vault)
   - Provide `aws_access_key_secret_uri`, `aws_secret_key_secret_uri` (versionless Key Vault secret URIs), and `aws_region` when deploying — the keys become Key Vault–referenced secret APIM named values (`aws-access-key`, `aws-secret-key`), compliant with the Azure Policy *API Management secret named values should be stored in Azure Key Vault*; `aws-region` is a plain named value
   - If these variables are not provided, the named values are created as non-secret `NOT_CONFIGURED` placeholders and the gateway returns a `500 AWSCredentialsNotConfigured` error at runtime when a Bedrock backend is invoked
-- Terraform >= 1.5 and Azure CLI installed
+- Terraform >= 1.11 and Azure CLI installed
 - Authenticated to Azure (`az login`)
 
 ## Quick Start
@@ -710,24 +710,11 @@ llm-backend-onboarding/
 ├── main.tf                    # Backends, pools, policy fragments
 ├── variables.tf               # Input variables
 ├── outputs.tf                 # Output values
-├── versions.tf                # Terraform & provider versions
+├── terraform.tf               # Terraform & provider versions
+├── tests/unit/                # Mocked unit tests (terraform test -test-directory=tests/unit)
 ├── providers.tf               # Provider configuration
 ├── terraform.tfvars.example   # Example configuration
-├── policies/                  # Policy fragment XML templates + OpenAPI specs
-│   ├── frag-set-backend-pools.xml          # dynamic (backend pools code-gen)
-│   ├── frag-get-available-models.xml       # dynamic (model + alias discovery)
-│   ├── frag-metadata-config.xml            # dynamic (model mapping + aliases)
-│   ├── frag-resolve-model-alias.xml        # dynamic (inline alias map)
-│   ├── frag-set-backend-authorization.xml
-│   ├── frag-set-target-backend-pool.xml
-│   ├── frag-set-llm-requested-model.xml
-│   ├── frag-set-llm-usage.xml
-│   ├── frag-validate-model-access.xml
-│   ├── frag-responses-id-security.xml
-│   ├── frag-responses-id-cache-store.xml
-│   ├── universal-llm-api-policy.xml
-│   ├── universal-llm-openapi.json
-│   └── models-inference-openapi.json
+├── (policies)                 # Fragment XML is read from ../modules/apim/policies (single copy, shared)
 ├── scripts/
 │   ├── deploy.sh              # Deployment automation (Bash)
 │   ├── deploy.ps1             # Deployment automation (PowerShell)

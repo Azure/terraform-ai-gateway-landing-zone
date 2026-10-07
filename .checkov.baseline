@@ -1,0 +1,90 @@
+{
+    "failed_checks": [
+        {
+            "file": "/modules/apim/backends.tf",
+            "findings": [
+                {
+                    "resource": "module.apim.azurerm_api_management_backend.ai_search",
+                    "check_ids": [
+                        "CKV_AZURE_215"
+                    ]
+                }
+            ]
+        },
+        {
+            "file": "/modules/apim/main.tf",
+            "findings": [
+                {
+                    "resource": "module.apim.azurerm_api_management.citadel",
+                    "check_ids": [
+                        "CKV_AZURE_174"
+                    ]
+                }
+            ]
+        },
+        {
+            "file": "/modules/cosmosdb/main.tf",
+            "findings": [
+                {
+                    "resource": "module.cosmosdb.azurerm_cosmosdb_account.citadel",
+                    "check_ids": [
+                        "CKV_AZURE_100",
+                        "CKV_AZURE_140"
+                    ]
+                }
+            ]
+        },
+        {
+            "file": "/modules/logic-app/main.tf",
+            "findings": [
+                {
+                    "resource": "module.logic_app.azurerm_service_plan.logic_app",
+                    "check_ids": [
+                        "CKV_AZURE_225"
+                    ]
+                },
+                {
+                    "resource": "module.logic_app.azurerm_storage_account.logic_app",
+                    "check_ids": [
+                        "CKV2_AZURE_1",
+                        "CKV2_AZURE_38",
+                        "CKV2_AZURE_40",
+                        "CKV2_AZURE_41",
+                        "CKV_AZURE_206",
+                        "CKV_AZURE_33",
+                        "CKV_AZURE_59"
+                    ]
+                }
+            ]
+        },
+        {
+            "file": "/modules/networking/main.tf",
+            "findings": [
+                {
+                    "resource": "module.networking.azurerm_subnet.agent[0]",
+                    "check_ids": [
+                        "CKV2_AZURE_31"
+                    ]
+                },
+                {
+                    "resource": "module.networking.azurerm_subnet.apim[0]",
+                    "check_ids": [
+                        "CKV2_AZURE_31"
+                    ]
+                },
+                {
+                    "resource": "module.networking.azurerm_subnet.logic_app[0]",
+                    "check_ids": [
+                        "CKV2_AZURE_31"
+                    ]
+                },
+                {
+                    "resource": "module.networking.azurerm_subnet.pe[0]",
+                    "check_ids": [
+                        "CKV2_AZURE_31"
+                    ]
+                }
+            ]
+        }
+    ]
+}

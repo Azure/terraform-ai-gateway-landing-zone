@@ -208,7 +208,7 @@ success "All resource providers registered."
 echo ""
 info "Initialising Terraform..."
 cd "$ROOT_DIR"
-terraform init -upgrade -reconfigure
+terraform init -reconfigure
 success "Terraform initialised."
 
 # --- Terraform validate ---

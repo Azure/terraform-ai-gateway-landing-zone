@@ -40,7 +40,9 @@ provider "azurerm" {
   )
 }
 
-provider "azapi" {}
+provider "azapi" {
+  subscription_id = var.subscription_id
+}
 
 provider "azuread" {}
 

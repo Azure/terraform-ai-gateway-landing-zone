@@ -41,9 +41,9 @@ variable "llm_backend_config" {
     backend_id   = string
     backend_type = string
     endpoint     = string
-    auth_scheme  = optional(string)  # legacy, retained
-    auth_type    = optional(string)  # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
-    auth_config  = optional(object({
+    auth_scheme  = optional(string) # legacy, retained
+    auth_type    = optional(string) # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
+    auth_config = optional(object({
       named_value_key      = optional(string)
       key_vault_secret_uri = optional(string)
       secret_value         = optional(string)
@@ -92,11 +92,8 @@ variable "aws_secret_key_secret_uri" {
   type        = string
   default     = ""
 }
-variable "aws_region" { 
-  type = string
-  default = ""
-}
-variable "key_vault_name" { 
-  type = string
-  default = ""
+variable "aws_region" {
+  description = "AWS region for AWS Bedrock backends (written to the aws-region APIM named value)."
+  type        = string
+  default     = ""
 }

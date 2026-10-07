@@ -98,9 +98,11 @@ ase_create_private_dns_zone      = true
 apim_sku       = "Developer"
 apim_sku_units = 1
 
-cosmos_db_rus            = 400
+# DEPRECATED (ignored, see variables.tf): cosmos_db_rus
+# cosmos_db_rus            = 400
 eventhub_capacity_units  = 1
-eventhub_partition_count = 2
+# DEPRECATED (ignored, see variables.tf): eventhub_partition_count
+# eventhub_partition_count = 2
 
 # PHASE A: "WorkflowStandard"   PHASE B: "AppServiceEnvironmentV3"
 logic_app_hosting_model    = "WorkflowStandard"

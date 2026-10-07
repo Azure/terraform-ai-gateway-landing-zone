@@ -38,7 +38,7 @@ if (-not (Get-Command terraform -ErrorAction SilentlyContinue)) { Write-Err 'ter
 if (-not (Test-Path $TfvarsFile)) { Write-Err "Vars file not found: $TfvarsFile" }
 
 Set-Location $RootDir
-terraform init -upgrade *> $null
+terraform init *> $null
 
 if ($AutoApprove -ne '--auto-approve') {
     $confirm = Read-Host "Type the environment name '$Environment' to confirm destruction"

@@ -67,7 +67,7 @@ echo ""
 echo "════════════════════════════════════════════════════════"
 echo "  ✅  Remote state backend is ready!"
 echo ""
-echo "  Uncomment and update the backend block in versions.tf:"
+echo "  Uncomment and update the backend block in terraform.tf:"
 echo ""
 echo '  backend "azurerm" {'
 echo "    resource_group_name  = \"${RG_NAME}\""

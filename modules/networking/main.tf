@@ -350,6 +350,43 @@ resource "azurerm_subnet_network_security_group_association" "ase" {
 }
 
 # -----------------------------------------------------------------------------
+# NSGs FOR THE PRIVATE-ENDPOINT AND LOGIC APP SUBNETS (opt-in, Phase 0 draft)
+# Azure Landing Zone policy Deny-Subnet-Without-Nsg requires an NSG on every
+# subnet. Associating an NSG with an existing subnet is allowed, so existing
+# deployments can turn this on in place. The AVM-based network stack (Phase 2,
+# WP-2.6) creates the NSG inline with the subnet, which new ALZ deployments need.
+# No rules are added: the default NSG rules keep today's behaviour.
+# -----------------------------------------------------------------------------
+
+resource "azurerm_network_security_group" "pe" {
+  count               = !var.use_existing_vnet && var.nsg_on_all_subnets ? 1 : 0
+  name                = "nsg-${var.pe_subnet_name}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  tags                = var.tags
+}
+
+resource "azurerm_subnet_network_security_group_association" "pe" {
+  count                     = !var.use_existing_vnet && var.nsg_on_all_subnets ? 1 : 0
+  subnet_id                 = azurerm_subnet.pe[0].id
+  network_security_group_id = azurerm_network_security_group.pe[0].id
+}
+
+resource "azurerm_network_security_group" "logic_app" {
+  count               = !var.use_existing_vnet && var.nsg_on_all_subnets ? 1 : 0
+  name                = "nsg-${var.logic_app_subnet_name}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  tags                = var.tags
+}
+
+resource "azurerm_subnet_network_security_group_association" "logic_app" {
+  count                     = !var.use_existing_vnet && var.nsg_on_all_subnets ? 1 : 0
+  subnet_id                 = azurerm_subnet.logic_app[0].id
+  network_security_group_id = azurerm_network_security_group.logic_app[0].id
+}
+
+# -----------------------------------------------------------------------------
 # PRIVATE DNS ZONES (create new if needed)
 # -----------------------------------------------------------------------------
 

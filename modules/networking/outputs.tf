@@ -1,17 +1,21 @@
 output "vnet_id" {
-  value = var.use_existing_vnet ? data.azurerm_virtual_network.existing[0].id : azurerm_virtual_network.citadel[0].id
+  description = "Resource ID of the virtual network (created or existing)."
+  value       = var.use_existing_vnet ? data.azurerm_virtual_network.existing[0].id : azurerm_virtual_network.citadel[0].id
 }
 
 output "apim_subnet_id" {
-  value = var.use_existing_vnet ? data.azurerm_subnet.existing_apim[0].id : azurerm_subnet.apim[0].id
+  description = "Resource ID of the APIM subnet."
+  value       = var.use_existing_vnet ? data.azurerm_subnet.existing_apim[0].id : azurerm_subnet.apim[0].id
 }
 
 output "pe_subnet_id" {
-  value = var.use_existing_vnet ? data.azurerm_subnet.existing_pe[0].id : azurerm_subnet.pe[0].id
+  description = "Resource ID of the private-endpoint subnet."
+  value       = var.use_existing_vnet ? data.azurerm_subnet.existing_pe[0].id : azurerm_subnet.pe[0].id
 }
 
 output "logic_app_subnet_id" {
-  value = var.use_existing_vnet ? data.azurerm_subnet.existing_logic_app[0].id : azurerm_subnet.logic_app[0].id
+  description = "Resource ID of the Logic App integration subnet."
+  value       = var.use_existing_vnet ? data.azurerm_subnet.existing_logic_app[0].id : azurerm_subnet.logic_app[0].id
 }
 
 output "dns_zone_ids" {
@@ -41,20 +45,30 @@ output "dns_zone_ids" {
 }
 
 output "agent_subnet_id" {
+  description = "Resource ID of the Foundry agent subnet (empty when disabled)."
   value = var.enable_agent_subnet ? (
     var.use_existing_vnet
-      ? try(data.azurerm_subnet.existing_agent[0].id, "")
-      : try(azurerm_subnet.agent[0].id, "")
+    ? try(data.azurerm_subnet.existing_agent[0].id, "")
+    : try(azurerm_subnet.agent[0].id, "")
   ) : ""
 }
 output "agent_subnet_name" {
-  value = var.enable_agent_subnet ? var.agent_subnet_name : ""
+  description = "Name of the Foundry agent subnet (empty when disabled)."
+  value       = var.enable_agent_subnet ? var.agent_subnet_name : ""
 }
 
 output "ase_subnet_id" {
+  description = "Resource ID of the ASE v3 subnet (empty when disabled)."
   value = var.enable_ase_subnet ? (
     var.use_existing_vnet
     ? data.azurerm_subnet.existing_ase[0].id
     : azurerm_subnet.ase[0].id
   ) : ""
+}
+output "subnet_nsg_names" {
+  description = "Names of the NSGs attached to the private-endpoint and Logic App subnets (null when nsg_on_all_subnets = false)."
+  value = {
+    pe        = one(azurerm_network_security_group.pe[*].name)
+    logic_app = one(azurerm_network_security_group.logic_app[*].name)
+  }
 }

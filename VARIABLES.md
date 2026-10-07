@@ -96,8 +96,9 @@ Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`).
 | ☆ `apim_v2_use_private_endpoint` | bool | `true` | V2 SKUs: create private endpoint. |
 | ☆ `apim_v2_public_network_access` | bool | `true` | V2 SKUs: allow public plane. |
 | ☆ `dns_zone_rg` | string | `""` | Existing private DNS zones RG. |
-| ☆ `dns_subscription_id` | string | `""` | Cross-sub DNS zones. |
+| ☆ `dns_subscription_id` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). Cross-subscription lookup was never implemented; pass full zone IDs in `existing_private_dns_zones`. |
 | ☆ `existing_private_dns_zones` | map(string) | `{}` | Map zone→resource ID. |
+| ☆ `nsg_on_all_subnets` | bool | `false` | Also attach NSGs to the private-endpoint and Logic App subnets, so every subnet has one (Azure Landing Zone `Deny-Subnet-Without-Nsg`). Safe to turn on for an existing VNet. |
 
 ## 5. Compute SKU & Sizing
 
@@ -107,11 +108,11 @@ Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`).
 | ☆ `apim_sku_units` | number | `1` | Scale units. |
 | ☆ `apim_publisher_email` | string | `admin@contoso.com` | |
 | ☆ `apim_publisher_name` | string | `AI Citadel Admin` | |
-| ☆ `cosmos_db_rus` | number | `400` | Provisioned RU/s. |
+| ☆ `cosmos_db_rus` | number | `null` | **Deprecated — ignored** (warns if set; removed next major). Cosmos DB is serverless. |
 | ☆ `eventhub_capacity_units` | number | `1` | |
-| ☆ `eventhub_partition_count` | number | `4` | |
+| ☆ `eventhub_partition_count` | number | `null` | **Deprecated — ignored** (warns if set; removed next major). Partitions are fixed (ai-usage 4, pii-usage 2); changing them would recreate the hubs. |
 | ☆ `eventhub_disaster_recovery_config` | object | `null` | `{partner_namespace_id, alias}` for geo-DR pairing. |
-| ☆ `logic_app_sku_tier` | string | `WorkflowStandard` | |
+| ☆ `logic_app_sku_tier` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). The tier follows `logic_app_sku_size` / `logic_app_hosting_model`. |
 | ☆ `logic_app_sku_size` | string | `WS1` | `WS1`/`WS2`/`WS3`. Used only with `logic_app_hosting_model = "WorkflowStandard"`. |
 | ☆ `logic_app_hosting_model` | string | `WorkflowStandard` | `WorkflowStandard` (WS plan + regional VNet integration; storage account **must keep shared-key access** for the Azure Files content share) or `AppServiceEnvironmentV3` (Isolated v2 plan in a dedicated ASE v3; runtime storage via the usage UAMI, no content share, **shared-key access disabled**). See [Logic App hosting on ASE v3](#logic-app-hosting-on-ase-v3). |
 | ☆ `logic_app_ase_sku_size` | string | `I1v2` | Isolated v2 SKU (`I1v2`–`I6v2`, `I1mv2`–`I5mv2`). ASE v3 only. |
@@ -119,8 +120,8 @@ Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`).
 | ☆ `ase_internal_load_balancing_mode` | string | `Web, Publishing` | `Web, Publishing` = internal (ILB) ASE; `None` = external (public VIP). |
 | ☆ `ase_zone_redundant` | bool | `false` | Zone-redundant ASE v3 (region must support AZs; raises minimum billed instances). |
 | ☆ `ase_create_private_dns_zone` | bool | `true` | ILB ASE only: create `<ase>.appserviceenvironment.net` (`*`, `*.scm`, `@` → ILB IP) and link it to the VNet. Set `false` when DNS is centralised in a hub. |
-| ☆ `language_service_sku` | string | `S` | |
-| ☆ `content_safety_sku` | string | `S0` | |
+| ☆ `language_service_sku` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). No Language resource is deployed; PII uses Foundry. |
+| ☆ `content_safety_sku` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). No Content Safety resource is deployed; content safety uses Foundry. |
 | ☆ `api_center_sku` | string | `Free` | |
 
 ### Logic App hosting on ASE v3
@@ -175,7 +176,7 @@ Things to plan for:
 | ☆ `entra_tenant_id` | string | `""` | |
 | ☆ `entra_client_id` | string | `""` | Application (client) ID. |
 | ☆ `entra_audience` | string | `""` | JWT `aud`. |
-| ☆🔒 `entra_client_secret` | string | `""` | Persisted to Key Vault if set. |
+| ☆🔒 `entra_client_secret` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). The Entra module generates and rotates its own secret. |
 
 ## 10. AI Foundry
 
@@ -277,8 +278,8 @@ extra_llm_backends = [
 |---|---|---|---|
 | ☆ `apim_log_verbosity` | string | `information` | `verbose`/`information`/`error`. |
 | ☆ `apim_log_body_bytes` | number | `8192` | Body bytes per log entry. |
-| ☆ `azure_monitor_log_settings` | object | `{}` | `{enabled, log_request_body_bytes, log_response_body_bytes}`. |
-| ☆ `app_insights_log_settings` | object | `{}` | + `sampling_percentage`. |
+| ☆ `azure_monitor_log_settings` | object | `null` | **Deprecated — ignored** (warns if set; removed next major). Use `extra_api_log_settings`. |
+| ☆ `app_insights_log_settings` | object | `null` | **Deprecated — ignored** (warns if set; removed next major). Use `extra_api_log_settings`. |
 
 ## 13. Redis (Azure Managed Redis)
 
@@ -301,7 +302,7 @@ Used only when `enable_redis_cache = true`.
 | ☆ `enable_azure_ai_search` | bool | `false` | AI Search Index API. |
 | ☆ `enable_openai_realtime` | bool | `false` | Realtime WebSocket API. |
 | ☆ `enable_unified_ai_api` | bool | `false` | Wildcard Unified AI API. |
-| ☆ `enable_ai_gateway_pii_redaction` | bool | `false` | PII redaction inside gateway. |
+| ☆ `enable_ai_gateway_pii_redaction` | bool | `null` | **Deprecated — ignored** (warns if set; removed next major). Use `enable_pii_redaction`. |
 | ☆ `is_mcp_sample_deployed` | bool | `false` | Sample MCP API + weather backend. |
 
 ## 15. API Center
@@ -331,7 +332,7 @@ Used only when `enable_redis_cache = true`.
 
 | Variable | Type | Default | Notes |
 |---|---|---|---|
-| ☆ `primary_foundry_embedding_model_name` | string | `""` | For semantic-cache embeddings backend. |
+| ☆ `primary_foundry_embedding_model_name` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). Use `enable_embeddings_backend` + `embeddings_backend_url`. |
 | ☆ `enable_embeddings_backend` | bool | `false` | Register embeddings backend in APIM. |
 | ☆ `embeddings_backend_url` | string | `""` | Used only when flag above is true. |
 
@@ -398,22 +399,19 @@ Receives the `enable_pii_redaction`, `enable_content_safety`, and `enable_api_ce
 Receives Log Analytics config (new vs existing), `create_dashboards`, and AMPLS settings (`use_azure_monitor_private_link_scope`, subnet/dns zone).
 
 ### [modules/cosmosdb](modules/cosmosdb/variables.tf)
-Receives account name, `cosmos_db_rus` → `throughput_rus`, `cosmos_db_public_access`, `cosmos_db_local_auth_enabled` → `local_authentication_enabled`, subnet/dns wiring, and MI principal.
+Receives account name, `cosmos_db_public_access`, `cosmos_db_local_auth_enabled` → `local_authentication_enabled`, subnet/dns wiring, and MI principal.
 
 ### [modules/eventhub](modules/eventhub/variables.tf)
-Receives namespace name, capacity/partition sizing, `eventhub_network_access`, APIM + Logic App MI principals, and `disaster_recovery_config`.
+Receives namespace name, capacity sizing, `eventhub_network_access`, APIM + Logic App MI principals, and `disaster_recovery_config`.
 
 ### [modules/logic-app](modules/logic-app/variables.tf)
-Consumes `logic_app_sku_tier`/`logic_app_sku_size`, the hosting model (`logic_app_hosting_model` → `hosting_model`, plus `logic_app_ase_*` / `ase_*` settings, `module.networking.ase_subnet_id` and `vnet_id`), Cosmos/Event Hub endpoints, MI trio, `logic_content_share_name` (WorkflowStandard only), PE subnet + DNS zones for the storage account, toggles for storage PEs / Cosmos role / azuremonitorlogs API connection, and the workflow-code publish inputs (`enable_code_deploy`, `code_source_path`) wired from the root `enable_logic_app_code_deploy` / `logic_app_code_source_path`.
+Consumes `logic_app_sku_size`, the hosting model (`logic_app_hosting_model` → `hosting_model`, plus `logic_app_ase_*` / `ase_*` settings, `module.networking.ase_subnet_id` and `vnet_id`), Cosmos/Event Hub endpoints, MI trio, `logic_content_share_name` (WorkflowStandard only), PE subnet + DNS zones for the storage account, toggles for storage PEs / Cosmos role / azuremonitorlogs API connection, and the workflow-code publish inputs (`enable_code_deploy`, `code_source_path`) wired from the root `enable_logic_app_code_deploy` / `logic_app_code_source_path`.
 
 ### [modules/redis](modules/redis/variables.tf)
 Mirrors all `redis_*` root variables plus `use_private_endpoint`, subnet + DNS zone.
 
 ### [modules/entra-id](modules/entra-id/variables.tf)
 Mirrors `enable_entra_id_setup`, `entra_app_display_name_prefix`, `entra_client_secret_name`, `entra_client_secret_rotation_days`, and receives the Key Vault ID.
-
-### [modules/access-contracts](modules/access-contracts/variables.tf)
-Not wired from root in the current deployment; used as a standalone per-use-case onboarding module. Accepts `use_case`, `api_name_mapping`, `services[]`, and optional Key Vault / Foundry connection targets.
 
 ---
 

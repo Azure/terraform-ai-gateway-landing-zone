@@ -25,6 +25,10 @@ data "azurerm_api_management" "citadel" {
 # -----------------------------------------------------------------------------
 
 locals {
+  # Single source of truth for policy XML: the fragments are shared with modules/apim
+  # until ownership moves to this stack (review §7.8). No duplicated copies here.
+  policies_dir = "${path.module}/../modules/apim/policies"
+
   # Normalize LLM backends — extract per-model name lists for pool grouping.
   llm_backends_normalized = [
     for b in var.llm_backend_config : {
@@ -47,11 +51,11 @@ locals {
   model_to_backends_pairs = flatten([
     for b in local.llm_backends_normalized : [
       for m in b.model_names : {
-        model        = m
-        backend_id   = b.backend_id
-        backend_type = b.backend_type
-        priority     = b.priority
-        weight       = b.weight
+        model                   = m
+        backend_id              = b.backend_id
+        backend_type            = b.backend_type
+        priority                = b.priority
+        weight                  = b.weight
         auth_type               = b.auth_type
         auth_config_named_value = b.auth_config_named_value
       }
@@ -82,16 +86,16 @@ locals {
   # Unified "allPools" list that the C#-code-gen fragments consume.
   all_pools = concat(
     [for pool_name, cfg in local.pool_configs : {
-      pool_name        = pool_name
-      pool_type        = length(cfg.backends) > 0 ? cfg.backends[0].backend_type : "mixed"
-      supported_models = [cfg.model_name]
+      pool_name               = pool_name
+      pool_type               = length(cfg.backends) > 0 ? cfg.backends[0].backend_type : "mixed"
+      supported_models        = [cfg.model_name]
       auth_type               = length(cfg.backends) > 0 ? cfg.backends[0].auth_type : ""
       auth_config_named_value = length(cfg.backends) > 0 ? cfg.backends[0].auth_config_named_value : ""
     }],
     [for model_name, b in local.direct_backends : {
-      pool_name        = b.backend_id
-      pool_type        = b.backend_type
-      supported_models = [model_name]
+      pool_name               = b.backend_id
+      pool_type               = b.backend_type
+      supported_models        = [model_name]
       auth_type               = b.auth_type
       auth_config_named_value = b.auth_config_named_value
     }]
@@ -273,13 +277,13 @@ locals {
 
   # Final XML contents for the 3 dynamic fragments
   set_backend_pools_xml = replace(
-    file("${path.module}/policies/frag-set-backend-pools.xml"),
+    file("${local.policies_dir}/frag-set-backend-pools.xml"),
     "//{backendPoolsCode}",
     local.backend_pools_code
   )
 
   get_available_models_xml = replace(
-    file("${path.module}/policies/frag-get-available-models.xml"),
+    file("${local.policies_dir}/frag-get-available-models.xml"),
     "//{modelDeploymentsCode}",
     local.model_deployments_with_aliases_code
   )
@@ -321,7 +325,7 @@ locals {
   ])
 
   metadata_config_xml_1 = replace(
-    file("${path.module}/policies/frag-metadata-config.xml"),
+    file("${local.policies_dir}/frag-metadata-config.xml"),
     "//{modelsConfigCode}",
     local.metadata_models_code
   )
@@ -404,7 +408,7 @@ resource "azurerm_api_management_policy_fragment" "static" {
   name              = each.key
   format            = "rawxml"
   description       = each.value.description
-  value             = file("${path.module}/policies/${each.value.file}")
+  value             = file("${local.policies_dir}/${each.value.file}")
 
   depends_on = [
     azurerm_api_management_named_value.aws_access_key,
@@ -427,7 +431,7 @@ resource "azurerm_api_management_policy_fragment" "resolve_model_alias" {
   format            = "rawxml"
   description       = "Resolves model alias names to actual underlying models"
   value = replace(
-    file("${path.module}/policies/frag-resolve-model-alias.xml"),
+    file("${local.policies_dir}/frag-resolve-model-alias.xml"),
     "//{inlineAliasesCode}",
     local.inline_aliases_code
   )
@@ -490,8 +494,10 @@ locals {
   backend_auth_named_values = {
     for b in var.llm_backend_config :
     b.auth_config.named_value_key => {
-      key_vault_secret_uri = try(b.auth_config.key_vault_secret_uri, "")
-      secret_value         = try(b.auth_config.secret_value, "")
+      # `try` only catches missing attributes, not explicit nulls from optional()
+      # object attributes, so normalise null to "" before the != "" tests below.
+      key_vault_secret_uri = try(b.auth_config.key_vault_secret_uri, null) != null ? b.auth_config.key_vault_secret_uri : ""
+      secret_value         = try(b.auth_config.secret_value, null) != null ? b.auth_config.secret_value : ""
     }
     if try(b.auth_config.named_value_key, "") != ""
   }
@@ -504,16 +510,27 @@ resource "azurerm_api_management_named_value" "backend_api_key" {
   resource_group_name = data.azurerm_api_management.citadel.resource_group_name
   api_management_name = data.azurerm_api_management.citadel.name
   display_name        = each.key
-  
+
   # Use Key Vault reference if a secret URI is provided, otherwise explicit value.
   secret = each.value.key_vault_secret_uri != "" || each.value.secret_value != ""
-  value = each.value.key_vault_secret_uri == "" ? (each.value.secret_value != "" ? each.value.secret_value : "NOT_CONFIGURED") : null
+  value  = each.value.key_vault_secret_uri == "" ? (each.value.secret_value != "" ? each.value.secret_value : "NOT_CONFIGURED") : null
 
   dynamic "value_from_key_vault" {
     for_each = each.value.key_vault_secret_uri != "" ? [1] : []
     content {
-      secret_id = each.value.key_vault_secret_uri
+      secret_id          = each.value.key_vault_secret_uri
       identity_client_id = var.managed_identity_client_id
     }
+  }
+}
+# A plain auth_config.secret_value is written into Terraform state and the APIM
+# named value. It is kept for local testing only; production backends must use
+# auth_config.key_vault_secret_uri (review finding S1).
+check "no_plaintext_backend_secrets" {
+  assert {
+    condition = alltrue([
+      for k, v in local.backend_auth_named_values : v.secret_value == "" || v.key_vault_secret_uri != ""
+    ])
+    error_message = "auth_config.secret_value is set for: ${join(", ", [for k, v in local.backend_auth_named_values : k if v.secret_value != "" && v.key_vault_secret_uri == ""])}. The value is stored in state; use auth_config.key_vault_secret_uri instead."
   }
 }

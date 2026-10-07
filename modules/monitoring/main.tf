@@ -80,18 +80,18 @@ resource "azurerm_application_insights" "foundry" {
 locals {
   dashboard_components = var.create_dashboards ? {
     apim = {
-      suffix = "apim"
-      ai_id  = azurerm_application_insights.apim.id
+      suffix  = "apim"
+      ai_id   = azurerm_application_insights.apim.id
       ai_name = azurerm_application_insights.apim.name
     }
     logic = {
-      suffix = "func"
-      ai_id  = azurerm_application_insights.logic_app.id
+      suffix  = "func"
+      ai_id   = azurerm_application_insights.logic_app.id
       ai_name = azurerm_application_insights.logic_app.name
     }
     foundry = {
-      suffix = "aif"
-      ai_id  = azurerm_application_insights.foundry.id
+      suffix  = "aif"
+      ai_id   = azurerm_application_insights.foundry.id
       ai_name = azurerm_application_insights.foundry.name
     }
   } : {}

@@ -12,14 +12,14 @@ locals {
   apim_connection_pairs = var.enable_apim_connections ? flatten([
     for pi, p in local.instances : [
       for c in var.apim_connections : {
-        key                = "${local.instance_names[pi]}-${c.api_name}"
-        project_index      = pi
-        api_name           = c.api_name
-        api_path           = c.api_path
-        connection_name    = c.connection_name != "" ? c.connection_name : "apim-${var.apim_service_name}-${c.api_name}"
-        is_shared_to_all   = c.is_shared_to_all
-        deployment_in_path = c.deployment_in_path
-        inference_api_version = c.inference_api_version
+        key                    = "${local.instance_names[pi]}-${c.api_name}"
+        project_index          = pi
+        api_name               = c.api_name
+        api_path               = c.api_path
+        connection_name        = c.connection_name != "" ? c.connection_name : "apim-${var.apim_service_name}-${c.api_name}"
+        is_shared_to_all       = c.is_shared_to_all
+        deployment_in_path     = c.deployment_in_path
+        inference_api_version  = c.inference_api_version
         deployment_api_version = c.deployment_api_version
         list_models_endpoint   = c.list_models_endpoint
         get_model_endpoint     = c.get_model_endpoint

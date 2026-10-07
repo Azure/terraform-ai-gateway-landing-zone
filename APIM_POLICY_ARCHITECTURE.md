@@ -12,7 +12,6 @@
 > [modules/apim/extra-apis.tf](modules/apim/extra-apis.tf) ·
 > [modules/apim/named-values-extras.tf](modules/apim/named-values-extras.tf) ·
 > [modules/apim/backends.tf](modules/apim/backends.tf) ·
-> [modules/access-contracts/main.tf](modules/access-contracts/main.tf) ·
 > [citadel-access-contracts/main.tf](citadel-access-contracts/main.tf) ·
 > [llm-backend-onboarding/main.tf](llm-backend-onboarding/main.tf)
 >
@@ -241,7 +240,7 @@ operation policies aren't attached.
 |---|---|---|
 | `default-ai-access` | None (inline policy not set here) | [main.tf](modules/apim/main.tf) |
 | `unified-ai-product` | [policies/unified-ai-product-subscription.xml](modules/apim/policies/unified-ai-product-subscription.xml) | [extra-apis.tf](modules/apim/extra-apis.tf) |
-| Per-use-case access-contract products | Per-service `policy_xml`, or [citadel-access-contracts/policies/default-ai-product-policy.xml](citadel-access-contracts/policies/default-ai-product-policy.xml) when blank | [citadel-access-contracts/main.tf](citadel-access-contracts/main.tf) (standalone) / [modules/access-contracts/main.tf](modules/access-contracts/main.tf) |
+| Per-use-case access-contract products | Per-service `policy_xml`, or [citadel-access-contracts/policies/default-ai-product-policy.xml](citadel-access-contracts/policies/default-ai-product-policy.xml) when blank | [citadel-access-contracts/main.tf](citadel-access-contracts/main.tf) |
 
 Access-contract product policies set context variables (e.g. the
 `allowedModels` set-variable and `enableResponseHeaders`) and include the
@@ -387,9 +386,8 @@ single use-case. Inputs are `var.apim`, `var.use_case`
   (auth `ApiKey`, metadata from `var.foundry_config`).
 
 > This replaces the older `enable_access_contracts` + `var.access_contracts`
-> wiring. `modules/access-contracts/` is the equivalent in-graph module and
-> uses the same `var.services` / `var.use_case` shape but is **not wired from
-> the root** in the current deployment.
+> wiring. The unused in-graph `modules/access-contracts/` duplicate was removed;
+> `citadel-access-contracts/` is the single implementation.
 
 ### 9.2 LLM backend onboarding
 

@@ -8,35 +8,35 @@ variable "apim_name" {
   type        = string
 }
 
-variable "apim_id" {
-  description = "Resource ID of the parent API Management service."
+variable "resource_group_name" {
+  description = "Resource group name. Leave empty for auto-generated."
   type        = string
 }
 
-variable "resource_group_name" {
-  type = string
-}
-
 variable "api_name" {
-  type    = string
-  default = "azure-openai-api"
+  description = "Name (ID) of the API in API Management."
+  type        = string
+  default     = "azure-openai-api"
 }
 
 variable "api_display_name" {
-  type    = string
-  default = "Azure OpenAI API"
+  description = "Display name of the API in API Management."
+  type        = string
+  default     = "Azure OpenAI API"
 }
 
 variable "api_description" {
-  type    = string
-  default = "Azure OpenAI API to route requests to different LLM providers including Azure OpenAI, AI Foundry and 3rd party models."
+  description = "Description of the API in API Management."
+  type        = string
+  default     = "Azure OpenAI API to route requests to different LLM providers including Azure OpenAI, AI Foundry and 3rd party models."
 }
 
 # Bicep parity: path is `${inferenceAPIPath}/${endpointPath}` where
 # inferenceAPIPath='' and endpointPath='openai' for AzureOpenAI inference type.
 variable "api_path" {
-  type    = string
-  default = "openai"
+  description = "URL path suffix of the API on the APIM gateway."
+  type        = string
+  default     = "openai"
 }
 
 variable "subscription_required" {

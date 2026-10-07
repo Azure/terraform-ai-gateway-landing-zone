@@ -150,6 +150,7 @@ module "networking" {
   agent_subnet_name       = var.agent_subnet_name
   agent_subnet_prefix     = var.agent_subnet_prefix
   enable_ase_subnet       = var.logic_app_hosting_model == "AppServiceEnvironmentV3"
+  nsg_on_all_subnets      = var.nsg_on_all_subnets
   ase_subnet_name         = var.ase_subnet_name
   ase_subnet_prefix       = var.ase_subnet_prefix
 
@@ -160,8 +161,6 @@ module "networking" {
 
   # DNS
   create_dns_zones           = local.create_dns_zones
-  dns_zone_rg                = var.dns_zone_rg
-  dns_subscription_id        = var.dns_subscription_id
   existing_private_dns_zones = var.existing_private_dns_zones
 
   # Only VNet-link privatelink.monitor.azure.com when AMPLS is enabled; an empty
@@ -216,10 +215,8 @@ module "security" {
   deployer_object_id = data.azurerm_client_config.current.object_id
 
   managed_identity_principal_id = local.apim_identity_principal
-  managed_identity_id           = local.apim_identity_id
 
   subnet_id = module.networking.pe_subnet_id
-  vnet_id   = module.networking.vnet_id
 
   dns_zone_id_key_vault = module.networking.dns_zone_ids["key_vault"]
 
@@ -269,7 +266,6 @@ module "cosmosdb" {
   tags                = local.all_tags
 
   account_name          = local.cosmos_db_name
-  throughput_rus        = var.cosmos_db_rus
   public_network_access = var.cosmos_db_public_access
 
   local_authentication_enabled = var.cosmos_db_local_auth_enabled
@@ -278,7 +274,6 @@ module "cosmosdb" {
   managed_identity_principal_id = local.usage_identity_principal
 
   subnet_id = module.networking.pe_subnet_id
-  vnet_id   = module.networking.vnet_id
 
   dns_zone_id = module.networking.dns_zone_ids["cosmos_db"]
 
@@ -298,7 +293,6 @@ module "eventhub" {
 
   namespace_name        = local.eventhub_ns_name
   capacity_units        = var.eventhub_capacity_units
-  partition_count       = var.eventhub_partition_count
   public_network_access = var.eventhub_network_access
 
   # Identities (Bicep parity): APIM MI = Sender, Usage MI = Receiver + Owner
@@ -306,7 +300,6 @@ module "eventhub" {
   usage_identity_principal_id = local.usage_identity_principal
 
   subnet_id = module.networking.pe_subnet_id
-  vnet_id   = module.networking.vnet_id
 
   dns_zone_id = module.networking.dns_zone_ids["event_hub"]
 
@@ -323,12 +316,10 @@ module "eventhub" {
 module "apic" {
   source = "./modules/apic"
 
-  resource_group_name = local.resource_group_name_resolved
-  resource_group_id   = local.resource_group_id
-  location            = var.location
-  tags                = local.all_tags
-  environment_name    = var.environment_name
-  random_suffix       = random_string.suffix.result
+  resource_group_id = local.resource_group_id
+  tags              = local.all_tags
+  environment_name  = var.environment_name
+  random_suffix     = random_string.suffix.result
 
   # Feature flags
   enable_api_center = var.enable_api_center
@@ -338,13 +329,9 @@ module "apic" {
   api_center_sku = var.api_center_sku
 
   # Managed identity for RBAC
-  managed_identity_principal_id = local.apim_identity_principal
 
   # Networking
-  subnet_id = module.networking.pe_subnet_id
-  vnet_id   = module.networking.vnet_id
 
-  dns_zone_ids = module.networking.dns_zone_ids
 }
 
 # =============================================================================
@@ -525,6 +512,7 @@ module "apim" {
   app_insights_connection_string   = module.monitoring.app_insights_connection_string
 
   # Redis (semantic cache) — optional
+  enable_redis_cache            = var.enable_redis_cache
   redis_cache_connection_string = var.enable_redis_cache ? module.redis[0].connection_string : ""
 
   # Availability zones (Bicep parity: Premium + skuCount>1)
@@ -533,11 +521,9 @@ module "apim" {
   ) : []
 
   # Integrations
-  eventhub_namespace_name = module.eventhub.namespace_name
   eventhub_endpoint_uri   = module.eventhub.endpoint_uri
   eventhub_usage_hub_name = module.eventhub.apim_usage_hub_name
   eventhub_pii_hub_name   = module.eventhub.pii_usage_hub_name
-  cosmos_db_endpoint      = module.cosmosdb.endpoint
   pii_service_endpoint    = var.enable_pii_redaction ? module.foundry.primary_foundry_endpoint : ""
   content_safety_endpoint = var.enable_content_safety ? module.foundry.primary_foundry_endpoint : ""
   enable_pii_redaction    = var.enable_pii_redaction
@@ -608,7 +594,6 @@ module "logic_app" {
   environment_name    = var.environment_name
   random_suffix       = random_string.suffix.result
 
-  sku_tier = var.logic_app_sku_tier
   sku_size = var.logic_app_sku_size
 
   # Hosting model — ASE v3 enables keyless (shared-key disabled) runtime storage
@@ -632,7 +617,6 @@ module "logic_app" {
 
   # Integrations
   eventhub_endpoint_host      = "${module.eventhub.namespace_name}.servicebus.windows.net"
-  eventhub_namespace_name     = module.eventhub.namespace_name
   eventhub_ai_usage_hub_name  = module.eventhub.apim_usage_hub_name
   eventhub_pii_usage_hub_name = module.eventhub.pii_usage_hub_name
 

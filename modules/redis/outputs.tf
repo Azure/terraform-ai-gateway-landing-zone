@@ -1,13 +1,16 @@
 output "redis_id" {
-  value = azapi_resource.redis.id
+  description = "Resource ID of the Azure Managed Redis cluster."
+  value       = azapi_resource.redis.id
 }
 
 output "host_name" {
-  value = azapi_resource.redis.output.properties.hostName
+  description = "Host name of the Azure Managed Redis cluster."
+  value       = azapi_resource.redis.output.properties.hostName
 }
 
 output "port" {
-  value = azapi_resource.redis_db.output.properties.port
+  description = "Port of the Redis database."
+  value       = azapi_resource.redis_db.output.properties.port
 }
 
 output "connection_string" {

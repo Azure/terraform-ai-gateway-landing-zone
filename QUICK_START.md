@@ -7,7 +7,7 @@ For full detail, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) and [VARIABLES.m
 
 ## Prerequisites
 
-- **Terraform** ≥ 1.5.0
+- **Terraform** ≥ 1.11
 - **Azure CLI** ≥ 2.57 (`az --version`)
 - **Bash shell** — required to run the `scripts/*.sh` helpers (macOS/Linux: built-in; Windows: use [Git Bash](https://git-scm.com) or [WSL](https://learn.microsoft.com/windows/wsl/install))
 - **Azure subscription** with Owner (or equivalent) role

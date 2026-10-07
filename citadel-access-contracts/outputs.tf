@@ -36,18 +36,18 @@ output "subscriptions" {
   }
 }
 
-# When NOT using Key Vault, expose the actual endpoints + keys. These are
-# sensitive — store them securely (environment variables, CI/CD secrets, etc.).
+# When NOT using Key Vault, expose the endpoints and the subscription resource IDs.
+# Keys are never output: fetch one on demand with
+#   az rest --method post --url "https://management.azure.com<subscription_resource_id>/listSecrets?api-version=2024-05-01" --query primaryKey -o tsv
 output "endpoints" {
-  description = "Per-service endpoint + API key. Only populated when use_target_key_vault = false."
-  sensitive   = true
+  description = "Per-service endpoint and APIM subscription resource ID (no keys). Only populated when use_target_key_vault = false."
   value = var.use_target_key_vault ? {} : {
     for s in var.services :
     s.code => {
-      product_id        = "${s.code}-${local.product_postfix}"
-      subscription_name = "${s.code}-${local.product_postfix}-SUB-01"
-      endpoint          = local.service_endpoint_url[s.code]
-      api_key           = azurerm_api_management_subscription.service[s.code].primary_key
+      product_id               = "${s.code}-${local.product_postfix}"
+      subscription_name        = "${s.code}-${local.product_postfix}-SUB-01"
+      endpoint                 = local.service_endpoint_url[s.code]
+      subscription_resource_id = azurerm_api_management_subscription.service[s.code].id
     }
   }
 }

@@ -27,7 +27,6 @@ module "unified_ai" {
   count  = var.enable_unified_ai_api ? 1 : 0
 
   apim_name             = azurerm_api_management.citadel.name
-  apim_id               = azurerm_api_management.citadel.id
   resource_group_name   = var.resource_group_name
   subscription_required = true
 
@@ -175,15 +174,15 @@ resource "azurerm_api_management_api_policy" "doc_intelligence" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_api_management_api" "ai_model_inference" {
-  count               = var.enable_ai_model_inference ? 1 : 0
-  name                = "ai-model-inference-api"
-  resource_group_name = var.resource_group_name
-  api_management_name = azurerm_api_management.citadel.name
-  display_name        = "Azure AI Model Inference API"
-  description         = "Azure AI Model Inference unified API"
-  revision            = "1"
-  path                = "ai-inference"
-  protocols           = ["https"]
+  count                 = var.enable_ai_model_inference ? 1 : 0
+  name                  = "ai-model-inference-api"
+  resource_group_name   = var.resource_group_name
+  api_management_name   = azurerm_api_management.citadel.name
+  display_name          = "Azure AI Model Inference API"
+  description           = "Azure AI Model Inference unified API"
+  revision              = "1"
+  path                  = "ai-inference"
+  protocols             = ["https"]
   subscription_required = true
 
   subscription_key_parameter_names {
@@ -257,15 +256,15 @@ resource "azapi_resource" "openai_realtime_policy" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_api_management_api" "weather" {
-  count               = var.is_mcp_sample_deployed ? 1 : 0
-  name                = "weather-api"
-  resource_group_name = var.resource_group_name
-  api_management_name = azurerm_api_management.citadel.name
-  display_name        = "Weather API"
-  description         = "Sample Weather API used to demonstrate the MCP-from-API pattern."
-  revision            = "1"
-  path                = "weather"
-  protocols           = ["https"]
+  count                 = var.is_mcp_sample_deployed ? 1 : 0
+  name                  = "weather-api"
+  resource_group_name   = var.resource_group_name
+  api_management_name   = azurerm_api_management.citadel.name
+  display_name          = "Weather API"
+  description           = "Sample Weather API used to demonstrate the MCP-from-API pattern."
+  revision              = "1"
+  path                  = "weather"
+  protocols             = ["https"]
   subscription_required = false
 
   import {
@@ -410,11 +409,6 @@ resource "azapi_resource" "ms_learn_mcp_policy" {
 # =============================================================================
 
 locals {
-  extra_api_diag_enabled = var.enable_extra_api_diagnostics ? 1 : 0
-  extra_api_diag_log_settings = {
-    headers = var.extra_api_log_settings.headers
-    body    = { bytes = var.extra_api_log_settings.body.bytes }
-  }
   extra_api_diag_llm_block = {
     logs = "enabled"
     requests = {
@@ -448,19 +442,19 @@ resource "azurerm_api_management_api_diagnostic" "ai_search_appinsights" {
   http_correlation_protocol = "W3C"
 
   frontend_request {
-    body_bytes = var.extra_api_log_settings.body.bytes
+    body_bytes     = var.extra_api_log_settings.body.bytes
     headers_to_log = var.extra_api_log_settings.headers
   }
   frontend_response {
-    body_bytes = var.extra_api_log_settings.body.bytes
+    body_bytes     = var.extra_api_log_settings.body.bytes
     headers_to_log = var.extra_api_log_settings.headers
   }
   backend_request {
-    body_bytes = var.extra_api_log_settings.body.bytes
+    body_bytes     = var.extra_api_log_settings.body.bytes
     headers_to_log = var.extra_api_log_settings.headers
   }
   backend_response {
-    body_bytes = var.extra_api_log_settings.body.bytes
+    body_bytes     = var.extra_api_log_settings.body.bytes
     headers_to_log = var.extra_api_log_settings.headers
   }
 }

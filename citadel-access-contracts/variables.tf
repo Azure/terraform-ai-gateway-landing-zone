@@ -76,7 +76,7 @@ variable "product_terms" {
 # -----------------------------------------------------------------------------
 
 variable "use_target_key_vault" {
-  description = "If true, write endpoint + key secrets into Key Vault. If false, they are returned as (sensitive) outputs instead."
+  description = "If true, write endpoint + key secrets into Key Vault. If false, endpoints and subscription resource IDs are returned as outputs (keys are never output)."
   type        = bool
   default     = true
 }
@@ -167,5 +167,22 @@ variable "foundry_config" {
   validation {
     condition     = contains(["", "AzureOpenAI", "OpenAI"], var.foundry_config.deployment_provider)
     error_message = "foundry_config.deployment_provider must be \"\", \"AzureOpenAI\", or \"OpenAI\"."
+  }
+}
+
+variable "secret_rotation_days" {
+  description = "Days after which the Key Vault secrets' expiry date is pushed forward on the next apply."
+  type        = number
+  default     = 60
+}
+
+variable "secret_validity_days" {
+  description = "Key Vault secret validity (expiration_date) in days. Azure Landing Zone policy Enforce-GR-KeyVault allows at most 90."
+  type        = number
+  default     = 90
+
+  validation {
+    condition     = var.secret_validity_days > var.secret_rotation_days
+    error_message = "secret_validity_days must be greater than secret_rotation_days so secrets never expire between rotations."
   }
 }

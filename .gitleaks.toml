@@ -1,0 +1,9 @@
+# gitleaks configuration — default rules plus narrow allowlists for known
+# false positives. Every allowlist entry must say why it is safe.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "APIM service names (apim-<hex>) printed in notebook outputs are resource names, not credentials"
+regexTarget = "match"
+regexes = ['''apim_name:\s*["']?apim-[0-9a-f]{6,12}["']?''']

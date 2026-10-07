@@ -1,7 +1,19 @@
-variable "name" { type = string }
-variable "location" { type = string }
-variable "resource_group_name" { type = string }
-variable "tags" { type = map(string) }
+variable "name" {
+  description = "Name of the Azure Managed Redis (Redis Enterprise) cluster."
+  type        = string
+}
+variable "location" {
+  description = "Primary Azure region for deployment"
+  type        = string
+}
+variable "resource_group_name" {
+  description = "Name of the resource group the module deploys into."
+  type        = string
+}
+variable "tags" {
+  description = "Tags applied to every resource the module creates."
+  type        = map(string)
+}
 
 variable "sku_name" {
   description = "Azure Managed Redis SKU (Microsoft.Cache/redisEnterprise)."
@@ -22,13 +34,15 @@ variable "public_network_access" {
 }
 
 variable "minimum_tls_version" {
-  type    = string
-  default = "1.2"
+  description = "Minimum TLS version accepted by Azure Managed Redis."
+  type        = string
+  default     = "1.2"
 }
 
 variable "use_private_endpoint" {
-  type    = bool
-  default = true
+  description = "Create a private endpoint for Azure Managed Redis."
+  type        = bool
+  default     = true
 }
 
 variable "subnet_id" {

@@ -1,11 +1,14 @@
 output "api_id" {
-  value = azurerm_api_management_api.this.id
+  description = "Resource ID of the Universal LLM API."
+  value       = azurerm_api_management_api.this.id
 }
 
 output "api_name" {
-  value = azurerm_api_management_api.this.name
+  description = "Name of the Universal LLM API."
+  value       = azurerm_api_management_api.this.name
 }
 
 output "api_path" {
-  value = azurerm_api_management_api.this.path
+  description = "Gateway path of the Universal LLM API."
+  value       = azurerm_api_management_api.this.path
 }

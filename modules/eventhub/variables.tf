@@ -1,21 +1,50 @@
-variable "resource_group_name"    { type = string }
-variable "location"                { type = string }
-variable "tags"                    { type = map(string) }
-variable "namespace_name"          { type = string }
-variable "capacity_units"          { type = number }
-variable "partition_count"         { type = number }
-variable "public_network_access"   { type = string }
-variable "subnet_id"               { type = string }
-variable "vnet_id"                 { type = string }
-variable "dns_zone_id"             { type = string }
+variable "resource_group_name" {
+  description = "Name of the resource group the module deploys into."
+  type        = string
+}
+variable "location" {
+  description = "Primary Azure region for deployment"
+  type        = string
+}
+variable "tags" {
+  description = "Tags applied to every resource the module creates."
+  type        = map(string)
+}
+variable "namespace_name" {
+  description = "Name of the Event Hubs namespace."
+  type        = string
+}
+variable "capacity_units" {
+  description = "Event Hub capacity units"
+  type        = number
+}
+variable "public_network_access" {
+  description = "Event Hub public network access: Enabled or Disabled"
+  type        = string
+}
+variable "subnet_id" {
+  description = "Resource ID of the subnet that hosts the private endpoint."
+  type        = string
+}
+variable "dns_zone_id" {
+  description = "Resource ID of the privatelink.servicebus.windows.net DNS zone (empty = no DNS zone group)."
+  type        = string
+}
 # Bicep parity:
 #  - APIM UAMI needs Data Sender (to publish from loggers).
 #  - Logic App / Usage UAMI needs Data Receiver (to consume usage events).
-variable "apim_identity_principal_id"  { type = string }
-variable "usage_identity_principal_id" { type = string }
-variable "log_analytics_id"        { 
-    type = string
-    default = "" 
+variable "apim_identity_principal_id" {
+  description = "Principal ID of the APIM managed identity granted Azure Event Hubs Data Sender."
+  type        = string
+}
+variable "usage_identity_principal_id" {
+  description = "Principal ID of the usage-pipeline identity granted Azure Event Hubs Data Receiver."
+  type        = string
+}
+variable "log_analytics_id" {
+  description = "Resource ID of the Log Analytics workspace that receives diagnostic settings."
+  type        = string
+  default     = ""
 }
 
 # -----------------------------------------------------------------------------

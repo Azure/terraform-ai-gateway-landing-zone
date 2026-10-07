@@ -106,7 +106,7 @@ variable "purge_protection_enabled" {
   description = "Enable purge protection on Key Vault (prevents permanent deletion)"
   type        = bool
   default     = true
-  
+
 }
 
 variable "rbac_authorization_enabled" {
@@ -265,16 +265,19 @@ variable "logic_app_subnet_prefix" {
 }
 
 variable "enable_agent_subnet" {
-  type    = bool
-  default = true
+  description = "Create a dedicated subnet for Foundry Agent Service network injection."
+  type        = bool
+  default     = true
 }
 variable "agent_subnet_name" {
-  type    = string
-  default = "snet-agents"
+  description = "Name of the Foundry agent subnet."
+  type        = string
+  default     = "snet-agents"
 }
 variable "agent_subnet_prefix" {
-  type    = string
-  default = "10.170.0.192/26"
+  description = "Address prefix (CIDR) of the Foundry agent subnet."
+  type        = string
+  default     = "10.170.0.192/26"
 }
 
 variable "apim_network_type" {
@@ -303,12 +306,6 @@ variable "apim_v2_public_network_access" {
 # DNS Configuration
 variable "dns_zone_rg" {
   description = "Resource group containing existing Private DNS Zones"
-  type        = string
-  default     = ""
-}
-
-variable "dns_subscription_id" {
-  description = "Subscription ID containing existing Private DNS Zones"
   type        = string
   default     = ""
 }
@@ -369,22 +366,10 @@ variable "apim_publisher_name" {
   default     = "AI Citadel Admin"
 }
 
-variable "cosmos_db_rus" {
-  description = "Cosmos DB provisioned throughput (RU/s)"
-  type        = number
-  default     = 400
-}
-
 variable "eventhub_capacity_units" {
   description = "Event Hub capacity units"
   type        = number
   default     = 1
-}
-
-variable "eventhub_partition_count" {
-  description = "Event Hub partition count"
-  type        = number
-  default     = 4
 }
 
 variable "eventhub_disaster_recovery_config" {
@@ -399,12 +384,6 @@ variable "eventhub_disaster_recovery_config" {
     alias                = optional(string, "default")
   })
   default = null
-}
-
-variable "logic_app_sku_tier" {
-  description = "Logic App (Standard) SKU tier"
-  type        = string
-  default     = "WorkflowStandard"
 }
 
 variable "logic_app_sku_size" {
@@ -492,18 +471,6 @@ variable "ase_create_private_dns_zone" {
   description = "For an internal (ILB) ASE v3, create the <ase>.appserviceenvironment.net private DNS zone (*, *.scm, @ records) and link it to the VNet. Set false when DNS is managed centrally (hub)."
   type        = bool
   default     = true
-}
-
-variable "language_service_sku" {
-  description = "Azure Language Service SKU"
-  type        = string
-  default     = "S"
-}
-
-variable "content_safety_sku" {
-  description = "Azure Content Safety SKU"
-  type        = string
-  default     = "S0"
 }
 
 variable "api_center_sku" {
@@ -646,17 +613,18 @@ variable "entra_audience" {
 # -----------------------------------------------------------------------------
 
 variable "foundry_network_injection_enabled" {
-  type    = bool
-  default = true
+  description = "Inject the Foundry Agent Service into the agent subnet (needs enable_agent_subnet = true)."
+  type        = bool
+  default     = true
 }
 
 variable "ai_foundry_instances" {
   description = "List of AI Foundry instances to deploy"
   type = list(object({
-    name                 = optional(string, "")
-    location             = string
-    custom_subdomain     = optional(string, "")
-    default_project_name = optional(string, "citadel-governance-project")
+    name                      = optional(string, "")
+    location                  = string
+    custom_subdomain          = optional(string, "")
+    default_project_name      = optional(string, "citadel-governance-project")
     network_injection_enabled = optional(bool, true)
   }))
   default = [
@@ -670,12 +638,12 @@ variable "ai_foundry_instances" {
 variable "ai_foundry_models" {
   description = "List of models to deploy across AI Foundry instances"
   type = list(object({
-    name              = string
-    publisher         = optional(string, "OpenAI")
-    version           = string
-    sku               = optional(string, "GlobalStandard")
-    capacity          = optional(number, 100)
-    ai_service_index  = optional(number, 0)
+    name             = string
+    publisher        = optional(string, "OpenAI")
+    version          = string
+    sku              = optional(string, "GlobalStandard")
+    capacity         = optional(number, 100)
+    ai_service_index = optional(number, 0)
   }))
   default = [
     {
@@ -683,8 +651,8 @@ variable "ai_foundry_models" {
       version = "2024-11-20"
     },
     {
-      name     = "gpt-4o-mini"
-      version  = "2024-07-18"
+      name    = "gpt-4o-mini"
+      version = "2024-07-18"
     }
   ]
 }
@@ -716,9 +684,9 @@ variable "llm_backend_config" {
     backend_id   = string
     backend_type = string # ai-foundry, azure-openai, external
     endpoint     = string
-    auth_scheme  = string # managedIdentity, apiKey, token
-    auth_type    = optional(string)  # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
-    auth_config  = optional(object({
+    auth_scheme  = string           # managedIdentity, apiKey, token
+    auth_type    = optional(string) # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
+    auth_config = optional(object({
       named_value_key = optional(string)
     }))
     supported_models = list(object({
@@ -752,9 +720,9 @@ variable "extra_llm_backends" {
     backend_id   = string
     backend_type = string
     endpoint     = string
-    auth_scheme  = string # managedIdentity, apiKey, token
-    auth_type    = optional(string)  # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
-    auth_config  = optional(object({
+    auth_scheme  = string           # managedIdentity, apiKey, token
+    auth_type    = optional(string) # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
+    auth_config = optional(object({
       named_value_key = optional(string)
     }))
     supported_models = list(object({
@@ -813,8 +781,9 @@ variable "redis_public_network_access" {
 }
 
 variable "redis_minimum_tls_version" {
-  type    = string
-  default = "1.2"
+  description = "Minimum TLS version accepted by Azure Managed Redis."
+  type        = string
+  default     = "1.2"
 }
 
 # -----------------------------------------------------------------------------
@@ -857,12 +826,6 @@ variable "enable_openai_realtime" {
 
 variable "enable_unified_ai_api" {
   description = "Enable wildcard Unified AI API in APIM."
-  type        = bool
-  default     = false
-}
-
-variable "enable_ai_gateway_pii_redaction" {
-  description = "Enable PII redaction inside the AI gateway (distinct from PII service deployment)."
   type        = bool
   default     = false
 }
@@ -910,47 +873,13 @@ variable "use_azure_monitor_private_link_scope" {
 # DIAGNOSTIC BODY-BYTE OVERRIDES (Bicep parity: azureMonitorLogSettings / appInsightsLogSettings)
 # -----------------------------------------------------------------------------
 
-variable "azure_monitor_log_settings" {
-  description = "Per-API Azure Monitor body-logging limits."
-  type = object({
-    enabled                    = optional(bool, true)
-    log_request_body_bytes     = optional(number, 8192)
-    log_response_body_bytes    = optional(number, 8192)
-  })
-  default = {}
-}
-
-variable "app_insights_log_settings" {
-  description = "Per-API Application Insights body-logging limits."
-  type = object({
-    enabled                    = optional(bool, true)
-    log_request_body_bytes     = optional(number, 8192)
-    log_response_body_bytes    = optional(number, 8192)
-    sampling_percentage        = optional(number, 100)
-  })
-  default = {}
-}
-
 # -----------------------------------------------------------------------------
 # FOUNDRY EMBEDDINGS MODEL (Bicep parity: primaryFoundryEmbeddingModelName)
 # -----------------------------------------------------------------------------
 
-variable "primary_foundry_embedding_model_name" {
-  description = "Embeddings model used for semantic-cache embeddings backend."
-  type        = string
-  default     = ""
-}
-
 # -----------------------------------------------------------------------------
 # ENTRA / AUTH SECRETS (Bicep parity: entraClientSecret)
 # -----------------------------------------------------------------------------
-
-variable "entra_client_secret" {
-  description = "Optional Entra app client secret to persist into Key Vault."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
 
 # -----------------------------------------------------------------------------
 # LOGIC APP CONTENT SHARE (Bicep parity: logicContentShareName)
@@ -1009,13 +938,15 @@ variable "enable_jwt_auth" {
 }
 
 variable "jwt_tenant_id" {
-  type    = string
-  default = ""
+  description = "Entra tenant ID used by the APIM JWT-validation policies. Ignored when enable_entra_id_setup = true (the setup's tenant is used)."
+  type        = string
+  default     = ""
 }
 
 variable "jwt_app_registration_id" {
-  type    = string
-  default = ""
+  description = "Entra application (client) ID used as the JWT audience. Ignored when enable_entra_id_setup = true (the created app is used)."
+  type        = string
+  default     = ""
 }
 
 variable "azure_login_endpoint" {
@@ -1046,7 +977,7 @@ variable "entra_client_secret_name" {
 }
 
 variable "entra_client_secret_rotation_days" {
-  description = "Rotate the Entra ID client secret after this many days (default: 2 years)."
+  description = "Rotate the Entra ID client secret after this many days (default: 2 years). Must be <= 90 in Azure Landing Zone subscriptions (Enforce-GR-KeyVault)."
   type        = number
   default     = 730
 }
@@ -1099,4 +1030,95 @@ variable "embeddings_backend_url" {
   description = "Foundry embeddings deployment endpoint (consumed only when enable_embeddings_backend = true)."
   type        = string
   default     = ""
+}
+
+variable "nsg_on_all_subnets" {
+  description = "Attach NSGs to the private-endpoint and Logic App subnets too, so every subnet has one (Azure Landing Zone policy Deny-Subnet-Without-Nsg). Default false keeps existing deployments unchanged."
+  type        = bool
+  default     = false
+}
+
+# =============================================================================
+# DEPRECATED INPUTS
+#
+# These variables were accepted but never reached a resource (review finding C2:
+# "user input is silently dropped"). They stay declared so existing tfvars files
+# keep working, default to null, and the check below warns when one is set.
+# They will be removed in the next major release.
+# =============================================================================
+
+variable "cosmos_db_rus" {
+  description = "DEPRECATED, ignored. Cosmos DB is deployed serverless (EnableServerless); provisioned RU/s don't apply."
+  type        = number
+  default     = null
+}
+
+variable "eventhub_partition_count" {
+  description = "DEPRECATED, ignored. Partition counts are fixed (ai-usage 4, pii-usage 2); changing them recreates the hubs. Becomes configurable through the typed usage_pipeline input."
+  type        = number
+  default     = null
+}
+
+variable "logic_app_sku_tier" {
+  description = "DEPRECATED, ignored. The plan tier is derived from logic_app_sku_size / logic_app_hosting_option."
+  type        = string
+  default     = null
+}
+
+variable "dns_subscription_id" {
+  description = "DEPRECATED, ignored. Cross-subscription private DNS lookup isn't implemented; pass zone IDs through existing_private_dns_zones instead."
+  type        = string
+  default     = null
+}
+
+variable "primary_foundry_embedding_model_name" {
+  description = "DEPRECATED, ignored. Use embeddings_backend_url / enable_embeddings_backend."
+  type        = string
+  default     = null
+}
+
+variable "language_service_sku" {
+  description = "DEPRECATED, ignored. No Language resource is deployed; PII uses the Foundry endpoint."
+  type        = string
+  default     = null
+}
+
+variable "content_safety_sku" {
+  description = "DEPRECATED, ignored. No Content Safety resource is deployed; content safety uses the Foundry endpoint."
+  type        = string
+  default     = null
+}
+
+variable "enable_ai_gateway_pii_redaction" {
+  description = "DEPRECATED, ignored. PII redaction is controlled by enable_pii_redaction."
+  type        = bool
+  default     = null
+}
+
+variable "entra_client_secret" {
+  description = "DEPRECATED, ignored. No client secret is persisted from input; the Entra module manages its own secret rotation."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "azure_monitor_log_settings" {
+  description = "DEPRECATED, ignored. API diagnostics use extra_api_log_settings."
+  type = object({
+    enabled                 = optional(bool, true)
+    log_request_body_bytes  = optional(number, 8192)
+    log_response_body_bytes = optional(number, 8192)
+  })
+  default = null
+}
+
+variable "app_insights_log_settings" {
+  description = "DEPRECATED, ignored. API diagnostics use extra_api_log_settings."
+  type = object({
+    enabled                 = optional(bool, true)
+    log_request_body_bytes  = optional(number, 8192)
+    log_response_body_bytes = optional(number, 8192)
+    sampling_percentage     = optional(number, 100)
+  })
+  default = null
 }

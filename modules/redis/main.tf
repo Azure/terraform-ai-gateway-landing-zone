@@ -6,18 +6,7 @@
 # support the newer Balanced_* SKUs that azurerm 4.x doesn't yet model natively.
 # =============================================================================
 
-terraform {
-  required_providers {
-    azapi = {
-      source  = "Azure/azapi"
-      version = "~> 2.0"
-    }
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }
-  }
-}
+
 
 locals {
   uses_sku_capacity = startswith(var.sku_name, "Enterprise_") || startswith(var.sku_name, "EnterpriseFlash_")

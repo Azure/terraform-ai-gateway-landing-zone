@@ -220,14 +220,14 @@ locals {
   # OS detection for cross-platform local-exec dispatch:
   # Windows abspaths look like `C:\...` (drive letter + `:`), Unix look like
   # `/...`. We pick a PowerShell interpreter on Windows and /bin/sh elsewhere.
-  _tf_is_windows = length(regexall("^[A-Za-z]:[\\\\/]", abspath(path.root))) > 0
+  tf_is_windows = length(regexall("^[A-Za-z]:[\\\\/]", abspath(path.root))) > 0
 
   azure_monitor_logger_url = "https://management.azure.com${azurerm_api_management.citadel.id}/loggers/azuremonitor?api-version=2024-05-01"
 }
 
 # --- POSIX (bash/sh) variant — Linux & macOS --------------------------------
 resource "terraform_data" "azure_monitor_logger_posix" {
-  count = local._tf_is_windows ? 0 : 1
+  count = local.tf_is_windows ? 0 : 1
 
   triggers_replace = [
     azurerm_api_management.citadel.id,
@@ -255,7 +255,7 @@ resource "terraform_data" "azure_monitor_logger_posix" {
 
 # --- Windows (PowerShell) variant -------------------------------------------
 resource "terraform_data" "azure_monitor_logger_windows" {
-  count = local._tf_is_windows ? 1 : 0
+  count = local.tf_is_windows ? 1 : 0
 
   triggers_replace = [
     azurerm_api_management.citadel.id,
@@ -504,7 +504,6 @@ module "universal_llm" {
   source = "./universal-llm-api"
 
   apim_name             = azurerm_api_management.citadel.name
-  apim_id               = azurerm_api_management.citadel.id
   resource_group_name   = var.resource_group_name
   subscription_required = !var.entra_auth_enabled
   has_llm_backends      = length(var.llm_backend_config) > 0
@@ -555,7 +554,6 @@ module "azure_openai" {
   source = "./azure-openai-api"
 
   apim_name             = azurerm_api_management.citadel.name
-  apim_id               = azurerm_api_management.citadel.id
   resource_group_name   = var.resource_group_name
   subscription_required = !var.entra_auth_enabled
   has_llm_backends      = length(var.llm_backend_config) > 0
@@ -618,11 +616,13 @@ resource "azurerm_api_management_product_api" "openai_default" {
 # -----------------------------------------------------------------------------
 # APIM REDIS CACHE (Bicep parity: `service/caches` resource)
 # Links Azure Managed Redis to APIM for semantic caching. Created only when
-# a connection string is provided.
+# Redis is enabled. The count uses the plan-time flag, not the connection string:
+# the string is only known after Redis is created, so gating on it made a fresh
+# deployment with enable_redis_cache = true fail at plan ("Invalid count argument").
 # -----------------------------------------------------------------------------
 
 resource "azurerm_api_management_redis_cache" "default" {
-  count             = var.redis_cache_connection_string != "" ? 1 : 0
+  count             = var.enable_redis_cache ? 1 : 0
   name              = "Default"
   api_management_id = azurerm_api_management.citadel.id
   connection_string = var.redis_cache_connection_string

@@ -8,33 +8,33 @@ variable "apim_name" {
   type        = string
 }
 
-variable "apim_id" {
-  description = "Resource ID of the parent API Management service."
+variable "resource_group_name" {
+  description = "Resource group name. Leave empty for auto-generated."
   type        = string
 }
 
-variable "resource_group_name" {
-  type = string
-}
-
 variable "api_name" {
-  type    = string
-  default = "unified-ai-api"
+  description = "Name (ID) of the API in API Management."
+  type        = string
+  default     = "unified-ai-api"
 }
 
 variable "api_display_name" {
-  type    = string
-  default = "Unified AI API"
+  description = "Display name of the API in API Management."
+  type        = string
+  default     = "Unified AI API"
 }
 
 variable "api_description" {
-  type    = string
-  default = "Unified AI Gateway API - Routes requests to multiple AI model providers (Azure OpenAI, AI Foundry, Gemini) using dynamic path-based routing with support for multiple API types."
+  description = "Description of the API in API Management."
+  type        = string
+  default     = "Unified AI Gateway API - Routes requests to multiple AI model providers (Azure OpenAI, AI Foundry, Gemini) using dynamic path-based routing with support for multiple API types."
 }
 
 variable "api_path" {
-  type    = string
-  default = "unified-ai"
+  description = "URL path suffix of the API on the APIM gateway."
+  type        = string
+  default     = "unified-ai"
 }
 
 variable "subscription_required" {
@@ -69,23 +69,27 @@ variable "product_policy_xml_path" {
 }
 
 variable "product_id" {
-  type    = string
-  default = "unified-ai-product"
+  description = "ID of the APIM product created for the Unified AI API."
+  type        = string
+  default     = "unified-ai-product"
 }
 
 variable "product_display_name" {
-  type    = string
-  default = "Unified AI Gateway"
+  description = "Display name of the Unified AI API product."
+  type        = string
+  default     = "Unified AI Gateway"
 }
 
 variable "product_description" {
-  type    = string
-  default = "Unified AI Gateway product - provides access to all AI model providers through a single wildcard endpoint."
+  description = "Description of the Unified AI API product."
+  type        = string
+  default     = "Unified AI Gateway product - provides access to all AI model providers through a single wildcard endpoint."
 }
 
 variable "product_subscriptions_limit" {
-  type    = number
-  default = 10
+  description = "Maximum number of subscriptions allowed on the product."
+  type        = number
+  default     = 10
 }
 
 variable "azure_monitor_logger_id" {

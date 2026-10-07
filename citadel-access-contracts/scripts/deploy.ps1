@@ -84,7 +84,7 @@ Write-Info "Using subscription: $AccountName ($Subscription)"
 
 # --- Terraform init ---
 Write-Info 'Initializing Terraform...'
-terraform init -upgrade
+terraform init
 if ($LASTEXITCODE -ne 0) { Write-Err 'Terraform init failed.' }
 
 # --- Import existing resources (handles re-onboarding / idempotent re-runs) ---

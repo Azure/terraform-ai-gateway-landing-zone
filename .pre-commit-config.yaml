@@ -1,0 +1,49 @@
+# pre-commit hooks — the same checks as .github/workflows/ci.yml, run locally.
+#   pip install pre-commit && pre-commit install
+#   pre-commit run --all-files
+# Needs on PATH: terraform, tflint, terraform-docs, checkov (pip), bash >= 4.
+repos:
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.109.2
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+        args:
+          - --hook-config=--retry-once-with-cleanup=true
+          - --tf-init-args=-backend=false
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+      - id: terraform_docs
+        files: ^modules/   # module READMEs only; root/stack READMEs are hand-written
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.terraform-docs.yml
+      - id: terraform_checkov
+        args:
+          - --args=--config-file __GIT_WORKING_DIR__/.checkov.yaml
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+        exclude: \.(ipynb|json)$
+      - id: trailing-whitespace
+        exclude: \.(ipynb|md)$
+      - id: check-yaml
+      - id: check-json
+        exclude: \.ipynb$
+
+  - repo: local
+    hooks:
+      - id: policy-assets
+        name: policy XML assets (no dead, duplicate or missing files)
+        entry: scripts/ci/check-policy-assets.sh
+        language: script
+        pass_filenames: false
+        files: \.(xml|tf)$

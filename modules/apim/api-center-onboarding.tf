@@ -12,11 +12,11 @@ locals {
   apic_api_targets = merge(
     {
       "universal-llm-api" = {
-        display_name   = "Universal LLM API"
-        description    = "OpenAI-compatible unified LLM endpoint"
-        kind           = "rest"
-        path           = "models"
-        environment    = var.api_center_environment_name
+        display_name = "Universal LLM API"
+        description  = "OpenAI-compatible unified LLM endpoint"
+        kind         = "rest"
+        path         = "models"
+        environment  = var.api_center_environment_name
       }
       "azure-openai-api" = {
         display_name = "Azure OpenAI API"

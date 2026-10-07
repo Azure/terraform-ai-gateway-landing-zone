@@ -129,12 +129,21 @@ resource "time_sleep" "wait_for_kv_acl" {
 # primary source of 403 ForbiddenByFirewall errors on apply.
 # -----------------------------------------------------------------------------
 
+resource "time_rotating" "apim_gateway_key_secret" {
+  count         = var.create_apim_gateway_key_secret ? 1 : 0
+  rotation_days = 60
+}
+
 resource "azurerm_key_vault_secret" "apim_subscription_key" {
   count        = var.create_apim_gateway_key_secret ? 1 : 0
   name         = "apim-gateway-key"
   value        = "PLACEHOLDER-update-after-apim-deploy"
   key_vault_id = azurerm_key_vault.citadel.id
   tags         = var.tags
+
+  # ALZ Enforce-GR-KeyVault: content type + expiry (<= 90 days) are required.
+  content_type    = "apim-subscription-key"
+  expiration_date = timeadd(time_rotating.apim_gateway_key_secret[0].rfc3339, "${90 * 24}h")
 
   depends_on = [
     azurerm_role_assignment.deployer_kv_admin,

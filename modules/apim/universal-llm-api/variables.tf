@@ -8,35 +8,35 @@ variable "apim_name" {
   type        = string
 }
 
-variable "apim_id" {
-  description = "Resource ID of the parent API Management service. Used to derive logger IDs and for azapi diagnostics."
+variable "resource_group_name" {
+  description = "Resource group name. Leave empty for auto-generated."
   type        = string
 }
 
-variable "resource_group_name" {
-  type = string
-}
-
 variable "api_name" {
-  type    = string
-  default = "universal-llm-api"
+  description = "Name (ID) of the API in API Management."
+  type        = string
+  default     = "universal-llm-api"
 }
 
 variable "api_display_name" {
-  type    = string
-  default = "Universal LLM API"
+  description = "Display name of the API in API Management."
+  type        = string
+  default     = "Universal LLM API"
 }
 
 variable "api_description" {
-  type    = string
-  default = "Universal LLM API to route requests to different LLM providers including Azure OpenAI, AI Foundry and 3rd party models."
+  description = "Description of the API in API Management."
+  type        = string
+  default     = "Universal LLM API to route requests to different LLM providers including Azure OpenAI, AI Foundry and 3rd party models."
 }
 
 # Bicep parity: path is `${inferenceAPIPath}/${endpointPath}` where
 # inferenceAPIPath='' and endpointPath='models' for AzureAI inference type.
 variable "api_path" {
-  type    = string
-  default = "models"
+  description = "URL path suffix of the API on the APIM gateway."
+  type        = string
+  default     = "models"
 }
 
 variable "subscription_required" {
@@ -70,8 +70,9 @@ variable "deployment_by_name_op_policy_xml_path" {
 # Bicep parity: inference-api.bicep `inferenceAPIType`. Selects the OpenAPI
 # spec + base path. Default flipped AzureAI -> OpenAIV1 to match apim.bicep.
 variable "inference_api_type" {
-  type    = string
-  default = "OpenAIV1"
+  description = "Universal LLM API inference contract (Bicep: inferenceAPIType). One of AzureOpenAI, AzureAI, OpenAI, OpenAIV1."
+  type        = string
+  default     = "OpenAIV1"
   validation {
     condition     = contains(["AzureOpenAI", "AzureAI", "OpenAI", "OpenAIV1"], var.inference_api_type)
     error_message = "inference_api_type must be one of AzureOpenAI, AzureAI, OpenAI, OpenAIV1."

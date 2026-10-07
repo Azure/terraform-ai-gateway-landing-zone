@@ -31,7 +31,7 @@ command -v terraform >/dev/null 2>&1 || error "terraform not found."
 [[ -f "$TFVARS_FILE" ]] || error "Vars file not found: ${TFVARS_FILE}"
 
 cd "$ROOT_DIR"
-terraform init -upgrade >/dev/null 2>&1
+terraform init >/dev/null 2>&1
 
 if [[ "$AUTO_APPROVE" != "--auto-approve" ]]; then
   read -rp "Type the environment name '${ENVIRONMENT}' to confirm destruction: " CONFIRM

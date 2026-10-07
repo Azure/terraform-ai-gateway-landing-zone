@@ -1,11 +1,35 @@
-variable "resource_group_name" { type = string }
-variable "location" { type = string }
-variable "tags" { type = map(string) }
-variable "log_analytics_name" { type = string }
-variable "use_existing_log_analytics" { type = bool }
-variable "existing_log_analytics_id" { type = string }
-variable "environment_name" { type = string }
-variable "create_dashboards" { type = bool }
+variable "resource_group_name" {
+  description = "Name of the resource group the module deploys into."
+  type        = string
+}
+variable "location" {
+  description = "Primary Azure region for deployment"
+  type        = string
+}
+variable "tags" {
+  description = "Tags applied to every resource the module creates."
+  type        = map(string)
+}
+variable "log_analytics_name" {
+  description = "Name of the Log Analytics workspace to create (ignored when use_existing_log_analytics = true)."
+  type        = string
+}
+variable "use_existing_log_analytics" {
+  description = "Use an existing Log Analytics workspace"
+  type        = bool
+}
+variable "existing_log_analytics_id" {
+  description = "Resource ID of existing Log Analytics workspace"
+  type        = string
+}
+variable "environment_name" {
+  description = "Environment name used for resource naming (e.g., citadel-dev, citadel-prod)"
+  type        = string
+}
+variable "create_dashboards" {
+  description = "Create Application Insights dashboards"
+  type        = bool
+}
 
 variable "subscription_id" {
   description = "Subscription ID used when rendering the App Insights dashboard templates."

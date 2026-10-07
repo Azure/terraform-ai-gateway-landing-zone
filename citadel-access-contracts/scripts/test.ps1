@@ -7,8 +7,10 @@
 #   1. The product subscription key is accepted by the gateway
 #   2. The mapped API path is routable for each onboarded service
 #
-# When use_target_key_vault = false, subscription keys are read directly from
-# the Terraform `endpoints` output. Otherwise pass -ApiKey explicitly.
+# When use_target_key_vault = false, subscription keys are fetched on demand
+# with `az rest .../listSecrets` using the subscription resource IDs from the
+# Terraform `endpoints` output (keys are never stored in outputs). Otherwise
+# pass -ApiKey explicitly.
 #
 # Usage:
 #   ./scripts/test.ps1 [OPTIONS]
@@ -150,7 +152,9 @@ else {
             $code = $p.Name
             if (-not $code) { continue }
             $endpoint = Get-Prop $p.Value 'endpoint'
-            $key      = Get-Prop $p.Value 'api_key'
+            $subId    = Get-Prop $p.Value 'subscription_resource_id'
+            $key      = az rest --method post --url "https://management.azure.com$subId/listSecrets?api-version=2024-05-01" --query primaryKey -o tsv 2>$null
+            if (-not $key) { Write-FailTest "[$code] could not read subscription key (az login / permissions?)"; continue }
             Invoke-Probe "[$code] GET $endpoint" $endpoint $key
         }
     }

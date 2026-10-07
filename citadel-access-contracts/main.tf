@@ -149,7 +149,17 @@ resource "azurerm_key_vault_secret" "contract" {
   key_vault_id = local.key_vault_id
   name         = each.value.name
   value        = each.value.value
-  content_type = "string"
+  content_type = endswith(each.key, "-key") ? "apim-subscription-key" : "url"
+
+  # ALZ Enforce-GR-KeyVault denies secrets without an expiry or valid for more
+  # than 90 days. Expiry is informational (reads keep working); every apply after
+  # the rotation window pushes it forward.
+  expiration_date = timeadd(time_rotating.secrets[0].rfc3339, "${var.secret_validity_days * 24}h")
+}
+
+resource "time_rotating" "secrets" {
+  count         = var.use_target_key_vault ? 1 : 0
+  rotation_days = var.secret_rotation_days
 }
 
 # -----------------------------------------------------------------------------

@@ -128,10 +128,10 @@ output "ai_foundry_services" {
   EOT
   value = [
     for c in module.foundry.extended_ai_services_config : {
-      cognitiveServiceName    = c.cognitive_service_name
-      foundryProjectEndpoint  = c.foundry_project_endpoint
-      location                = c.location
-      endpoint                = c.endpoint
+      cognitiveServiceName   = c.cognitive_service_name
+      foundryProjectEndpoint = c.foundry_project_endpoint
+      location               = c.location
+      endpoint               = c.endpoint
     }
   ]
 }
@@ -142,5 +142,5 @@ output "llm_backend_config" {
     full override). azd parity: LLM_BACKEND_CONFIG / LLM_BACKENDS_CONFIG. Used
     by the model-aliases and unified-AI-API validation notebooks.
   EOT
-  value = local.effective_llm_backend_config
+  value       = local.effective_llm_backend_config
 }

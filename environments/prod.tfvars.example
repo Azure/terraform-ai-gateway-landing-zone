@@ -81,24 +81,29 @@ apim_sku_units       = 2
 apim_publisher_email = "admin@contoso.com"
 apim_publisher_name  = "AI Citadel Admin"
 
-cosmos_db_rus                     = 1000
+# DEPRECATED (ignored, see variables.tf): cosmos_db_rus
+# cosmos_db_rus                     = 1000
 eventhub_capacity_units           = 2
-eventhub_partition_count          = 8
+# DEPRECATED (ignored, see variables.tf): eventhub_partition_count
+# eventhub_partition_count          = 8
 eventhub_disaster_recovery_config = null
 # eventhub_disaster_recovery_config = {
 #   partner_namespace_id = "/subscriptions/.../Microsoft.EventHub/namespaces/evhns-citadel-prod-dr"
 #   alias                = "default"
 # }
 
-logic_app_sku_tier   = "WorkflowStandard"
+# DEPRECATED (ignored, see variables.tf): logic_app_sku_tier
+# logic_app_sku_tier   = "WorkflowStandard"
 logic_app_sku_size   = "WS2"
 # Keyless Logic App storage (allowSharedKeyAccess=false) requires ASE v3 hosting:
 # logic_app_hosting_model    = "AppServiceEnvironmentV3"
 # logic_app_ase_sku_size     = "I1v2"
 # logic_app_ase_worker_count = 1
 # ase_subnet_prefix          = "10.170.1.0/24"   # added as extra VNet address space
-language_service_sku = "S"
-content_safety_sku   = "S0"
+# DEPRECATED (ignored, see variables.tf): language_service_sku
+# language_service_sku = "S"
+# DEPRECATED (ignored, see variables.tf): content_safety_sku
+# content_safety_sku   = "S0"
 api_center_sku       = "Free"
 
 # -----------------------------------------------------------------------------
@@ -203,17 +208,19 @@ ai_foundry_models = [
 # -----------------------------------------------------------------------------
 apim_log_verbosity  = "information"
 apim_log_body_bytes = 4096
-azure_monitor_log_settings = {
-  enabled                 = true
-  log_request_body_bytes  = 4096
-  log_response_body_bytes = 4096
-}
-app_insights_log_settings = {
-  enabled                 = true
-  log_request_body_bytes  = 4096
-  log_response_body_bytes = 4096
-  sampling_percentage     = 100
-}
+# DEPRECATED (ignored, see variables.tf): azure_monitor_log_settings
+# azure_monitor_log_settings = {
+#   enabled                 = true
+#   log_request_body_bytes  = 4096
+#   log_response_body_bytes = 4096
+# }
+# DEPRECATED (ignored, see variables.tf): app_insights_log_settings
+# app_insights_log_settings = {
+#   enabled                 = true
+#   log_request_body_bytes  = 4096
+#   log_response_body_bytes = 4096
+#   sampling_percentage     = 100
+# }
 
 # -----------------------------------------------------------------------------
 # 13. REDIS (Azure Managed Redis) — only used if enable_redis_cache = true
@@ -231,7 +238,8 @@ enable_document_intelligence    = true
 enable_azure_ai_search          = true
 enable_openai_realtime          = true
 enable_unified_ai_api           = true
-enable_ai_gateway_pii_redaction = true
+# DEPRECATED (ignored, see variables.tf): enable_ai_gateway_pii_redaction
+# enable_ai_gateway_pii_redaction = true
 is_mcp_sample_deployed          = true
 
 # -----------------------------------------------------------------------------
@@ -260,7 +268,8 @@ use_azure_monitor_private_link_scope = true
 # -----------------------------------------------------------------------------
 # 18. FOUNDRY EMBEDDINGS (semantic cache)
 # -----------------------------------------------------------------------------
-primary_foundry_embedding_model_name = "text-embedding-3-large"
+# DEPRECATED (ignored, see variables.tf): primary_foundry_embedding_model_name
+# primary_foundry_embedding_model_name = "text-embedding-3-large"
 enable_embeddings_backend            = false # flip to true once enable_redis_cache = true
 embeddings_backend_url               = ""
 

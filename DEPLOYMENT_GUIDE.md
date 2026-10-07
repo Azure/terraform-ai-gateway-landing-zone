@@ -45,7 +45,7 @@ result:
 
 | Requirement | Version | Notes |
 |---|---|---|
-| Terraform | ≥ 1.5.0 | Declared in [versions.tf](versions.tf) |
+| Terraform | ≥ 1.11 (CI uses the version in `.terraform-version`) | Declared in [terraform.tf](terraform.tf) |
 | Azure CLI (`az`) | ≥ 2.57 | Used for auth + RP registration + Logic App code publish (uses core `az functionapp` commands; no extensions needed) |
 | `azurerm` provider | `~> 4.0` | Auto-installed by `terraform init` |
 | `azapi` provider | `~> 2.0` | Used for APIM v2 backends, MCP, APIC |
@@ -425,7 +425,7 @@ the subscription resource directly.
 
 **Bicep parity:** `citadel-access-contracts/main.bicep` + its 3 sub-modules.
 
-**What gets created** ([modules/access-contracts/](modules/access-contracts/)):
+**What gets created** ([citadel-access-contracts/](citadel-access-contracts/)):
 
 Per entry in `var.access_contracts`:
 

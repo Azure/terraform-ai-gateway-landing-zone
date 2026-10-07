@@ -190,9 +190,9 @@ resource "azurerm_role_assignment" "eventhub_data_owner_usage" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_eventhub_namespace_disaster_recovery_config" "pairing" {
-  count                 = var.disaster_recovery_config == null ? 0 : 1
-  name                  = var.disaster_recovery_config.alias
-  resource_group_name   = var.resource_group_name
-  namespace_name        = azurerm_eventhub_namespace.citadel.name
-  partner_namespace_id  = var.disaster_recovery_config.partner_namespace_id
+  count                = var.disaster_recovery_config == null ? 0 : 1
+  name                 = var.disaster_recovery_config.alias
+  resource_group_name  = var.resource_group_name
+  namespace_name       = azurerm_eventhub_namespace.citadel.name
+  partner_namespace_id = var.disaster_recovery_config.partner_namespace_id
 }

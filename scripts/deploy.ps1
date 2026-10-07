@@ -207,7 +207,7 @@ Write-Success 'All resource providers registered.'
 Write-Host ''
 Write-Info 'Initialising Terraform...'
 Set-Location $RootDir
-terraform init -upgrade -reconfigure
+terraform init -reconfigure
 if ($LASTEXITCODE -ne 0) { Write-Err 'Terraform init failed.' }
 Write-Success 'Terraform initialised.'
 

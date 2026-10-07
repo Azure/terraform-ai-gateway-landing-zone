@@ -7,18 +7,7 @@
 #     infrastructure/infrastructure-setup-terraform
 # =============================================================================
 
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }
-    azapi = {
-      source  = "azure/azapi"
-      version = "~> 2.0"
-    }
-  }
-}
+
 
 locals {
   instances = var.foundry_instances
@@ -78,12 +67,12 @@ resource "azapi_resource" "foundry" {
     properties = {
       # Required to enable AI Foundry (project management) on the account
       allowProjectManagement = true
-      customSubDomainName = local.instance_subdomains[count.index]
-      disableLocalAuth = var.disable_key_auth
-      publicNetworkAccess = var.foundry_external_access ? "Enabled" : "Disabled"
+      customSubDomainName    = local.instance_subdomains[count.index]
+      disableLocalAuth       = var.disable_key_auth
+      publicNetworkAccess    = var.foundry_external_access ? "Enabled" : "Disabled"
       networkAcls = {
         defaultAction       = "Deny"
-        bypass               = "AzureServices"
+        bypass              = "AzureServices"
         ipRules             = []
         virtualNetworkRules = []
       }
@@ -93,10 +82,10 @@ resource "azapi_resource" "foundry" {
         var.foundry_network_injection_enabled &&
         try(local.instances[count.index].network_injection_enabled, true) &&
         var.agent_subnet_id != ""
-      ) ? [
+        ) ? [
         {
-          scenario                 = "agent"
-          subnetArmId              = var.agent_subnet_id
+          scenario                   = "agent"
+          subnetArmId                = var.agent_subnet_id
           useMicrosoftManagedNetwork = false
         }
       ] : null

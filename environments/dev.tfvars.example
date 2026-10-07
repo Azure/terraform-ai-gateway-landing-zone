@@ -79,15 +79,20 @@ apim_sku_units       = 1
 apim_publisher_email = "admin@contoso.com"
 apim_publisher_name  = "AI Citadel Admin"
 
-cosmos_db_rus                     = 400
+# DEPRECATED (ignored, see variables.tf): cosmos_db_rus
+# cosmos_db_rus                     = 400
 eventhub_capacity_units           = 1
-eventhub_partition_count          = 2
+# DEPRECATED (ignored, see variables.tf): eventhub_partition_count
+# eventhub_partition_count          = 2
 eventhub_disaster_recovery_config = null # { partner_namespace_id, alias }
 
-logic_app_sku_tier   = "WorkflowStandard"
+# DEPRECATED (ignored, see variables.tf): logic_app_sku_tier
+# logic_app_sku_tier   = "WorkflowStandard"
 logic_app_sku_size   = "WS1"
-language_service_sku = "S"
-content_safety_sku   = "S0"
+# DEPRECATED (ignored, see variables.tf): language_service_sku
+# language_service_sku = "S"
+# DEPRECATED (ignored, see variables.tf): content_safety_sku
+# content_safety_sku   = "S0"
 api_center_sku       = "Free"
 
 # -----------------------------------------------------------------------------
@@ -193,7 +198,8 @@ enable_document_intelligence    = true
 enable_azure_ai_search          = false
 enable_openai_realtime          = true
 enable_unified_ai_api           = true
-enable_ai_gateway_pii_redaction = true
+# DEPRECATED (ignored, see variables.tf): enable_ai_gateway_pii_redaction
+# enable_ai_gateway_pii_redaction = true
 is_mcp_sample_deployed          = true
 
 # -----------------------------------------------------------------------------
@@ -218,7 +224,8 @@ use_azure_monitor_private_link_scope = false
 # -----------------------------------------------------------------------------
 # 18. FOUNDRY EMBEDDINGS (semantic cache)
 # -----------------------------------------------------------------------------
-primary_foundry_embedding_model_name = ""
+# DEPRECATED (ignored, see variables.tf): primary_foundry_embedding_model_name
+# primary_foundry_embedding_model_name = ""
 enable_embeddings_backend            = false
 embeddings_backend_url               = ""
 

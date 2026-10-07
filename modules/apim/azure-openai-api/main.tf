@@ -17,18 +17,7 @@
 #   - Microsoft.ApiManagement/service/apis/diagnostics (applicationinsights)
 # =============================================================================
 
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }
-    azapi = {
-      source  = "Azure/azapi"
-      version = "~> 2.0"
-    }
-  }
-}
+
 
 # -----------------------------------------------------------------------------
 # API resource — Bicep parity: imports the OpenAPI spec so operations match

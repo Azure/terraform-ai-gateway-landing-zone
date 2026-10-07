@@ -1,0 +1,16 @@
+# checkov configuration — used by pre-commit and CI.
+# Existing findings are recorded in .checkov.baseline (Phase 0); CI fails only on
+# NEW findings. Each baselined finding is fixed by a later phase of the
+# implementation plan (NSGs: WP-2.6, keyless storage: Phase 2b, Cosmos local
+# auth: WP-2.4, APIM public access: WP-2.9). Regenerate the baseline only when a
+# finding is fixed:  checkov -d . --framework terraform --skip-path gitignore --create-baseline
+framework:
+  - terraform
+directory:
+  - .
+skip-path:
+  - gitignore
+  - .terraform
+baseline: .checkov.baseline
+compact: true
+quiet: true

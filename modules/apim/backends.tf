@@ -32,11 +32,11 @@ locals {
   model_to_backends_pairs = flatten([
     for b in local.llm_backends_normalized : [
       for m in b.model_names : {
-        model       = m
-        backend_id  = b.backend_id
-        backend_type = b.backend_type
-        priority    = b.priority
-        weight      = b.weight
+        model                   = m
+        backend_id              = b.backend_id
+        backend_type            = b.backend_type
+        priority                = b.priority
+        weight                  = b.weight
         auth_type               = b.auth_type
         auth_config_named_value = b.auth_config_named_value
       }
@@ -67,16 +67,16 @@ locals {
   # Unified "allPools" list that the C#-code-gen fragments consume.
   all_pools = concat(
     [for pool_name, cfg in local.pool_configs : {
-      pool_name        = pool_name
-      pool_type        = length(cfg.backends) > 0 ? cfg.backends[0].backend_type : "mixed"
-      supported_models = [cfg.model_name]
+      pool_name               = pool_name
+      pool_type               = length(cfg.backends) > 0 ? cfg.backends[0].backend_type : "mixed"
+      supported_models        = [cfg.model_name]
       auth_type               = length(cfg.backends) > 0 ? cfg.backends[0].auth_type : ""
       auth_config_named_value = length(cfg.backends) > 0 ? cfg.backends[0].auth_config_named_value : ""
     }],
     [for model_name, b in local.direct_backends : {
-      pool_name        = b.backend_id
-      pool_type        = b.backend_type
-      supported_models = [model_name]
+      pool_name               = b.backend_id
+      pool_type               = b.backend_type
+      supported_models        = [model_name]
       auth_type               = b.auth_type
       auth_config_named_value = b.auth_config_named_value
     }]

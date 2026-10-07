@@ -47,7 +47,7 @@ Complete Terraform implementation of the [AI Gateway Landing Zone - Bicep](https
 
 | Tool | Min Version | Install |
 |------|-------------|---------|
-| Terraform | ≥ 1.5 | [Install](https://developer.hashicorp.com/terraform/install) |
+| Terraform | ≥ 1.11 | [Install](https://developer.hashicorp.com/terraform/install) |
 | Azure CLI | ≥ 2.50 | [Install](https://aka.ms/installazurecli) |
 | Git | Any | [Install](https://git-scm.com) |
 | Bash shell (`scripts/*.sh`) | Any | macOS/Linux: built-in. Windows: use [Git Bash](https://git-scm.com) or [WSL](https://learn.microsoft.com/windows/wsl/install). |
@@ -67,7 +67,7 @@ cd citadel-terraform
 # Bash (Linux/macOS):
 # -------------------
 ./scripts/bootstrap-state.sh eastus
-# Then uncomment the backend block in versions.tf and re-run terraform init
+# Then uncomment the backend block in terraform.tf and re-run terraform init
 ```
 
 ```powershell
@@ -160,7 +160,8 @@ existing_vnet_rg     = "rg-network-hub"
 vnet_name            = "vnet-hub-prod-eastus"
 apim_subnet_name     = "snet-citadel-apim"
 dns_zone_rg          = "rg-network-dns"
-dns_subscription_id  = "00000000-0000-0000-0000-000000000000"
+# Zones in another subscription: pass their full resource IDs instead
+# existing_private_dns_zones = { key_vault = "/subscriptions/<sub>/resourceGroups/rg-network-dns/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net", ... }
 ```
 
 ### Entra ID Authentication
@@ -379,11 +380,17 @@ Never commit real secrets to source control. Use one of:
 
 ```
 citadel-terraform/
-├── versions.tf              # Provider + Terraform version constraints
+├── terraform.tf             # Provider + Terraform version constraints
+├── .terraform.lock.hcl      # Provider lock file (committed; CI runs init -lockfile=readonly)
 ├── providers.tf             # AzureRM, AzAPI, Random provider config
 ├── main.tf                  # Root module — orchestrates all modules
-├── variables.tf             # All input variables (mirrors Bicep params)
+├── variables.tf             # All input variables (mirrors Bicep params; deprecated inputs at the end)
+├── checks.tf                # Plan-time checks (deprecated inputs)
 ├── outputs.tf               # Key deployment outputs
+├── tests/unit/              # Mocked unit tests — terraform test -test-directory=tests/unit
+├── .github/workflows/ci.yml # CI: fmt, tflint, validate, tests, terraform-docs, checkov, gitleaks
+├── .tflint.hcl  .terraform-docs.yml  .checkov.yaml  .checkov.baseline  .gitleaks.toml
+├── .pre-commit-config.yaml  .terraform-version  CONTRIBUTING.md
 ├── .gitignore
 │
 ├── modules/
@@ -394,13 +401,13 @@ citadel-terraform/
 │   ├── eventhub/            # Event Hub namespace, hubs, auth rules
 │   ├── ai-services/         # Language Service, Content Safety, AI Foundry, API Center
 │   ├── apim/                # API Management + APIs + policies + named values
-│   │   └── policies/        # APIM policy XML templates
+│   │   └── policies/        # APIM policy XML (single copy; also read by llm-backend-onboarding)
 │   └── logic-app/           # Logic App Standard for usage ingestion
 │
 ├── llm-backend-onboarding/  # Standalone module — onboard LLM backends to an existing APIM
 │   ├── main.tf              # Backends, backend pools, policy fragments, named values
 │   ├── terraform.tfvars.example
-│   ├── policies/            # Routing policy-fragment templates
+│   ├── tests/unit/          # Mocked unit tests
 │   └── scripts/             # deploy.sh / destroy.sh / test.sh
 │
 ├── citadel-access-contracts/ # Standalone module — onboard a use-case to an existing APIM
@@ -408,6 +415,7 @@ citadel-terraform/
 │   ├── terraform.tfvars.example
 │   ├── contracts/           # Per-use-case contract definitions
 │   ├── policies/            # Inbound product policy XML (incl. default-ai-product-policy.xml)
+│   ├── tests/unit/          # Mocked unit tests
 │   └── scripts/             # deploy.sh / destroy.sh / test.sh
 │
 ├── environments/
@@ -416,7 +424,10 @@ citadel-terraform/
 │   ├── prod.tfvars.example  # Production template — copy to prod.tfvars and fill in
 │   └── prod.tfvars          # Production (PremiumV2, fully private)
 │
+├── docs/operations/         # Runbooks — platform-team-requests.md (ALZ prerequisites)
+│
 ├── scripts/                # Bash (*.sh) + PowerShell (*.ps1) equivalents
+│   ├── ci/                     # CI helpers: tf-dirs.sh, check-policy-assets.sh
 │   ├── deploy.sh / .ps1        # Full deploy script (init + plan + apply)
 │   ├── destroy.sh / .ps1       # Teardown script
 │   ├── validate.sh / .ps1      # Post-deployment smoke tests
@@ -441,6 +452,9 @@ citadel-terraform/
 ---
 
 ## 📚 Related Documentation
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — local quality checks (fmt, tflint, tests, checkov, gitleaks) and the rules CI enforces
+- [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md) — what to request from the Azure Landing Zone platform team
 
 - [AI Citadel Governance Hub README](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1)
 - [Full Deployment Guide](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/full-deployment-guide.md)

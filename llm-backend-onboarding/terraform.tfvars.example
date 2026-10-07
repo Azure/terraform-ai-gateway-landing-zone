@@ -300,8 +300,3 @@ model_aliases = []
 # aws_secret_key_secret_uri = "https://<kv>.vault.azure.net/secrets/aws-secret-key"
 # aws_region                = "us-east-1"
 
-# -----------------------------------------------------------------------------
-# OPTIONAL: Key Vault
-# -----------------------------------------------------------------------------
-# Key Vault name for backend credential references (api-key auth types).
-# key_vault_name = ""

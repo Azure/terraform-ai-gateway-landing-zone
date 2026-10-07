@@ -3,12 +3,30 @@
 # Mirrors parameters of bicep/infra/modules/foundry/foundry.bicep
 # =============================================================================
 
-variable "resource_group_name" { type = string }
-variable "resource_group_id"   { type = string }
-variable "location"            { type = string }
-variable "tags"                { type = map(string) }
-variable "environment_name"    { type = string }
-variable "random_suffix"       { type = string }
+variable "resource_group_name" {
+  description = "Name of the resource group the module deploys into."
+  type        = string
+}
+variable "resource_group_id" {
+  description = "Resource ID of the resource group the module deploys into."
+  type        = string
+}
+variable "location" {
+  description = "Primary Azure region for deployment"
+  type        = string
+}
+variable "tags" {
+  description = "Tags applied to every resource the module creates."
+  type        = map(string)
+}
+variable "environment_name" {
+  description = "Environment name used for resource naming (e.g., citadel-dev, citadel-prod)"
+  type        = string
+}
+variable "random_suffix" {
+  description = "Random suffix appended to globally unique resource names."
+  type        = string
+}
 
 variable "foundry_external_access" {
   description = "If true, publicNetworkAccess=Enabled on Foundry accounts."
@@ -107,13 +125,15 @@ variable "dns_zone_ids" {
 }
 
 variable "agent_subnet_id" {
-  type    = string
-  default = ""
+  description = "Resource ID of the subnet used for Foundry agent network injection."
+  type        = string
+  default     = ""
 }
 
 variable "foundry_network_injection_enabled" {
-  type    = bool
-  default = true
+  description = "Inject the Foundry Agent Service into the agent subnet (needs enable_agent_subnet = true)."
+  type        = bool
+  default     = true
 }
 
 # ------------------------------------------------------------------------------

@@ -139,7 +139,7 @@ The deploying principal needs:
 
 ### Tooling
 
-- Terraform >= 1.5 and Azure CLI installed
+- Terraform >= 1.11 and Azure CLI installed
 - Authenticated to Azure (`az login`)
 
 ## Quick Start
@@ -211,7 +211,7 @@ terraform apply -var-file=terraform.tfvars
 ### 3. Test
 
 ```bash
-# When use_target_key_vault = false, keys come from terraform output:
+# When use_target_key_vault = false, keys are fetched with `az rest .../listSecrets`:
 ./scripts/test.sh
 
 # When keys are stored in Key Vault, pass one explicitly:
@@ -219,7 +219,7 @@ terraform apply -var-file=terraform.tfvars
 ```
 
 ```powershell
-# When use_target_key_vault = false, keys come from terraform output:
+# When use_target_key_vault = false, keys are fetched with `az rest .../listSecrets`:
 ./scripts/test.ps1
 
 # When keys are stored in Key Vault, pass one explicitly:
@@ -351,18 +351,19 @@ client = AzureOpenAI(azure_endpoint=endpoint, api_key=api_key, api_version="2024
 
 ### Option 2: Direct Output (CI/CD)
 
-Set `use_target_key_vault = false` to skip Key Vault. Credentials are returned in the (sensitive) `endpoints` output for use in pipelines:
+Set `use_target_key_vault = false` to skip Key Vault. The `endpoints` output returns each service's endpoint and APIM subscription resource ID. **Keys are never output**; a pipeline reads a key on demand:
 
 ```hcl
 use_target_key_vault = false
 ```
 
 ```bash
-# Retrieve the sensitive endpoints output as JSON
 terraform output -json endpoints
+SUB_ID=$(terraform output -json endpoints | jq -r '.llm.subscription_resource_id')
+az rest --method post --url "https://management.azure.com${SUB_ID}/listSecrets?api-version=2024-05-01" --query primaryKey -o tsv
 ```
 
-> **Security note**: The `endpoints` output contains live subscription keys. It is marked `sensitive`; store it securely (environment variables, CI/CD secrets) and prefer Key Vault for production.
+> **Security note**: The caller needs `Microsoft.ApiManagement/service/subscriptions/listSecrets/action` on the APIM service. Prefer Key Vault for production.
 
 ### Option 3: Microsoft Foundry Connections
 
@@ -562,11 +563,11 @@ You can validate JWT-enabled access contracts using the [`citadel-jwt-authentica
 | `use_key_vault` | Whether secrets were written to Key Vault. |
 | `products` | Map of service code → `{ product_id, display_name }`. |
 | `subscriptions` | Per-service subscription metadata (Key Vault secret names when KV is used). |
-| `endpoints` | **(sensitive)** Per-service `{ endpoint, api_key }`. Only populated when `use_target_key_vault = false`. |
+| `endpoints` | Per-service `{ product_id, subscription_name, endpoint, subscription_resource_id }` (no keys). Only populated when `use_target_key_vault = false`. |
 | `use_foundry` | Whether Foundry connections were created. |
 | `foundry_connections` | Map of service code → created Foundry connection metadata. |
 
-> **Security note:** When `use_target_key_vault = false`, the `endpoints` output contains live subscription keys. It is marked `sensitive`; handle it securely (environment variables, CI/CD secrets) and prefer Key Vault for production.
+> **Security note:** Subscription keys are never returned as outputs. When `use_target_key_vault = false`, read a key on demand with `az rest … /listSecrets` (see Option 2). Prefer Key Vault for production.
 
 ### When using Key Vault (`use_target_key_vault = true`)
 
@@ -661,7 +662,8 @@ citadel-access-contracts/
 ├── main.tf                    # Products, product-APIs, policies, subscriptions, KV secrets, Foundry connection
 ├── variables.tf               # Input variables
 ├── outputs.tf                 # Output values
-├── versions.tf                # Terraform & provider versions
+├── terraform.tf               # Terraform & provider versions
+├── tests/unit/                # Mocked unit tests (terraform test -test-directory=tests/unit)
 ├── providers.tf               # Provider configuration (pinned to apim.subscription_id)
 ├── terraform.tfvars.example   # Example configuration
 ├── policies/
@@ -678,9 +680,9 @@ citadel-access-contracts/
 
 ## Relationship to the main deployment
 
-This module is **independent** from the main Citadel Terraform deployment (`../main.tf`) and from the reusable `../modules/access-contracts` module. Use it to onboard new use-cases against an already-deployed Governance Hub without a full infrastructure redeploy — for example when a platform team owns the hub and product teams onboard their own use-cases.
+This module is **independent** from the main Citadel Terraform deployment (`../main.tf`). Use it to onboard new use-cases against an already-deployed Governance Hub without a full infrastructure redeploy — for example when a platform team owns the hub and product teams onboard their own use-cases.
 
-The reusable `../modules/access-contracts` module performs the same role inside the full stack; this standalone root resolves the APIM gateway URL, API paths, Key Vault ID, and Foundry project ID from the structured inputs and applies the resources directly.
+It resolves the APIM gateway URL, API paths, Key Vault ID, and Foundry project ID from the structured inputs and applies the resources directly. (An unused in-graph duplicate, `modules/access-contracts`, was removed.)
 
 ## Support
 

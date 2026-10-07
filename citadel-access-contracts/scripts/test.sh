@@ -7,8 +7,10 @@
 #   1. The product subscription key is accepted by the gateway
 #   2. The mapped API path is routable for each onboarded service
 #
-# When use_target_key_vault = false, subscription keys are read directly from
-# the Terraform `endpoints` output. Otherwise pass --api-key explicitly.
+# When use_target_key_vault = false, subscription keys are fetched on demand
+# with `az rest .../listSecrets` using the subscription resource IDs from the
+# Terraform `endpoints` output (keys are never stored in outputs). Otherwise
+# pass --api-key explicitly.
 #
 # Usage:
 #   ./scripts/test.sh [OPTIONS]
@@ -120,10 +122,14 @@ else
   if [[ "$ENDPOINTS_JSON" != "{}" && "$ENDPOINTS_JSON" != "null" ]]; then
     info "Probing per-service endpoints from Terraform output..."
     echo ""
-    while IFS=$'\t' read -r code endpoint key; do
+    while IFS=$'\t' read -r code endpoint sub_id; do
       [[ -z "$code" ]] && continue
+      key=$(az rest --method post \
+        --url "https://management.azure.com${sub_id}/listSecrets?api-version=2024-05-01" \
+        --query primaryKey -o tsv 2>/dev/null || true)
+      [[ -z "$key" ]] && { fail "[$code] could not read subscription key (az login / permissions?)"; continue; }
       run_probe "[$code] GET ${endpoint}" "$endpoint" "$key"
-    done < <(echo "$ENDPOINTS_JSON" | jq -r 'to_entries[] | "\(.key)\t\(.value.endpoint)\t\(.value.api_key)"')
+    done < <(echo "$ENDPOINTS_JSON" | jq -r 'to_entries[] | "\(.key)\t\(.value.endpoint)\t\(.value.subscription_resource_id)"')
   else
     # Key Vault mode — keys are not in outputs. Require --api-key + probe products.
     if [[ -z "$API_KEY" ]]; then

@@ -1,11 +1,31 @@
-variable "resource_group_name"         { type = string }
-variable "location"                      { type = string }
-variable "tags"                          { type = map(string) }
-variable "environment_name"              { type = string }
-variable "random_suffix"                 { type = string }
-variable "sku_tier"                      { type = string }
-variable "sku_size"                      { type = string }
-variable "subnet_id"                     { type = string }
+variable "resource_group_name" {
+  description = "Name of the resource group the module deploys into."
+  type        = string
+}
+variable "location" {
+  description = "Primary Azure region for deployment"
+  type        = string
+}
+variable "tags" {
+  description = "Tags applied to every resource the module creates."
+  type        = map(string)
+}
+variable "environment_name" {
+  description = "Environment name used for resource naming (e.g., citadel-dev, citadel-prod)"
+  type        = string
+}
+variable "random_suffix" {
+  description = "Random suffix appended to globally unique resource names."
+  type        = string
+}
+variable "sku_size" {
+  description = "Logic App (Standard) SKU size. Used only when logic_app_hosting_model = \"WorkflowStandard\"."
+  type        = string
+}
+variable "subnet_id" {
+  description = "Resource ID of the subnet used for regional VNet integration (Workflow Standard hosting)."
+  type        = string
+}
 
 # -----------------------------------------------------------------------------
 # Hosting model (WorkflowStandard | AppServiceEnvironmentV3) — see ase.tf
@@ -35,64 +55,79 @@ variable "vnet_id" {
 }
 
 variable "ase_sku_size" {
-  type    = string
-  default = "I1v2"
+  description = "Isolated v2 App Service plan SKU for the Logic App when logic_app_hosting_model = \"AppServiceEnvironmentV3\"."
+  type        = string
+  default     = "I1v2"
 }
 
 variable "ase_worker_count" {
-  type    = number
-  default = 1
+  description = "Number of Isolated v2 instances for the Logic App plan inside the ASE v3."
+  type        = number
+  default     = 1
 }
 
 variable "ase_internal_load_balancing_mode" {
-  type    = string
-  default = "Web, Publishing"
+  description = "ASE v3 ingress: \"Web, Publishing\" (internal/ILB — app and SCM endpoints reachable only from the VNet) or \"None\" (external, public VIP)."
+  type        = string
+  default     = "Web, Publishing"
 }
 
 variable "ase_zone_redundant" {
-  type    = bool
-  default = false
+  description = "Deploy the ASE v3 as zone redundant (region must support availability zones; increases minimum billed instances)."
+  type        = bool
+  default     = false
 }
 
 variable "ase_create_private_dns_zone" {
-  type    = bool
-  default = true
+  description = "For an internal (ILB) ASE v3, create the <ase>.appserviceenvironment.net private DNS zone (*, *.scm, @ records) and link it to the VNet. Set false when DNS is managed centrally (hub)."
+  type        = bool
+  default     = true
 }
-variable "eventhub_endpoint_host"        { 
-    type = string
-    description = "EventHub namespace FQDN (e.g. evhns-xxx.servicebus.windows.net)"
+variable "eventhub_endpoint_host" {
+  type        = string
+  description = "EventHub namespace FQDN (e.g. evhns-xxx.servicebus.windows.net)"
 }
-variable "cosmos_db_endpoint"            { type = string }
-variable "app_insights_connection_string" { 
-    type = string
-    sensitive = true
+variable "cosmos_db_endpoint" {
+  description = "Cosmos DB account endpoint the workflows write to."
+  type        = string
 }
-variable "managed_identity_id"           { type = string }
-variable "managed_identity_client_id"     { type = string }
-variable "managed_identity_principal_id"  { type = string }
-variable "log_analytics_id"              { 
-    type = string
-    default = "" 
+variable "app_insights_connection_string" {
+  description = "Application Insights connection string for the Logic App."
+  type        = string
+  sensitive   = true
+}
+variable "managed_identity_id" {
+  description = "Resource ID of the user-assigned managed identity the service runs as."
+  type        = string
+}
+variable "managed_identity_client_id" {
+  description = "Client ID of the user-assigned managed identity the service runs as."
+  type        = string
+}
+variable "managed_identity_principal_id" {
+  description = "Principal (object) ID of the user-assigned managed identity that is granted data-plane roles."
+  type        = string
+}
+variable "log_analytics_id" {
+  description = "Resource ID of the Log Analytics workspace that receives diagnostic settings."
+  type        = string
+  default     = ""
 }
 
 # -----------------------------------------------------------------------------
 # Extended Logic App configuration
 # -----------------------------------------------------------------------------
 
-variable "eventhub_namespace_name" {
+variable "eventhub_ai_usage_hub_name" {
+  description = "Name of the Event Hub carrying AI usage events."
   type        = string
-  description = "EventHub namespace name (not FQDN)."
   default     = ""
 }
 
-variable "eventhub_ai_usage_hub_name" {
-  type    = string
-  default = ""
-}
-
 variable "eventhub_pii_usage_hub_name" {
-  type    = string
-  default = ""
+  description = "Name of the Event Hub carrying PII usage events."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_account_name" {
@@ -102,28 +137,33 @@ variable "cosmos_db_account_name" {
 }
 
 variable "cosmos_db_database_name" {
-  type    = string
-  default = ""
+  description = "Cosmos DB database that holds the usage containers."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_container_config" {
-  type    = string
-  default = ""
+  description = "Cosmos DB container holding configuration documents (model pricing, ...)."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_container_usage" {
-  type    = string
-  default = ""
+  description = "Cosmos DB container for AI usage records."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_container_pii" {
-  type    = string
-  default = ""
+  description = "Cosmos DB container for PII usage records."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_container_llm_usage" {
-  type    = string
-  default = ""
+  description = "Cosmos DB container for LLM usage records."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_account_id" {
@@ -145,8 +185,9 @@ variable "apim_app_insights_rg" {
 }
 
 variable "subscription_id" {
-  type    = string
-  default = ""
+  description = "Azure Subscription ID for the deployment"
+  type        = string
+  default     = ""
 }
 
 variable "content_share_name" {
@@ -174,23 +215,27 @@ variable "enable_cosmos_role_assignment" {
 }
 
 variable "dns_zone_id_blob" {
-  type    = string
-  default = ""
+  description = "Resource ID of the privatelink.blob.core.windows.net DNS zone for the storage private endpoint."
+  type        = string
+  default     = ""
 }
 
 variable "dns_zone_id_file" {
-  type    = string
-  default = ""
+  description = "Resource ID of the privatelink.file.core.windows.net DNS zone for the storage private endpoint."
+  type        = string
+  default     = ""
 }
 
 variable "dns_zone_id_table" {
-  type    = string
-  default = ""
+  description = "Resource ID of the privatelink.table.core.windows.net DNS zone for the storage private endpoint."
+  type        = string
+  default     = ""
 }
 
 variable "dns_zone_id_queue" {
-  type    = string
-  default = ""
+  description = "Resource ID of the privatelink.queue.core.windows.net DNS zone for the storage private endpoint."
+  type        = string
+  default     = ""
 }
 
 variable "create_azuremonitor_api_connection" {

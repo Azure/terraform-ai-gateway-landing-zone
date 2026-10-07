@@ -82,7 +82,7 @@ info "Using subscription: $ACCOUNT_NAME ($SUBSCRIPTION)"
 
 # --- Terraform init ---
 info "Initializing Terraform..."
-terraform init -upgrade
+terraform init
 
 # --- Import existing resources (handles re-onboarding / idempotent re-runs) ---
 info "Checking for existing resources to import into state..."

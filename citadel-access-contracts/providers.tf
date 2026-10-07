@@ -12,4 +12,6 @@ provider "azurerm" {
   subscription_id = var.apim.subscription_id
 }
 
-provider "azapi" {}
+provider "azapi" {
+  subscription_id = var.apim.subscription_id
+}

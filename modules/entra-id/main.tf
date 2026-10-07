@@ -11,22 +11,7 @@
 # client_id / tenant_id outputs of this module.
 # =============================================================================
 
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }
-    azuread = {
-      source  = "hashicorp/azuread"
-      version = "~> 3.0"
-    }
-    time = {
-      source  = "hashicorp/time"
-      version = "~> 0.11"
-    }
-  }
-}
+
 
 data "azuread_client_config" "current" {}
 
@@ -49,8 +34,8 @@ locals {
 }
 
 resource "azuread_application" "gateway" {
-  display_name            = local.display_name
-  sign_in_audience        = "AzureADMyOrg"
+  display_name                   = local.display_name
+  sign_in_audience               = "AzureADMyOrg"
   fallback_public_client_enabled = true
 
   api {
@@ -146,4 +131,16 @@ resource "azurerm_key_vault_secret" "client_secret" {
 
   # Track rotation in KV history
   content_type = "entra-app-client-secret"
+
+  # ALZ Enforce-GR-KeyVault denies secrets without an expiry (max 90 days).
+  # Expiry is informational in Key Vault (reads keep working); it marks when
+  # the next rotation is due.
+  expiration_date = timeadd(time_rotating.client_secret.rfc3339, "${var.client_secret_rotation_days * 24}h")
+}
+
+check "client_secret_rotation_alz" {
+  assert {
+    condition     = var.client_secret_rotation_days <= 90
+    error_message = "client_secret_rotation_days = ${var.client_secret_rotation_days}. Azure Landing Zone policy Enforce-GR-KeyVault denies Key Vault secrets valid for more than 90 days; use <= 90 in ALZ subscriptions."
+  }
 }

@@ -33,8 +33,8 @@ resource "azurerm_cosmosdb_account" "citadel" {
   is_virtual_network_filter_enabled = false
 
   # Bicep parity: enableAutomaticFailover=true, disableKeyBasedMetadataWriteAccess=true
-  automatic_failover_enabled            = true
-  access_key_metadata_writes_enabled    = false
+  automatic_failover_enabled         = true
+  access_key_metadata_writes_enabled = false
 
   backup {
     type                = "Periodic"

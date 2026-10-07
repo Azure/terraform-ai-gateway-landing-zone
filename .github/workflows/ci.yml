@@ -1,0 +1,145 @@
+# =============================================================================
+# CI — static checks, validation and mocked unit tests. No Azure access.
+# Implementation plan WP-0.6 (Phase 0). Mirrors .pre-commit-config.yaml.
+# =============================================================================
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TERRAFORM_DOCS_VERSION: v0.24.0
+  GITLEAKS_VERSION: 8.30.1
+
+jobs:
+  static:
+    name: fmt · tflint · docs · policy assets · secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # gitleaks scans the history
+
+      - id: tfver
+        run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ steps.tfver.outputs.version }}
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      - uses: terraform-linters/setup-tflint@v6
+        with:
+          tflint_version: v0.64.0
+
+      - name: tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # plugin download rate limit
+        run: |
+          tflint --init --config="$GITHUB_WORKSPACE/.tflint.hcl"
+          rc=0
+          for d in $(scripts/ci/tf-dirs.sh); do
+            echo "::group::tflint $d"
+            tflint --chdir="$d" --config="$GITHUB_WORKSPACE/.tflint.hcl" --format=compact || rc=1
+            echo "::endgroup::"
+          done
+          exit $rc
+
+      - name: terraform-docs (module READMEs up to date)
+        run: |
+          curl -sSLo /tmp/tfdocs.tgz "https://github.com/terraform-docs/terraform-docs/releases/download/${TERRAFORM_DOCS_VERSION}/terraform-docs-${TERRAFORM_DOCS_VERSION}-linux-amd64.tar.gz"
+          tar -xzf /tmp/tfdocs.tgz -C /tmp terraform-docs
+          rc=0
+          for d in $(scripts/ci/tf-dirs.sh | grep '^modules/'); do
+            /tmp/terraform-docs -c .terraform-docs.yml --output-check "$d" || { echo "::error file=$d/README.md::README out of date — run terraform-docs -c .terraform-docs.yml $d"; rc=1; }
+          done
+          exit $rc
+
+      - name: policy assets
+        run: scripts/ci/check-policy-assets.sh
+
+      - name: gitleaks
+        run: |
+          curl -sSLo /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          /tmp/gitleaks git --config .gitleaks.toml --redact --no-banner .
+
+  checkov:
+    name: checkov (new findings only; see .checkov.baseline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: bridgecrewio/checkov-action@v12
+        with:
+          config_file: .checkov.yaml
+
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      dirs: ${{ steps.ls.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: ls
+        run: echo "dirs=$(scripts/ci/tf-dirs.sh --json)" >> "$GITHUB_OUTPUT"
+
+  validate:
+    name: validate + test (${{ matrix.dir }})
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJson(needs.discover.outputs.dirs) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: tfver
+        run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ steps.tfver.outputs.version }}
+          terraform_wrapper: false
+
+      - name: init
+        working-directory: ${{ matrix.dir }}
+        run: |
+          # Root configurations commit their lock file; it must not change in CI.
+          if [ -f .terraform.lock.hcl ]; then LOCK=-lockfile=readonly; fi
+          terraform init -backend=false $LOCK
+
+      - name: validate
+        working-directory: ${{ matrix.dir }}
+        run: |
+          # A module that declares configuration_aliases can't be validated on its
+          # own (Terraform needs the aliased provider passed in); the root that
+          # calls it validates it.
+          if grep -q configuration_aliases ./*.tf 2>/dev/null; then
+            echo "skip: $(pwd) declares configuration_aliases — validated through its caller"
+          else
+            terraform validate -no-color
+          fi
+
+      - name: unit tests (mocked providers)
+        working-directory: ${{ matrix.dir }}
+        run: |
+          if [ -d tests/unit ]; then
+            terraform test -no-color -test-directory=tests/unit
+          else
+            echo "no tests/unit in ${{ matrix.dir }}"
+          fi

@@ -76,7 +76,7 @@ Write-Host ''
 Write-Host '════════════════════════════════════════════════════════'
 Write-Host '  ✅  Remote state backend is ready!'
 Write-Host ''
-Write-Host '  Uncomment and update the backend block in versions.tf:'
+Write-Host '  Uncomment and update the backend block in terraform.tf:'
 Write-Host ''
 Write-Host '  backend "azurerm" {'
 Write-Host "    resource_group_name  = `"$RgName`""
