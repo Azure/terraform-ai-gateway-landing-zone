@@ -292,3 +292,9 @@ variable "storage_endpoint_suffix" {
   type        = string
   default     = "core.windows.net"
 }
+
+variable "package_upload_ip_rules" {
+  description = "ase_v3 + run_from_package: public IPs / CIDRs allowed through the storage firewall to upload the workflow package from outside the VNet. Empty = private endpoint only."
+  type        = list(string)
+  default     = []
+}

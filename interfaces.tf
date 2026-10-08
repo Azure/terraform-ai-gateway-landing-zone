@@ -191,14 +191,18 @@ variable "usage_pipeline" {
       local_auth_enabled    = optional(bool, false)
     }), {})
     logic_app = optional(object({
-      hosting            = optional(string, "workflow_standard")
-      sku                = optional(string)
-      worker_count       = optional(number, 1)
-      max_worker_count   = optional(number, 3)
-      deployment         = optional(string, "run_from_package")
-      content_share_name = optional(string, "")
-      code_deploy        = optional(bool, false)
-      code_source_path   = optional(string, "")
+      hosting          = optional(string, "workflow_standard")
+      sku              = optional(string)
+      worker_count     = optional(number, 1)
+      max_worker_count = optional(number, 3)
+      deployment       = optional(string, "run_from_package")
+      # ase_v3 + run_from_package: public IPs / CIDRs allowed through the storage
+      # firewall to upload the package from outside the VNet (default action
+      # stays Deny). Empty = private endpoint only (recommended; use a runner).
+      package_upload_ip_rules = optional(list(string), [])
+      content_share_name      = optional(string, "")
+      code_deploy             = optional(bool, false)
+      code_source_path        = optional(string, "")
     }), {})
     ase = optional(object({
       app_service_environment_id   = optional(string)
@@ -225,6 +229,10 @@ variable "usage_pipeline" {
   validation {
     condition     = contains(["run_from_package", "zip_deploy"], var.usage_pipeline.logic_app.deployment)
     error_message = "usage_pipeline.logic_app.deployment must be run_from_package or zip_deploy."
+  }
+  validation {
+    condition     = alltrue([for r in var.usage_pipeline.logic_app.package_upload_ip_rules : can(cidrhost(strcontains(r, "/") ? r : "${r}/32", 0))])
+    error_message = "usage_pipeline.logic_app.package_upload_ip_rules must be IPv4 addresses or CIDR ranges."
   }
   validation {
     condition     = var.usage_pipeline.logic_app.max_worker_count >= var.usage_pipeline.logic_app.worker_count
@@ -320,15 +328,16 @@ locals {
     logic_app = {
       hosting = var.usage_pipeline.logic_app.hosting
       # Hosting-model string consumed by modules/logic-app.
-      hosting_model      = var.usage_pipeline.logic_app.hosting == "ase_v3" ? "AppServiceEnvironmentV3" : "WorkflowStandard"
-      ws_sku             = var.usage_pipeline.logic_app.hosting == "workflow_standard" ? coalesce(var.usage_pipeline.logic_app.sku, "WS1") : "WS1"
-      ase_sku            = var.usage_pipeline.logic_app.hosting == "ase_v3" ? coalesce(var.usage_pipeline.logic_app.sku, "I1v2") : "I1v2"
-      worker_count       = var.usage_pipeline.logic_app.worker_count
-      max_worker_count   = var.usage_pipeline.logic_app.max_worker_count
-      deployment         = var.usage_pipeline.logic_app.deployment
-      content_share_name = var.usage_pipeline.logic_app.content_share_name
-      code_deploy        = var.usage_pipeline.logic_app.code_deploy && !var.skip_logic_app_code_deploy
-      code_source_path   = var.usage_pipeline.logic_app.code_source_path
+      hosting_model           = var.usage_pipeline.logic_app.hosting == "ase_v3" ? "AppServiceEnvironmentV3" : "WorkflowStandard"
+      ws_sku                  = var.usage_pipeline.logic_app.hosting == "workflow_standard" ? coalesce(var.usage_pipeline.logic_app.sku, "WS1") : "WS1"
+      ase_sku                 = var.usage_pipeline.logic_app.hosting == "ase_v3" ? coalesce(var.usage_pipeline.logic_app.sku, "I1v2") : "I1v2"
+      worker_count            = var.usage_pipeline.logic_app.worker_count
+      max_worker_count        = var.usage_pipeline.logic_app.max_worker_count
+      deployment              = var.usage_pipeline.logic_app.deployment
+      package_upload_ip_rules = var.usage_pipeline.logic_app.package_upload_ip_rules
+      content_share_name      = var.usage_pipeline.logic_app.content_share_name
+      code_deploy             = var.usage_pipeline.logic_app.code_deploy && !var.skip_logic_app_code_deploy
+      code_source_path        = var.usage_pipeline.logic_app.code_source_path
     }
     ase = var.usage_pipeline.ase
   }

@@ -34,13 +34,17 @@ module "storage" {
   default_to_oauth_authentication   = local.use_ase ? true : null
   infrastructure_encryption_enabled = local.use_ase
   allowed_copy_scope                = local.use_ase ? "PrivateLink" : null
-  public_network_access_enabled     = !local.use_ase
+  # ase_v3: private endpoints only, unless package uploads are allowed from
+  # listed deployer IPs (default action stays Deny).
+  public_network_access_enabled = !local.use_ase || local.package_upload_from_ips
   network_rules = local.use_ase ? {
     default_action = "Deny"
-    bypass         = []
+    bypass         = toset([])
+    ip_rules       = local.package_upload_from_ips ? toset([for r in var.package_upload_ip_rules : trimsuffix(r, "/32")]) : toset([])
     } : {
     default_action = "Allow"
-    bypass         = ["AzureServices"]
+    bypass         = toset(["AzureServices"])
+    ip_rules       = toset([])
   }
 
   blob_properties = local.use_ase ? {
@@ -98,10 +102,11 @@ data "azurerm_storage_account" "logic_app" {
 }
 
 locals {
-  use_ase           = var.hosting_model == "AppServiceEnvironmentV3"
-  run_from_package  = local.use_ase && var.deployment_method == "run_from_package"
-  resource_group_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
-  logic_app_name    = var.names.logic_app
+  use_ase                 = var.hosting_model == "AppServiceEnvironmentV3"
+  run_from_package        = local.use_ase && var.deployment_method == "run_from_package"
+  package_upload_from_ips = local.run_from_package && length(var.package_upload_ip_rules) > 0
+  resource_group_id       = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
+  logic_app_name          = var.names.logic_app
 
   content_share = var.content_share_name != "" ? var.content_share_name : var.names.content_share
   storage_key   = one(data.azurerm_storage_account.logic_app[*].primary_access_key)
