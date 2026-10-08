@@ -18,5 +18,5 @@ output "connection_string" {
   value       = "${azapi_resource.redis.output.properties.hostName}:${azapi_resource.redis_db.output.properties.port},password=${azapi_resource_action.redis_keys.output.primaryKey},ssl=true"
   sensitive   = true
   # The APIM external cache connects through the private endpoint.
-  depends_on = [azurerm_private_endpoint.redis]
+  depends_on = [azurerm_private_endpoint.redis, azurerm_private_endpoint.redis_policy_dns]
 }

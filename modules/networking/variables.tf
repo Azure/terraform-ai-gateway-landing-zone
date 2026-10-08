@@ -69,23 +69,8 @@ variable "ase_subnet_prefix" {
   type        = string
   default     = "10.170.1.0/24"
 }
-variable "apim_network_type" {
-  description = "APIM network type: 'External', 'Internal', or 'None'"
-  type        = string
-}
-variable "is_apim_vnet" {
-  description = "True when APIM uses classic VNet injection (External/Internal); adds the APIM route table and NSG rules."
-  type        = bool
-}
-
 # V2 SKUs (StandardV2/PremiumV2) use outbound VNet integration: the APIM subnet
 # is delegated to Microsoft.Web/serverFarms (Bicep parity).
-variable "is_apim_v2" {
-  description = "True when the APIM SKU is a v2 SKU (BasicV2, StandardV2 or PremiumV2)."
-  type        = bool
-  default     = false
-}
-
 variable "subscription_id" {
   description = "Subscription of the resource group (AVM modules take the resource group ID)."
   type        = string
@@ -113,4 +98,14 @@ variable "hub_firewall_ip" {
   description = "alz_spoke: private IP of the hub firewall; every subnet routes 0.0.0.0/0 to it."
   type        = string
   default     = null
+}
+
+variable "apim_vnet_mode" {
+  description = "APIM network mode (none | external | internal | integration | injection). Drives the APIM subnet: none = no subnet; external/internal = classic injection (management NSG rules + route table); integration = delegated to Microsoft.Web/serverFarms; injection = delegated to Microsoft.Web/hostingEnvironments (Premium v2)."
+  type        = string
+
+  validation {
+    condition     = contains(["none", "external", "internal", "integration", "injection"], var.apim_vnet_mode)
+    error_message = "apim_vnet_mode must be none, external, internal, integration or injection."
+  }
 }

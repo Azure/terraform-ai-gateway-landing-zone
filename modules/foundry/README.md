@@ -34,7 +34,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | [azapi_resource.app_insights_connection](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.project](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azurerm_monitor_diagnostic_setting.foundry](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_diagnostic_setting) | resource |
-| [azurerm_private_endpoint.foundry](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
 | [azurerm_role_assignment.apim_cognitive_services_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.deployer_project_manager](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azapi_resource.account_state](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource) | data source |
@@ -46,9 +45,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_account_names"></a> [account\_names](#input\_account\_names) | Foundry (AI Services) account names, one per entry in foundry\_instances (from modules/naming). | `list(string)` | n/a | yes |
 | <a name="input_apim_principal_id"></a> [apim\_principal\_id](#input\_apim\_principal\_id) | Principal ID granted 'Cognitive Services User' on each Foundry (typically APIM UAMI). | `string` | n/a | yes |
 | <a name="input_deployer_object_id"></a> [deployer\_object\_id](#input\_deployer\_object\_id) | Principal ID granted 'Azure AI Project Manager' on each Foundry (matches deployer() in Bicep). | `string` | n/a | yes |
-| <a name="input_location"></a> [location](#input\_location) | Primary Azure region for deployment | `string` | n/a | yes |
 | <a name="input_resource_group_id"></a> [resource\_group\_id](#input\_resource\_group\_id) | Resource ID of the resource group the module deploys into. | `string` | n/a | yes |
-| <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Name of the resource group the module deploys into. | `string` | n/a | yes |
 | <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id) | Subnet ID for private endpoints. | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
 | <a name="input_agent_subnet_id"></a> [agent\_subnet\_id](#input\_agent\_subnet\_id) | Resource ID of the subnet used for Foundry agent network injection. | `string` | `""` | no |
@@ -59,6 +56,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_app_insights_id"></a> [app\_insights\_id](#input\_app\_insights\_id) | Application Insights resource ID for the Foundry App Insights connection. | `string` | `""` | no |
 | <a name="input_app_insights_instrumentation_key"></a> [app\_insights\_instrumentation\_key](#input\_app\_insights\_instrumentation\_key) | Application Insights instrumentation key used by the Foundry App Insights connection. | `string` | `""` | no |
 | <a name="input_disable_key_auth"></a> [disable\_key\_auth](#input\_disable\_key\_auth) | If true, only Entra ID auth is allowed (disableLocalAuth=true). | `bool` | `false` | no |
+| <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoints' DNS zone groups; Terraform leaves them alone. | `bool` | `false` | no |
 | <a name="input_dns_zone_ids"></a> [dns\_zone\_ids](#input\_dns\_zone\_ids) | Map of DNS zone IDs. Expected keys: cognitive\_services, openai, ai\_services. | `map(string)` | `{}` | no |
 | <a name="input_enable_apim_connections"></a> [enable\_apim\_connections](#input\_enable\_apim\_connections) | Create Foundry-project → APIM ApiKey connections. | `bool` | `false` | no |
 | <a name="input_enable_app_insights_connection"></a> [enable\_app\_insights\_connection](#input\_enable\_app\_insights\_connection) | Create the App Insights connection on each Foundry account. | `bool` | `true` | no |

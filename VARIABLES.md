@@ -137,7 +137,7 @@ apim = {
   capacity              = 1
   publisher_email       = "admin@contoso.com"
   publisher_name        = "AI Citadel Admin"
-  vnet_mode             = null            # Developer/Premium: none | external | internal; v2: integration
+  vnet_mode             = null            # Developer/Premium: none | external | internal; StandardV2: none | integration; PremiumV2: none | integration | injection
   private_endpoint      = true            # v2 SKUs
   public_network_access = true            # v2 SKUs
 }
@@ -150,7 +150,8 @@ apim = {
 | ☆ `capacity` | number | `1` | Scale units. The `Developer` SKU must stay at `1` (validated on `apim`, and a precondition in [modules/apim](modules/apim/main.tf)). |
 | ☆ `publisher_email` | string | `admin@contoso.com` | |
 | ☆ `publisher_name` | string | `AI Citadel Admin` | |
-| ☆ `vnet_mode` | string | `null` | `Developer` / `Premium`: `none`, `external` or `internal` (classic VNet injection; needs the APIM subnet). `StandardV2` / `PremiumV2`: `integration` (outbound VNet integration, always on). `null` = `external` for classic SKUs, `integration` for v2 SKUs. With `internal`, per-hostname private DNS zones (`<apim>.azure-api.net`, `.portal`, `.developer`, `.management`, `.scm`) pointing at the APIM private IP are created and linked to the VNet (skipped when BYO DNS zones are used). Changing `external` ↔ `internal` on an existing APIM forces **replacement** in the azurerm provider. |
+| ☆ `vnet_mode` | string | `null` | `Developer` / `Premium`: `none`, `external` or `internal` (classic VNet injection). `StandardV2`: `none` or `integration` (outbound VNet integration, subnet delegated to `Microsoft.Web/serverFarms`). `PremiumV2`: `none`, `integration` or `injection` (private VIP, subnet delegated to `Microsoft.Web/hostingEnvironments`, ≥ /27). `null` = `external` for classic SKUs, `integration` for v2 SKUs. `none` creates no APIM subnet. With `internal` (five hostnames) or `injection` (gateway hostname), private DNS zones pointing at the APIM private IP are created and linked to the VNet (skipped when BYO / platform DNS is used). See [docs/operations/apim-network-modes.md](docs/operations/apim-network-modes.md) for the matrix and how to change modes. |
+| `public_ip_address_id` | string | `null` | Classic `external` / `internal` only: Standard-SKU public IP resource ID for the service. |
 | ☆ `private_endpoint` | bool | `true` | V2 SKUs: create the inbound private endpoint. |
 | ☆ `public_network_access` | bool | `true` | V2 SKUs: allow public inbound access. Setting it to `false` requires `private_endpoint = true` (otherwise the gateway is unreachable — enforced by a precondition). Azure rejects creating a service with public access disabled, so the service is created public and `false` takes effect on the **next apply**, once the service and its private endpoint exist (existence probe in [modules/apim](modules/apim/main.tf)). |
 

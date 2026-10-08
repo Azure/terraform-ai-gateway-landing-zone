@@ -1,5 +1,6 @@
 # =============================================================================
-# PRIVATE DNS for Internal (VNet-injected) APIM — Developer / Premium SKUs
+# PRIVATE DNS for APIM with a private VIP — classic internal (Developer /
+# Premium) and Premium v2 injection
 # -----------------------------------------------------------------------------
 # In Internal mode the *.azure-api.net endpoints only listen on the private VIP
 # and are not published in public DNS, so clients in the VNet need private
@@ -9,15 +10,17 @@
 # =============================================================================
 
 locals {
-  create_internal_dns = local.is_vnet_injection && local.is_internal && var.create_internal_dns
+  # Private VIP modes need private DNS for the default hostnames: classic
+  # internal exposes five endpoints, Premium v2 injection only the gateway.
+  create_internal_dns = local.private_vip && var.create_internal_dns
 
-  internal_dns_hostnames = local.create_internal_dns ? toset([
+  internal_dns_hostnames = !local.create_internal_dns ? toset([]) : var.vnet_mode == "injection" ? toset(["${var.apim_name}.azure-api.net"]) : toset([
     "${var.apim_name}.azure-api.net",
     "${var.apim_name}.portal.azure-api.net",
     "${var.apim_name}.developer.azure-api.net",
     "${var.apim_name}.management.azure-api.net",
     "${var.apim_name}.scm.azure-api.net",
-  ]) : toset([])
+  ])
 }
 
 resource "azurerm_private_dns_zone" "internal" {

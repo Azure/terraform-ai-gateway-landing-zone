@@ -31,11 +31,11 @@ locals {
   ]
 
   # Preserve order matching Bicep: cognitiveservices, openai, ai.azure.com
-  dns_zone_ids_ordered = compact([
+  dns_zone_ids_ordered = [
     lookup(var.dns_zone_ids, "cognitive_services", ""),
     lookup(var.dns_zone_ids, "openai", ""),
     lookup(var.dns_zone_ids, "ai_services", ""),
-  ])
+  ]
 }
 
 # -----------------------------------------------------------------------------
@@ -97,6 +97,21 @@ module "account" {
         interval_seconds    = 15
       }
     } if m.ai_service_index == count.index
+  }
+
+  # Private endpoint with all three Foundry DNS zones (Bicep:
+  # private-endpoint-multi-dns.bicep). With ALZ Deploy-Private-DNS-Zones the
+  # policy owns the zone group.
+  private_endpoints_manage_dns_zone_group = !var.dns_zone_group_managed_by_policy
+  private_endpoints = {
+    account = {
+      name                            = "pe-${local.instance_names[count.index]}"
+      private_service_connection_name = "psc-${local.instance_names[count.index]}"
+      subnet_resource_id              = var.subnet_id
+      private_dns_zone_group_name     = "aif-dns-group"
+      private_dns_zone_resource_ids   = var.dns_zone_group_managed_by_policy ? [] : local.dns_zone_ids_ordered
+      tags                            = var.tags
+    }
   }
 
   # Per-instance opt-in: config.network_injection_enabled (default true) AND
@@ -236,32 +251,3 @@ resource "azapi_resource" "app_insights_connection" {
 }
 
 
-# -----------------------------------------------------------------------------
-# Private endpoints with all required Foundry DNS zones
-# Bicep: privateEndpoints (private-endpoint-multi-dns.bicep)
-# -----------------------------------------------------------------------------
-resource "azurerm_private_endpoint" "foundry" {
-  count               = length(local.instances)
-  name                = "pe-${local.instance_names[count.index]}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.subnet_id
-  tags                = var.tags
-
-  private_service_connection {
-    name                           = "psc-${local.instance_names[count.index]}"
-    private_connection_resource_id = local.account_ids[count.index]
-    subresource_names              = ["account"]
-    is_manual_connection           = false
-  }
-
-  dynamic "private_dns_zone_group" {
-    for_each = length(local.dns_zone_ids_ordered) > 0 ? [1] : []
-    content {
-      name                 = "aif-dns-group"
-      private_dns_zone_ids = local.dns_zone_ids_ordered
-    }
-  }
-
-  depends_on = [module.account]
-}

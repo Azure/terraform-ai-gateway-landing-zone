@@ -482,7 +482,7 @@ citadel-terraform/
 │   ├── prod.tfvars.example  # Production template (typed inputs) — copy to prod.tfvars and fill in
 │   └── asetest.tfvars.example # Logic App on ASE v3 (keyless storage) template
 │
-├── docs/operations/         # Runbooks — platform-team-requests.md (ALZ prerequisites)
+├── docs/operations/         # Runbooks — platform-team-requests.md (ALZ prerequisites), apim-network-modes.md
 │
 ├── scripts/                # Bash (*.sh) + PowerShell (*.ps1) equivalents
 │   ├── ci/                     # CI helpers: tf-dirs.sh, check-policy-assets.sh
@@ -512,6 +512,7 @@ citadel-terraform/
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — local quality checks (fmt, tflint, tests, checkov, gitleaks) and the rules CI enforces
 - [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md) — what to request from the Azure Landing Zone platform team
+- [docs/operations/apim-network-modes.md](docs/operations/apim-network-modes.md) — APIM network modes (none / external / internal / integration / injection) and how to change them
 
 - [AI Citadel Governance Hub README](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1)
 - [Full Deployment Guide](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/full-deployment-guide.md)

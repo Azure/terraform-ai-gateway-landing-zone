@@ -30,14 +30,6 @@ variable "publisher_name" {
   description = "APIM publisher name"
   type        = string
 }
-variable "apim_network_type" {
-  description = "APIM network type: 'External', 'Internal', or 'None'"
-  type        = string
-}
-variable "is_apim_v2" {
-  description = "True when the APIM SKU is a v2 SKU (BasicV2, StandardV2 or PremiumV2)."
-  type        = bool
-}
 variable "apim_subnet_id" {
   description = "Resource ID of the APIM subnet (VNet injection or outbound integration)."
   type        = string
@@ -105,7 +97,7 @@ variable "dns_zone_id_apim" {
 }
 
 variable "create_internal_dns" {
-  description = "For apim_network_type = Internal (Developer/Premium), create per-hostname private DNS zones for the gateway/portal/developer/management/scm endpoints and link them to the VNet."
+  description = "For vnet_mode internal (classic: gateway, portal, developer, management, scm) or injection (Premium v2: gateway), create per-hostname private DNS zones and link them to the VNet."
   type        = bool
   default     = true
 }
@@ -249,4 +241,15 @@ variable "enable_telemetry" {
   description = "Enable Azure Verified Modules usage telemetry."
   type        = bool
   default     = true
+}
+
+variable "vnet_mode" {
+  description = "APIM network mode: none | external | internal (Developer/Premium) | integration (StandardV2/PremiumV2) | injection (PremiumV2)."
+  type        = string
+}
+
+variable "public_ip_address_id" {
+  description = "Classic external/internal injection only: Standard-SKU public IP resource ID for the service. null = Azure-managed."
+  type        = string
+  default     = null
 }

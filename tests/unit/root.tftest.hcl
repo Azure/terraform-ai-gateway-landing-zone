@@ -171,8 +171,8 @@ run "apim_sku_family" {
   }
 
   assert {
-    condition     = local.is_apim_v2 && !local.is_apim_vnet
-    error_message = "StandardV2 must be treated as a v2 SKU without classic VNet injection."
+    condition     = local.apim_cfg.vnet_mode == "integration"
+    error_message = "StandardV2 defaults to outbound VNet integration."
   }
 }
 
@@ -184,8 +184,8 @@ run "apim_sku_family_classic" {
   }
 
   assert {
-    condition     = !local.is_apim_v2 && local.is_apim_vnet
-    error_message = "Developer must be treated as a classic SKU with VNet injection."
+    condition     = local.apim_cfg.vnet_mode == "external"
+    error_message = "Developer defaults to classic external VNet injection."
   }
 }
 

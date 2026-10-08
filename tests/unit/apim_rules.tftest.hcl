@@ -59,8 +59,7 @@ variables {
   sku_capacity                  = 1
   publisher_email               = "admin@contoso.com"
   publisher_name                = "Test"
-  apim_network_type             = "None"
-  is_apim_v2                    = true
+  vnet_mode                     = "integration"
   apim_subnet_id                = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/apim"
   pe_subnet_id                  = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/pe"
   vnet_id                       = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet"
@@ -107,11 +106,10 @@ run "zones_need_premium_and_enough_units" {
     source = "./modules/apim"
   }
   variables {
-    sku_name          = "Premium"
-    is_apim_v2        = false
-    apim_network_type = "External"
-    sku_capacity      = 2
-    apim_zones        = ["1", "2", "3"]
+    sku_name     = "Premium"
+    vnet_mode    = "external"
+    sku_capacity = 2
+    apim_zones   = ["1", "2", "3"]
   }
   expect_failures = [terraform_data.service_rules]
 }
@@ -122,10 +120,37 @@ run "premium_zone_redundant_is_valid" {
     source = "./modules/apim"
   }
   variables {
-    sku_name          = "Premium"
-    is_apim_v2        = false
-    apim_network_type = "Internal"
-    sku_capacity      = 3
-    apim_zones        = ["1", "2", "3"]
+    sku_name     = "Premium"
+    vnet_mode    = "internal"
+    sku_capacity = 3
+    apim_zones   = ["1", "2", "3"]
   }
+}
+
+run "premium_v2_injection_gets_private_gateway_dns" {
+  command = plan
+  module {
+    source = "./modules/apim"
+  }
+  variables {
+    sku_name            = "PremiumV2"
+    vnet_mode           = "injection"
+    create_internal_dns = true
+  }
+  assert {
+    condition     = toset(keys(azurerm_private_dns_zone.internal)) == toset(["apim-test.azure-api.net"]) && length(module.service.private_endpoints) == 0
+    error_message = "Premium v2 injection: private DNS for the gateway hostname only, no inbound private endpoint."
+  }
+}
+
+run "vnet_mode_must_match_sku" {
+  command = plan
+  module {
+    source = "./modules/apim"
+  }
+  variables {
+    sku_name  = "StandardV2"
+    vnet_mode = "injection"
+  }
+  expect_failures = [terraform_data.service_rules]
 }

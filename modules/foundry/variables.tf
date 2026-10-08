@@ -3,16 +3,8 @@
 # Mirrors parameters of bicep/infra/modules/foundry/foundry.bicep
 # =============================================================================
 
-variable "resource_group_name" {
-  description = "Name of the resource group the module deploys into."
-  type        = string
-}
 variable "resource_group_id" {
   description = "Resource ID of the resource group the module deploys into."
-  type        = string
-}
-variable "location" {
-  description = "Primary Azure region for deployment"
   type        = string
 }
 variable "tags" {
@@ -190,4 +182,10 @@ variable "enable_telemetry" {
   description = "Enable Azure Verified Modules usage telemetry."
   type        = bool
   default     = true
+}
+
+variable "dns_zone_group_managed_by_policy" {
+  description = "Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoints' DNS zone groups; Terraform leaves them alone."
+  type        = bool
+  default     = false
 }

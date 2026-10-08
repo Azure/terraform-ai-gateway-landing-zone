@@ -45,10 +45,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | [azurerm_private_dns_a_record.ase](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_a_record) | resource |
 | [azurerm_private_dns_zone.ase](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_zone) | resource |
 | [azurerm_private_dns_zone_virtual_network_link.ase](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_zone_virtual_network_link) | resource |
-| [azurerm_private_endpoint.storage_blob](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
-| [azurerm_private_endpoint.storage_file](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
-| [azurerm_private_endpoint.storage_queue](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
-| [azurerm_private_endpoint.storage_table](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
 | [azurerm_role_assignment.logic_app_system_eh_owner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.logic_app_system_monitor_reader](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.storage_account_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
@@ -96,6 +92,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_cosmos_db_container_usage"></a> [cosmos\_db\_container\_usage](#input\_cosmos\_db\_container\_usage) | Cosmos DB container for AI usage records. | `string` | `""` | no |
 | <a name="input_cosmos_db_database_name"></a> [cosmos\_db\_database\_name](#input\_cosmos\_db\_database\_name) | Cosmos DB database that holds the usage containers. | `string` | `""` | no |
 | <a name="input_create_azuremonitor_api_connection"></a> [create\_azuremonitor\_api\_connection](#input\_create\_azuremonitor\_api\_connection) | Create the Logic App 'azuremonitorlogs' API connection and grant access to the system-assigned MI. | `bool` | `true` | no |
+| <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoints' DNS zone groups; Terraform leaves them alone. | `bool` | `false` | no |
 | <a name="input_dns_zone_id_blob"></a> [dns\_zone\_id\_blob](#input\_dns\_zone\_id\_blob) | Resource ID of the privatelink.blob.core.windows.net DNS zone for the storage private endpoint. | `string` | `""` | no |
 | <a name="input_dns_zone_id_file"></a> [dns\_zone\_id\_file](#input\_dns\_zone\_id\_file) | Resource ID of the privatelink.file.core.windows.net DNS zone for the storage private endpoint. | `string` | `""` | no |
 | <a name="input_dns_zone_id_queue"></a> [dns\_zone\_id\_queue](#input\_dns\_zone\_id\_queue) | Resource ID of the privatelink.queue.core.windows.net DNS zone for the storage private endpoint. | `string` | `""` | no |

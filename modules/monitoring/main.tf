@@ -155,7 +155,7 @@ resource "azurerm_monitor_private_link_scoped_service" "appi_foundry" {
 resource "azurerm_private_endpoint" "ampls" {
   # Gate on the bool only — `ampls_subnet_id` comes from a module output and
   # isn't known at plan time, which Terraform forbids in `count`.
-  count               = var.use_azure_monitor_private_link_scope ? 1 : 0
+  count               = var.use_azure_monitor_private_link_scope && !var.dns_zone_group_managed_by_policy ? 1 : 0
   name                = "pe-ampls-${var.environment_name}"
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -175,5 +175,28 @@ resource "azurerm_private_endpoint" "ampls" {
       name                 = "ampls-dns-group"
       private_dns_zone_ids = [var.ampls_dns_zone_id_monitor]
     }
+  }
+}
+
+resource "azurerm_private_endpoint" "ampls_policy_dns" {
+  # Gate on the bool only — `ampls_subnet_id` comes from a module output and
+  # isn't known at plan time, which Terraform forbids in `count`.
+  count               = var.use_azure_monitor_private_link_scope && var.dns_zone_group_managed_by_policy ? 1 : 0
+  name                = "pe-ampls-${var.environment_name}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.ampls_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-ampls"
+    private_connection_resource_id = azurerm_monitor_private_link_scope.ampls[0].id
+    subresource_names              = ["azuremonitor"]
+    is_manual_connection           = false
+  }
+
+  # Azure Policy (ALZ Deploy-Private-DNS-Zones) creates the DNS zone group.
+  lifecycle {
+    ignore_changes = [private_dns_zone_group]
   }
 }

@@ -42,9 +42,7 @@ module "networking" {
   ase_subnet_name         = local.network_cfg.subnets.ase.name
   ase_subnet_prefix       = local.network_cfg.subnets.ase.prefix
 
-  apim_network_type = local.apim_network_type
-  is_apim_vnet      = local.is_apim_vnet
-  is_apim_v2        = local.is_apim_v2
+  apim_vnet_mode = local.apim_cfg.vnet_mode
 }
 
 # --- byo: look up the existing VNet and subnets ------------------------------
@@ -57,8 +55,8 @@ data "azurerm_virtual_network" "byo" {
 
 data "azurerm_subnet" "byo" {
   for_each = local.network_cfg.byo ? merge(
+    local.apim_cfg.vnet_mode != "none" ? { apim = local.network_cfg.subnets.apim.name } : {},
     {
-      apim             = local.network_cfg.subnets.apim.name
       private_endpoint = local.network_cfg.subnets.private_endpoint.name
       logic_app        = local.network_cfg.subnets.logic_app.name
     },
@@ -74,7 +72,7 @@ data "azurerm_subnet" "byo" {
 locals {
   network = local.network_cfg.byo ? {
     vnet_id             = data.azurerm_virtual_network.byo[0].id
-    apim_subnet_id      = data.azurerm_subnet.byo["apim"].id
+    apim_subnet_id      = try(data.azurerm_subnet.byo["apim"].id, "")
     pe_subnet_id        = data.azurerm_subnet.byo["private_endpoint"].id
     logic_app_subnet_id = data.azurerm_subnet.byo["logic_app"].id
     agent_subnet_id     = try(data.azurerm_subnet.byo["agent"].id, "")
@@ -108,7 +106,7 @@ module "private_dns" {
 
   # Zones the root dereferences below (module.private_dns.zone_ids["..."]).
   required_zone_keys = local.network_cfg.zone_groups_managed_by_policy ? [] : concat(
-    ["key_vault", "cosmos_db", "event_hub", "storage_blob", "storage_file", "storage_table", "storage_queue", "apim_gateway"],
+    ["key_vault", "cosmos_db", "event_hub", "storage_blob", "storage_file", "storage_table", "storage_queue", "apim_gateway", "cognitive_services", "openai", "ai_services"],
     local.features.semantic_cache ? ["redis"] : [],
     local.monitoring_cfg.private_link_scope ? ["monitor"] : [],
   )

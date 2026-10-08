@@ -4,8 +4,8 @@ output "vnet_id" {
 }
 
 output "apim_subnet_id" {
-  description = "Resource ID of the APIM subnet."
-  value       = local.subnet_ids["apim"]
+  description = "Resource ID of the APIM subnet (empty when apim_vnet_mode = none)."
+  value       = lookup(local.subnet_ids, "apim", "")
 }
 
 output "pe_subnet_id" {

@@ -63,3 +63,9 @@ variable "enable_telemetry" {
   type        = bool
   default     = true
 }
+
+variable "dns_zone_group_managed_by_policy" {
+  description = "Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone."
+  type        = bool
+  default     = false
+}

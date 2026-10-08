@@ -21,14 +21,17 @@ locals {
     local.sku_name_map[var.sku_name], "_1", "_${var.sku_capacity}"
   ) : local.sku_name_map[var.sku_name]
 
-  is_vnet_injection = var.apim_network_type != "None" && !var.is_apim_v2
-  is_internal       = var.apim_network_type == "Internal"
+  is_apim_v2 = contains(["StandardV2", "PremiumV2"], var.sku_name)
 
-  # Bicep parity: V2 SKUs always use outbound VNet integration
-  # (virtualNetworkType = External + subnet delegated to Microsoft.Web/serverFarms).
-  # Inbound stays public / private endpoint; apim_network_type is ignored for V2.
-  is_vnet_integration  = var.is_apim_v2
-  virtual_network_type = local.is_vnet_injection ? var.apim_network_type : (local.is_vnet_integration ? "External" : "None")
+  # vnet_mode -> ARM virtualNetworkType (review 7.5.4.1):
+  #   external / internal  classic VNet injection (Developer, Premium)
+  #   integration          v2 outbound VNet integration (External + serverFarms subnet)
+  #   injection            Premium v2 VNet injection (Internal + hostingEnvironments subnet)
+  virtual_network_type = { none = "None", external = "External", internal = "Internal", integration = "External", injection = "Internal" }[var.vnet_mode]
+  uses_subnet          = var.vnet_mode != "none"
+  private_vip          = contains(["internal", "injection"], var.vnet_mode)
+  # Inbound private endpoint: v2 SKUs without injection.
+  use_private_endpoint = local.is_apim_v2 && var.apim_v2_use_private_endpoint && contains(["none", "integration"], var.vnet_mode)
 }
 
 # APIM service (Azure Verified Module). Child objects (APIs, products, named
@@ -45,7 +48,7 @@ module "service" {
   sku_name            = local.apim_sku_string
   tags                = var.tags
   enable_telemetry    = var.enable_telemetry
-  min_api_version     = var.is_apim_v2 ? "2024-05-01" : "2021-08-01"
+  min_api_version     = local.is_apim_v2 ? "2024-05-01" : "2021-08-01"
 
   # Bicep parity: availability zones (Premium + skuCount>1; []/null otherwise).
   zones = length(var.apim_zones) > 0 ? var.apim_zones : null
@@ -55,19 +58,21 @@ module "service" {
   # approved private endpoint first: the first apply creates it public, the next
   # apply (service + PE exist) applies the requested setting. Classic SKUs
   # always keep public access.
-  public_network_access_enabled = !var.is_apim_v2 || !local.apim_exists || var.apim_v2_public_network_access
+  public_network_access_enabled = !local.is_apim_v2 || !local.apim_exists || var.apim_v2_public_network_access
 
   # Bicep parity: UserAssigned only.
   managed_identities = { user_assigned_resource_ids = [var.managed_identity_id] }
 
   virtual_network_type      = local.virtual_network_type
-  virtual_network_subnet_id = (local.is_vnet_injection || local.is_vnet_integration) && var.apim_subnet_id != "" ? var.apim_subnet_id : null
+  virtual_network_subnet_id = local.uses_subnet && var.apim_subnet_id != "" ? var.apim_subnet_id : null
+  # Classic external/internal only: Standard-SKU public IP for the service (stv2).
+  public_ip_address_id = var.public_ip_address_id
 
   # Legacy protocols and weak ciphers off (Bicep parity).
   security = {}
 
   private_endpoints_manage_dns_zone_group = !var.dns_zone_group_managed_by_policy
-  private_endpoints = var.is_apim_v2 && var.apim_v2_use_private_endpoint ? {
+  private_endpoints = local.use_private_endpoint ? {
     gateway = {
       name                            = "pe-${var.apim_name}"
       private_service_connection_name = "psc-${var.apim_name}"
@@ -89,16 +94,25 @@ resource "terraform_data" "service_rules" {
       error_message = "APIM sku must be Developer, Premium, StandardV2 or PremiumV2."
     }
     precondition {
-      condition     = var.is_apim_v2 == contains(["StandardV2", "PremiumV2"], var.sku_name)
-      error_message = "is_apim_v2 must be true exactly for StandardV2/PremiumV2."
+      condition = contains(lookup({
+        Developer  = ["none", "external", "internal"]
+        Premium    = ["none", "external", "internal"]
+        StandardV2 = ["none", "integration"]
+        PremiumV2  = ["none", "integration", "injection"]
+      }, var.sku_name, []), var.vnet_mode)
+      error_message = "vnet_mode ${var.vnet_mode} isn't supported on ${var.sku_name} (Developer/Premium: none, external, internal; StandardV2: none, integration; PremiumV2: none, integration, injection)."
     }
     precondition {
-      condition     = var.is_apim_v2 || var.apim_network_type == "None" || var.apim_subnet_id != ""
-      error_message = "Classic VNet injection (External/Internal) needs apim_subnet_id."
+      condition     = !local.uses_subnet || var.apim_subnet_id != ""
+      error_message = "vnet_mode ${var.vnet_mode} needs apim_subnet_id."
     }
     precondition {
-      condition     = !var.is_apim_v2 || var.apim_v2_public_network_access || var.apim_v2_use_private_endpoint
-      error_message = "Disabling public network access on a v2 SKU requires the private endpoint (apim.private_endpoint = true); otherwise the gateway is unreachable."
+      condition     = !local.is_apim_v2 || var.apim_v2_public_network_access || local.use_private_endpoint || var.vnet_mode == "injection"
+      error_message = "Disabling public network access on a v2 SKU requires the private endpoint (apim.private_endpoint = true, vnet_mode none or integration); otherwise the gateway is unreachable."
+    }
+    precondition {
+      condition     = var.public_ip_address_id == null || contains(["external", "internal"], var.vnet_mode)
+      error_message = "public_ip_address_id applies only to classic external/internal injection."
     }
     precondition {
       condition     = var.sku_name != "Developer" || var.sku_capacity == 1

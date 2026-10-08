@@ -27,35 +27,47 @@ locals {
   alz_spoke         = var.existing_vnet_id != null
   resource_group_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
 
+  classic_injection = contains(["external", "internal"], var.apim_vnet_mode)
+
   apim_rules = merge(
-    var.apim_network_type == "External" && var.is_apim_vnet ? {
+    var.apim_vnet_mode == "external" ? {
       AllowHTTPS = { priority = 3000, direction = "Inbound", ports = ["443"], source = "Internet", destination = "VirtualNetwork" }
     } : {},
-    var.is_apim_vnet ? {
+    local.classic_injection ? {
       AllowAPIMManagement = { priority = 3010, direction = "Inbound", ports = ["3443"], source = "ApiManagement", destination = "VirtualNetwork" }
       AllowLoadBalancer   = { priority = 3020, direction = "Inbound", ports = ["6390"], source = "AzureLoadBalancer", destination = "VirtualNetwork" }
       AllowStorage        = { priority = 3000, direction = "Outbound", ports = ["443"], source = "VirtualNetwork", destination = "Storage" }
       AllowSQL            = { priority = 3010, direction = "Outbound", ports = ["1433"], source = "VirtualNetwork", destination = "Sql" }
       AllowMonitor        = { priority = 3030, direction = "Outbound", ports = ["443", "1886"], source = "VirtualNetwork", destination = "AzureMonitor" }
     } : {},
-    # Also required for v2 outbound VNet integration.
-    var.is_apim_vnet || var.is_apim_v2 ? {
+    # Key Vault is a dependency in every mode that puts APIM in the subnet.
+    var.apim_vnet_mode != "none" ? {
       AllowKeyVault = { priority = 3020, direction = "Outbound", ports = ["443"], source = "VirtualNetwork", destination = "AzureKeyVault" }
     } : {},
   )
 
   web_delegation = [{ name = "delegation-web", service_delegation = { name = "Microsoft.Web/serverFarms" } }]
 
+  # APIM subnet per vnet_mode (none = no subnet):
+  #   external/internal  classic injection: no delegation, management route table
+  #   integration        v2 outbound integration: delegated to Microsoft.Web/serverFarms
+  #   injection          Premium v2 injection: delegated to Microsoft.Web/hostingEnvironments
+  apim_delegation = lookup({
+    integration = [{ name = "delegation-apim-v2", service_delegation = { name = "Microsoft.Web/serverFarms" } }]
+    injection   = [{ name = "delegation-apim-v2-injection", service_delegation = { name = "Microsoft.Web/hostingEnvironments" } }]
+  }, var.apim_vnet_mode, null)
+
   subnets = merge(
-    {
+    var.apim_vnet_mode != "none" ? {
       apim = {
         name              = var.apim_subnet_name
         prefix            = var.apim_subnet_prefix
         service_endpoints = ["Microsoft.CognitiveServices"]
-        # v2 SKUs: outbound VNet integration needs a subnet delegated to Microsoft.Web/serverFarms.
-        delegations = var.is_apim_v2 ? [{ name = "delegation-apim-v2", service_delegation = { name = "Microsoft.Web/serverFarms" } }] : null
-        rules       = local.apim_rules
+        delegations       = local.apim_delegation
+        rules             = local.apim_rules
       }
+    } : {},
+    {
       pe = {
         name              = var.pe_subnet_name
         prefix            = var.pe_subnet_prefix
@@ -122,7 +134,7 @@ module "nsg" {
 }
 
 resource "azurerm_route_table" "apim" {
-  count               = var.is_apim_vnet && !local.alz_spoke ? 1 : 0
+  count               = local.classic_injection && !local.alz_spoke ? 1 : 0
   name                = "rt-${var.apim_subnet_name}"
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -154,7 +166,7 @@ resource "azurerm_route_table" "spoke" {
   }
 
   dynamic "route" {
-    for_each = each.key == "apim" && var.is_apim_vnet ? [1] : []
+    for_each = each.key == "apim" && local.classic_injection ? [1] : []
     content {
       name           = "apim-management"
       address_prefix = "ApiManagement"
@@ -178,7 +190,7 @@ locals {
       service_endpoints               = sn.service_endpoints == null ? null : toset(sn.service_endpoints)
       delegations                     = sn.delegations
       network_security_group          = { id = module.nsg[k].resource_id }
-      route_table                     = local.alz_spoke ? { id = azurerm_route_table.spoke[k].id } : (k == "apim" && var.is_apim_vnet ? { id = azurerm_route_table.apim[0].id } : null)
+      route_table                     = local.alz_spoke ? { id = azurerm_route_table.spoke[k].id } : (k == "apim" && local.classic_injection ? { id = azurerm_route_table.apim[0].id } : null)
       default_outbound_access_enabled = var.default_outbound_access_enabled
     }
   }

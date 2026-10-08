@@ -76,7 +76,7 @@ data "azurerm_client_config" "current" {}
 # -----------------------------------------------------------------------------
 
 resource "azurerm_private_endpoint" "redis" {
-  count               = var.use_private_endpoint ? 1 : 0
+  count               = var.use_private_endpoint && !var.dns_zone_group_managed_by_policy ? 1 : 0
   name                = "pe-${var.name}"
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -96,5 +96,26 @@ resource "azurerm_private_endpoint" "redis" {
       name                 = "redis-dns-group"
       private_dns_zone_ids = [var.dns_zone_id]
     }
+  }
+}
+
+resource "azurerm_private_endpoint" "redis_policy_dns" {
+  count               = var.use_private_endpoint && var.dns_zone_group_managed_by_policy ? 1 : 0
+  name                = "pe-${var.name}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-${var.name}"
+    private_connection_resource_id = azapi_resource.redis.id
+    subresource_names              = ["redisEnterprise"]
+    is_manual_connection           = false
+  }
+
+  # Azure Policy (ALZ Deploy-Private-DNS-Zones) creates the DNS zone group.
+  lifecycle {
+    ignore_changes = [private_dns_zone_group]
   }
 }

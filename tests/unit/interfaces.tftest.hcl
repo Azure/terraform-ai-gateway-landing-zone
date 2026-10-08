@@ -109,7 +109,7 @@ run "classic_sku_defaults_to_external_injection" {
   }
 
   assert {
-    condition     = local.apim_cfg.vnet_mode == "external" && local.apim_network_type == "External"
+    condition     = local.apim_cfg.vnet_mode == "external"
     error_message = "Classic SKUs default to external VNet injection."
   }
 }
@@ -128,7 +128,7 @@ run "typed_inputs_drive_effective_config" {
   }
 
   assert {
-    condition     = local.apim_network_type == "Internal" && local.apim_cfg.capacity == 2 && local.apim_service_name == "apim-custom"
+    condition     = local.apim_cfg.vnet_mode == "internal" && local.apim_cfg.capacity == 2 && local.apim_service_name == "apim-custom"
     error_message = "apim object must drive the APIM settings and name."
   }
   assert {
@@ -310,4 +310,80 @@ run "developer_sku_cannot_scale_out" {
   }
 
   expect_failures = [var.apim]
+}
+
+run "premium_v2_injection_is_accepted" {
+  command = plan
+
+  variables {
+    apim = { sku = "PremiumV2", vnet_mode = "injection" }
+  }
+
+  assert {
+    condition     = local.apim_cfg.vnet_mode == "injection" && contains(keys(module.networking[0].subnet_nsg_names), "apim")
+    error_message = "PremiumV2 injection must get an APIM subnet."
+  }
+}
+
+run "v2_without_vnet_has_no_apim_subnet" {
+  command = plan
+
+  variables {
+    apim = { sku = "StandardV2", vnet_mode = "none" }
+  }
+
+  assert {
+    condition     = module.networking[0].apim_subnet_id == "" && !contains(keys(module.networking[0].subnet_nsg_names), "apim")
+    error_message = "vnet_mode none must not create an APIM subnet (or its NSG)."
+  }
+}
+
+run "injection_is_premium_v2_only" {
+  command = plan
+
+  variables {
+    apim = { sku = "StandardV2", vnet_mode = "injection" }
+  }
+
+  expect_failures = [var.apim]
+}
+
+run "private_access_needs_a_private_endpoint" {
+  command = plan
+
+  variables {
+    apim = { sku = "PremiumV2", vnet_mode = "injection", public_network_access = false }
+  }
+
+  expect_failures = [var.apim]
+}
+
+run "public_ip_is_classic_only" {
+  command = plan
+
+  variables {
+    apim = { sku = "StandardV2", public_ip_address_id = "/subscriptions/x/resourceGroups/y/providers/Microsoft.Network/publicIPAddresses/pip" }
+  }
+
+  expect_failures = [var.apim]
+}
+
+run "alz_policy_owns_every_dns_zone_group" {
+  command = plan
+
+  variables {
+    network = {
+      mode                = "alz_spoke"
+      resource_group_name = "rg-spoke-network"
+      vnet_name           = "vnet-spoke"
+      hub_firewall_ip     = "10.0.0.4"
+    }
+    features   = { semantic_cache = true }
+    monitoring = { private_link_scope = true }
+  }
+
+  assert {
+    condition     = local.network_cfg.zone_groups_managed_by_policy && length(module.private_dns.zone_ids) == 0
+    error_message = "alz_spoke without zone IDs: no zones, zone groups owned by policy."
+  }
 }

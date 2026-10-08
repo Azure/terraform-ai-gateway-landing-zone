@@ -36,6 +36,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | [azurerm_monitor_private_link_scoped_service.law](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_private_link_scoped_service) | resource |
 | [azurerm_portal_dashboard.app_insights](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/portal_dashboard) | resource |
 | [azurerm_private_endpoint.ampls](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
+| [azurerm_private_endpoint.ampls_policy_dns](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
 
 ## Inputs
 
@@ -50,6 +51,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
 | <a name="input_ampls_dns_zone_id_monitor"></a> [ampls\_dns\_zone\_id\_monitor](#input\_ampls\_dns\_zone\_id\_monitor) | Private DNS zone id for privatelink.monitor.azure.com. | `string` | `""` | no |
 | <a name="input_ampls_subnet_id"></a> [ampls\_subnet\_id](#input\_ampls\_subnet\_id) | Private endpoint subnet id for the AMPLS scoped PE (when use\_azure\_monitor\_private\_link\_scope is true). | `string` | `""` | no |
+| <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone. | `bool` | `false` | no |
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_existing_log_analytics_workspace"></a> [existing\_log\_analytics\_workspace](#input\_existing\_log\_analytics\_workspace) | Existing (BYO) Log Analytics workspace: resource id and workspace (customer) id. null = create one named log\_analytics\_name. The caller looks the workspace up. | <pre>object({<br/>    id           = string<br/>    workspace_id = string<br/>  })</pre> | `null` | no |
 | <a name="input_use_azure_monitor_private_link_scope"></a> [use\_azure\_monitor\_private\_link\_scope](#input\_use\_azure\_monitor\_private\_link\_scope) | Create an Azure Monitor Private Link Scope (AMPLS) scoping the LAW and App Insights components. | `bool` | `false` | no |

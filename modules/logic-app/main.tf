@@ -36,6 +36,27 @@ module "storage" {
     bypass         = ["AzureServices"]
   }
 
+  # Bicep parity (functionapp/storageaccount.bicep): one PE per subresource with
+  # its DNS zone. With ALZ Deploy-Private-DNS-Zones the policy owns the zone groups.
+  private_endpoints_manage_dns_zone_group = !var.dns_zone_group_managed_by_policy
+  private_endpoints = var.enable_storage_private_endpoints ? {
+    for sub, zone in {
+      blob  = var.dns_zone_id_blob
+      file  = var.dns_zone_id_file
+      table = var.dns_zone_id_table
+      queue = var.dns_zone_id_queue
+      } : sub => {
+      name                            = "pe-${var.names.storage_account}-${sub}"
+      private_service_connection_name = "psc-${sub}"
+      subnet_resource_id              = var.pe_subnet_id
+      subresource_name                = sub
+      private_dns_zone_group_name     = "dns-group"
+      # Zone IDs are always supplied unless policy owns the groups (plan-time known).
+      private_dns_zone_resource_ids = var.dns_zone_group_managed_by_policy ? [] : [zone]
+      tags                          = var.tags
+    }
+  } : {}
+
   shares = local.use_ase ? {} : {
     content = {
       name  = local.content_share
@@ -62,99 +83,10 @@ locals {
   storage_key   = data.azurerm_storage_account.logic_app.primary_access_key
 }
 
-# -----------------------------------------------------------------------------
-# STORAGE PRIVATE ENDPOINTS (Bicep parity: functionapp/storageaccount.bicep)
-# Blob / File / Table / Queue — one PE per subresource with its DNS zone.
-# -----------------------------------------------------------------------------
 
-resource "azurerm_private_endpoint" "storage_blob" {
-  count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${module.storage.name}-blob"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.pe_subnet_id
-  tags                = var.tags
 
-  private_service_connection {
-    name                           = "psc-blob"
-    private_connection_resource_id = module.storage.resource_id
-    subresource_names              = ["blob"]
-    is_manual_connection           = false
-  }
-  dynamic "private_dns_zone_group" {
-    for_each = var.dns_zone_id_blob != "" ? [1] : []
-    content {
-      name                 = "dns-group"
-      private_dns_zone_ids = [var.dns_zone_id_blob]
-    }
-  }
-}
 
-resource "azurerm_private_endpoint" "storage_file" {
-  count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${module.storage.name}-file"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.pe_subnet_id
-  tags                = var.tags
-  private_service_connection {
-    name                           = "psc-file"
-    private_connection_resource_id = module.storage.resource_id
-    subresource_names              = ["file"]
-    is_manual_connection           = false
-  }
-  dynamic "private_dns_zone_group" {
-    for_each = var.dns_zone_id_file != "" ? [1] : []
-    content {
-      name                 = "dns-group"
-      private_dns_zone_ids = [var.dns_zone_id_file]
-    }
-  }
-}
 
-resource "azurerm_private_endpoint" "storage_table" {
-  count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${module.storage.name}-table"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.pe_subnet_id
-  tags                = var.tags
-  private_service_connection {
-    name                           = "psc-table"
-    private_connection_resource_id = module.storage.resource_id
-    subresource_names              = ["table"]
-    is_manual_connection           = false
-  }
-  dynamic "private_dns_zone_group" {
-    for_each = var.dns_zone_id_table != "" ? [1] : []
-    content {
-      name                 = "dns-group"
-      private_dns_zone_ids = [var.dns_zone_id_table]
-    }
-  }
-}
-
-resource "azurerm_private_endpoint" "storage_queue" {
-  count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${module.storage.name}-queue"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.pe_subnet_id
-  tags                = var.tags
-  private_service_connection {
-    name                           = "psc-queue"
-    private_connection_resource_id = module.storage.resource_id
-    subresource_names              = ["queue"]
-    is_manual_connection           = false
-  }
-  dynamic "private_dns_zone_group" {
-    for_each = var.dns_zone_id_queue != "" ? [1] : []
-    content {
-      name                 = "dns-group"
-      private_dns_zone_ids = [var.dns_zone_id_queue]
-    }
-  }
-}
 
 # -----------------------------------------------------------------------------
 # APP SERVICE PLAN
@@ -352,9 +284,7 @@ resource "azapi_resource" "usage_ingestion_ase" {
     azurerm_role_assignment.storage_queue_contributor,
     azurerm_role_assignment.storage_table_contributor,
     azurerm_role_assignment.storage_account_contributor,
-    azurerm_private_endpoint.storage_blob,
-    azurerm_private_endpoint.storage_queue,
-    azurerm_private_endpoint.storage_table,
+    module.storage, # private endpoints
   ]
 }
 

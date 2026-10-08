@@ -52,9 +52,6 @@ locals {
   }
   all_tags = merge(local.default_tags, var.tags)
 
-  # Determine APIM SKU family
-  is_apim_v2   = contains(["StandardV2", "PremiumV2"], local.apim_cfg.sku)
-  is_apim_vnet = contains(["Developer", "Premium"], local.apim_cfg.sku)
 
   # Create private DNS zones when not using existing
   # alz_spoke: the platform owns the private DNS zones.
@@ -154,7 +151,8 @@ data "azurerm_log_analytics_workspace" "byo" {
 # =============================================================================
 
 module "monitoring" {
-  source = "./modules/monitoring"
+  source                           = "./modules/monitoring"
+  dns_zone_group_managed_by_policy = local.network_cfg.zone_groups_managed_by_policy
 
 
   resource_group_name = local.resource_group_name_resolved
@@ -324,16 +322,15 @@ module "apic" {
 # =============================================================================
 
 module "foundry" {
-  source = "./modules/foundry"
+  source                           = "./modules/foundry"
+  dns_zone_group_managed_by_policy = local.network_cfg.zone_groups_managed_by_policy
 
   enable_telemetry       = var.enable_telemetry
   outbound_allowed_fqdns = var.foundry_outbound_allowed_fqdns
 
-  resource_group_name = local.resource_group_name_resolved
-  resource_group_id   = local.resource_group_id
-  location            = var.location
-  tags                = local.all_tags
-  account_names       = module.naming.foundry_account_names
+  resource_group_id = local.resource_group_id
+  tags              = local.all_tags
+  account_names     = module.naming.foundry_account_names
 
   foundry_external_access = var.ai_foundry_external_access
 
@@ -369,8 +366,9 @@ module "foundry" {
 # =============================================================================
 
 module "redis" {
-  count  = local.features.semantic_cache ? 1 : 0
-  source = "./modules/redis"
+  count                            = local.features.semantic_cache ? 1 : 0
+  source                           = "./modules/redis"
+  dns_zone_group_managed_by_policy = local.network_cfg.zone_groups_managed_by_policy
 
   name                = local.names.redis
   location            = var.location
@@ -520,8 +518,8 @@ module "apim" {
   publisher_name  = local.apim_cfg.publisher_name
 
   # Networking
-  apim_network_type             = local.apim_network_type
-  is_apim_v2                    = local.is_apim_v2
+  vnet_mode                     = local.apim_cfg.vnet_mode
+  public_ip_address_id          = local.apim_cfg.public_ip_address_id
   apim_subnet_id                = local.network.apim_subnet_id
   pe_subnet_id                  = local.network.pe_subnet_id
   vnet_id                       = local.network.vnet_id
@@ -591,7 +589,8 @@ module "apim" {
 # =============================================================================
 
 module "logic_app" {
-  source = "./modules/logic-app"
+  source                           = "./modules/logic-app"
+  dns_zone_group_managed_by_policy = local.network_cfg.zone_groups_managed_by_policy
 
   resource_group_id   = local.resource_group_id
   resource_group_name = local.resource_group_name_resolved

@@ -78,9 +78,6 @@ resource "null_resource" "publish_workflows" {
     azurerm_cosmosdb_sql_role_assignment.logic_app_system_mi,
     azapi_resource.azuremonitor_connection,
     azapi_resource.azuremonitor_connection_access,
-    azurerm_private_endpoint.storage_blob,
-    azurerm_private_endpoint.storage_file,
-    azurerm_private_endpoint.storage_table,
-    azurerm_private_endpoint.storage_queue,
+    module.storage,
   ]
 }

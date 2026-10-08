@@ -39,11 +39,10 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_agent_subnet_name"></a> [agent\_subnet\_name](#input\_agent\_subnet\_name) | Name of the Foundry agent subnet. | `string` | n/a | yes |
 | <a name="input_agent_subnet_prefix"></a> [agent\_subnet\_prefix](#input\_agent\_subnet\_prefix) | Address prefix (CIDR) of the Foundry agent subnet. | `string` | n/a | yes |
-| <a name="input_apim_network_type"></a> [apim\_network\_type](#input\_apim\_network\_type) | APIM network type: 'External', 'Internal', or 'None' | `string` | n/a | yes |
 | <a name="input_apim_subnet_name"></a> [apim\_subnet\_name](#input\_apim\_subnet\_name) | APIM subnet name | `string` | n/a | yes |
 | <a name="input_apim_subnet_prefix"></a> [apim\_subnet\_prefix](#input\_apim\_subnet\_prefix) | APIM subnet address prefix (for new VNet) | `string` | n/a | yes |
+| <a name="input_apim_vnet_mode"></a> [apim\_vnet\_mode](#input\_apim\_vnet\_mode) | APIM network mode (none \| external \| internal \| integration \| injection). Drives the APIM subnet: none = no subnet; external/internal = classic injection (management NSG rules + route table); integration = delegated to Microsoft.Web/serverFarms; injection = delegated to Microsoft.Web/hostingEnvironments (Premium v2). | `string` | n/a | yes |
 | <a name="input_enable_agent_subnet"></a> [enable\_agent\_subnet](#input\_enable\_agent\_subnet) | Create a dedicated subnet for Foundry Agent Service network injection. | `bool` | n/a | yes |
-| <a name="input_is_apim_vnet"></a> [is\_apim\_vnet](#input\_is\_apim\_vnet) | True when APIM uses classic VNet injection (External/Internal); adds the APIM route table and NSG rules. | `bool` | n/a | yes |
 | <a name="input_location"></a> [location](#input\_location) | Primary Azure region for deployment | `string` | n/a | yes |
 | <a name="input_logic_app_subnet_name"></a> [logic\_app\_subnet\_name](#input\_logic\_app\_subnet\_name) | Logic App / Function App subnet name | `string` | n/a | yes |
 | <a name="input_logic_app_subnet_prefix"></a> [logic\_app\_subnet\_prefix](#input\_logic\_app\_subnet\_prefix) | Logic App subnet address prefix (for new VNet) | `string` | n/a | yes |
@@ -61,7 +60,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_existing_vnet_id"></a> [existing\_vnet\_id](#input\_existing\_vnet\_id) | alz\_spoke: resource ID of the platform-vended spoke VNet the subnets are created in. null = create the VNet (greenfield). | `string` | `null` | no |
 | <a name="input_hub_firewall_ip"></a> [hub\_firewall\_ip](#input\_hub\_firewall\_ip) | alz\_spoke: private IP of the hub firewall; every subnet routes 0.0.0.0/0 to it. | `string` | `null` | no |
-| <a name="input_is_apim_v2"></a> [is\_apim\_v2](#input\_is\_apim\_v2) | True when the APIM SKU is a v2 SKU (BasicV2, StandardV2 or PremiumV2). | `bool` | `false` | no |
 
 ## Outputs
 
@@ -69,7 +67,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | ---- | ----------- |
 | <a name="output_agent_subnet_id"></a> [agent\_subnet\_id](#output\_agent\_subnet\_id) | Resource ID of the Foundry agent subnet (empty when disabled). |
 | <a name="output_agent_subnet_name"></a> [agent\_subnet\_name](#output\_agent\_subnet\_name) | Name of the Foundry agent subnet (empty when disabled). |
-| <a name="output_apim_subnet_id"></a> [apim\_subnet\_id](#output\_apim\_subnet\_id) | Resource ID of the APIM subnet. |
+| <a name="output_apim_subnet_id"></a> [apim\_subnet\_id](#output\_apim\_subnet\_id) | Resource ID of the APIM subnet (empty when apim\_vnet\_mode = none). |
 | <a name="output_ase_subnet_id"></a> [ase\_subnet\_id](#output\_ase\_subnet\_id) | Resource ID of the ASE v3 subnet (empty when disabled). |
 | <a name="output_logic_app_subnet_id"></a> [logic\_app\_subnet\_id](#output\_logic\_app\_subnet\_id) | Resource ID of the Logic App integration subnet. |
 | <a name="output_pe_subnet_id"></a> [pe\_subnet\_id](#output\_pe\_subnet\_id) | Resource ID of the private-endpoint subnet. |

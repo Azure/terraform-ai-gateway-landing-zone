@@ -65,7 +65,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_apim_name"></a> [apim\_name](#input\_apim\_name) | Name of the API Management service. | `string` | n/a | yes |
-| <a name="input_apim_network_type"></a> [apim\_network\_type](#input\_apim\_network\_type) | APIM network type: 'External', 'Internal', or 'None' | `string` | n/a | yes |
 | <a name="input_apim_subnet_id"></a> [apim\_subnet\_id](#input\_apim\_subnet\_id) | Resource ID of the APIM subnet (VNet injection or outbound integration). | `string` | n/a | yes |
 | <a name="input_apim_v2_public_network_access"></a> [apim\_v2\_public\_network\_access](#input\_apim\_v2\_public\_network\_access) | Allow public access for APIM V2 SKUs | `bool` | n/a | yes |
 | <a name="input_apim_v2_use_private_endpoint"></a> [apim\_v2\_use\_private\_endpoint](#input\_apim\_v2\_use\_private\_endpoint) | Enable private endpoint for APIM V2 SKUs | `bool` | n/a | yes |
@@ -78,7 +77,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_entra_auth_enabled"></a> [entra\_auth\_enabled](#input\_entra\_auth\_enabled) | Enable Entra ID JWT validation on APIM | `bool` | n/a | yes |
 | <a name="input_entra_client_id"></a> [entra\_client\_id](#input\_entra\_client\_id) | Entra ID client ID (application ID) | `string` | n/a | yes |
 | <a name="input_entra_tenant_id"></a> [entra\_tenant\_id](#input\_entra\_tenant\_id) | Entra ID tenant ID for JWT validation | `string` | n/a | yes |
-| <a name="input_is_apim_v2"></a> [is\_apim\_v2](#input\_is\_apim\_v2) | True when the APIM SKU is a v2 SKU (BasicV2, StandardV2 or PremiumV2). | `bool` | n/a | yes |
 | <a name="input_location"></a> [location](#input\_location) | Primary Azure region for deployment | `string` | n/a | yes |
 | <a name="input_managed_identity_client_id"></a> [managed\_identity\_client\_id](#input\_managed\_identity\_client\_id) | Client ID of the user-assigned managed identity the service runs as. | `string` | n/a | yes |
 | <a name="input_managed_identity_id"></a> [managed\_identity\_id](#input\_managed\_identity\_id) | Resource ID of the user-assigned managed identity the service runs as. | `string` | n/a | yes |
@@ -92,11 +90,12 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_subscription_id"></a> [subscription\_id](#input\_subscription\_id) | Subscription of the APIM service (existence probe for the public-access flip). | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
 | <a name="input_vnet_id"></a> [vnet\_id](#input\_vnet\_id) | Resource ID of the virtual network. | `string` | n/a | yes |
+| <a name="input_vnet_mode"></a> [vnet\_mode](#input\_vnet\_mode) | APIM network mode: none \| external \| internal (Developer/Premium) \| integration (StandardV2/PremiumV2) \| injection (PremiumV2). | `string` | n/a | yes |
 | <a name="input_ai_search_instances"></a> [ai\_search\_instances](#input\_ai\_search\_instances) | Existing AI Search endpoints to register as APIM backends. | <pre>list(object({<br/>    name        = string<br/>    description = optional(string, "AI Search backend")<br/>    url         = string<br/>  }))</pre> | `[]` | no |
 | <a name="input_apim_zones"></a> [apim\_zones](#input\_apim\_zones) | Availability zones for APIM (Premium only, skuCount>1). Computed at root; pass explicitly here. | `list(string)` | `[]` | no |
 | <a name="input_aws_region"></a> [aws\_region](#input\_aws\_region) | AWS region for AWS Bedrock backends (APIM named value). | `string` | `""` | no |
 | <a name="input_azure_login_endpoint"></a> [azure\_login\_endpoint](#input\_azure\_login\_endpoint) | Entra login endpoint (e.g. https://login.microsoftonline.com/). | `string` | `"https://login.microsoftonline.com/"` | no |
-| <a name="input_create_internal_dns"></a> [create\_internal\_dns](#input\_create\_internal\_dns) | For apim\_network\_type = Internal (Developer/Premium), create per-hostname private DNS zones for the gateway/portal/developer/management/scm endpoints and link them to the VNet. | `bool` | `true` | no |
+| <a name="input_create_internal_dns"></a> [create\_internal\_dns](#input\_create\_internal\_dns) | For vnet\_mode internal (classic: gateway, portal, developer, management, scm) or injection (Premium v2: gateway), create per-hostname private DNS zones and link them to the VNet. | `bool` | `true` | no |
 | <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone. | `bool` | `false` | no |
 | <a name="input_embeddings_backend_id"></a> [embeddings\_backend\_id](#input\_embeddings\_backend\_id) | APIM backend ID of the embeddings backend used by semantic caching. | `string` | `"foundry-embeddings"` | no |
 | <a name="input_embeddings_backend_url"></a> [embeddings\_backend\_url](#input\_embeddings\_backend\_url) | Foundry embeddings deployment endpoint (consumed only when enable\_embeddings\_backend = true). | `string` | `""` | no |
@@ -110,6 +109,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_jwt_app_registration_id"></a> [jwt\_app\_registration\_id](#input\_jwt\_app\_registration\_id) | Entra application (client) ID used as the JWT audience. | `string` | `""` | no |
 | <a name="input_jwt_tenant_id"></a> [jwt\_tenant\_id](#input\_jwt\_tenant\_id) | Entra tenant ID used by the JWT-validation policies. | `string` | `""` | no |
 | <a name="input_ms_learn_mcp_backend_url"></a> [ms\_learn\_mcp\_backend\_url](#input\_ms\_learn\_mcp\_backend\_url) | Backend URL for the MS Learn MCP server. | `string` | `"https://learn.microsoft.com/api/mcp"` | no |
+| <a name="input_public_ip_address_id"></a> [public\_ip\_address\_id](#input\_public\_ip\_address\_id) | Classic external/internal injection only: Standard-SKU public IP resource ID for the service. null = Azure-managed. | `string` | `null` | no |
 | <a name="input_redis_cache_connection_string"></a> [redis\_cache\_connection\_string](#input\_redis\_cache\_connection\_string) | Optional Azure Managed Redis connection string. When set, creates an APIM service/caches resource. | `string` | `""` | no |
 
 ## Outputs
