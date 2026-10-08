@@ -611,6 +611,15 @@ accelerator's `azure.yaml`.
   machine or a private runner (see
   [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md)),
   or skip the publish with `--skip-logic-app-code` / `-SkipLogicAppCode`.
+  Every later **plan** also reads the package blob, so this access is needed
+  for every run, not just the first. `usage_pipeline.logic_app.package_upload_ip_rules`
+  can open the storage firewall to fixed deployer IPs instead, but behind a
+  proxied egress (secure web gateway / SASE) the storage service sees the
+  proxy's address, which can differ per process (observed in the live
+  validation). Prefer a private runner.
+- Verified live (fresh install, ASE v3, `run_from_package`): the four
+  workflows load from the managed-identity-fetched package and an Event Hub
+  usage event is written to Cosmos with key auth disabled.
 
 **Trigger behaviour:**
 

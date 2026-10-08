@@ -199,6 +199,10 @@ variable "usage_pipeline" {
       # ase_v3 + run_from_package: public IPs / CIDRs allowed through the storage
       # firewall to upload the package from outside the VNet (default action
       # stays Deny). Empty = private endpoint only (recommended; use a runner).
+      # Every plan also reads the package blob (data plane), so the machine
+      # running Terraform needs this access permanently. Behind proxied egress
+      # (secure web gateway / SASE) the storage service sees the proxy's
+      # address, which can differ per process — use a private runner there.
       package_upload_ip_rules = optional(list(string), [])
       content_share_name      = optional(string, "")
       code_deploy             = optional(bool, false)
