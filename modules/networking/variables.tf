@@ -34,6 +34,11 @@ variable "pe_subnet_prefix" {
   description = "Private endpoint subnet address prefix (for new VNet)"
   type        = string
 }
+variable "enable_logic_app_subnet" {
+  description = "Create the Logic App subnet (Workflow Standard hosting: regional VNet integration, delegated to Microsoft.Web/serverFarms)."
+  type        = bool
+  default     = true
+}
 variable "logic_app_subnet_name" {
   description = "Logic App / Function App subnet name"
   type        = string
@@ -62,7 +67,7 @@ variable "enable_ase_subnet" {
 variable "ase_subnet_name" {
   description = "Subnet for the App Service Environment v3 (only used when logic_app_hosting_model = \"AppServiceEnvironmentV3\"). Must be empty and delegated to Microsoft.Web/hostingEnvironments when using an existing VNet."
   type        = string
-  default     = "snet-citadel-ase"
+  default     = "snet-ase"
 }
 variable "ase_subnet_prefix" {
   description = "Address prefix for the ASE v3 subnet (new VNet only). Minimum /27; Microsoft recommends /24 for production scale. If this range is not inside vnet_address_prefix it is added to the VNet as an extra address space."
@@ -107,5 +112,34 @@ variable "apim_vnet_mode" {
   validation {
     condition     = contains(["none", "external", "internal", "integration", "injection"], var.apim_vnet_mode)
     error_message = "apim_vnet_mode must be none, external, internal, integration or injection."
+  }
+}
+
+variable "enable_cicd_subnet" {
+  description = "Create the CI runner subnet (private runners reach the private endpoints from it)."
+  type        = bool
+  default     = false
+}
+
+variable "cicd_subnet_name" {
+  description = "Name of the CI runner subnet."
+  type        = string
+  default     = "snet-cicd"
+}
+
+variable "cicd_subnet_prefix" {
+  description = "Address prefix of the CI runner subnet (/27 or larger)."
+  type        = string
+  default     = null
+}
+
+variable "cicd_subnet_delegation" {
+  description = "github = delegate to GitHub.Network/networkSettings (GitHub-hosted runners with Azure private networking); none = no delegation (self-hosted runner VM)."
+  type        = string
+  default     = "github"
+
+  validation {
+    condition     = contains(["github", "none"], var.cicd_subnet_delegation)
+    error_message = "cicd_subnet_delegation must be github or none."
   }
 }

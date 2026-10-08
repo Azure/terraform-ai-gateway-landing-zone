@@ -14,8 +14,8 @@ output "pe_subnet_id" {
 }
 
 output "logic_app_subnet_id" {
-  description = "Resource ID of the Logic App integration subnet."
-  value       = local.subnet_ids["logic_app"]
+  description = "Resource ID of the Logic App integration subnet (empty when disabled)."
+  value       = var.enable_logic_app_subnet ? local.subnet_ids["logic_app"] : ""
 }
 
 output "agent_subnet_id" {
@@ -26,6 +26,16 @@ output "agent_subnet_id" {
 output "agent_subnet_name" {
   description = "Name of the Foundry agent subnet (empty when disabled)."
   value       = var.enable_agent_subnet ? var.agent_subnet_name : ""
+}
+
+output "cicd_subnet_id" {
+  description = "Resource ID of the CI runner subnet (empty when disabled)."
+  value       = var.enable_cicd_subnet ? local.subnet_ids["cicd"] : ""
+}
+
+output "subnet_ids" {
+  description = "Subnet key (apim, pe, logic_app, agent, ase, cicd) => resource ID, for the subnets created."
+  value       = local.subnet_ids
 }
 
 output "ase_subnet_id" {

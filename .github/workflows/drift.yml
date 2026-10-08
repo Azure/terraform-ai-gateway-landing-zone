@@ -1,0 +1,36 @@
+# Nightly: plan every configured stack and contract with -detailed-exitcode;
+# open an issue per environment that drifted.
+name: drift
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      envs: ${{ steps.m.outputs.envs }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: m
+        run: echo "envs=$(ls -d environments/*/ | xargs -n1 basename | while read e; do [ -f environments/$e/backend.hcl ] && echo $e; done | jq -Rsc 'split("\n") | map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+
+  drift:
+    needs: detect
+    strategy:
+      fail-fast: false
+      matrix:
+        env: ${{ fromJSON(needs.detect.outputs.envs) }}
+    uses: ./.github/workflows/_stack.yml
+    with:
+      env: ${{ matrix.env }}
+      command: drift
+      stacks: identity network app-hosting platform gateway-config llm-backend-onboarding
+      runner: ${{ vars[format('RUNNER_{0}', matrix.env)] || '"ubuntu-latest"' }}

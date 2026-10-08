@@ -10,6 +10,8 @@
 #   uami_kv_secrets_user        APIM/Logic App identity gets Key Vault Secrets User
 #   foundry_kv_secrets_user_<n> each AI Foundry system-assigned identity gets
 #                               Key Vault Secrets User (Bicep keyvault-rbac.bicep).
+#   secret_writer_<k> / secret_reader_<k>
+#                               pipeline identities: Secrets Officer / Secrets User.
 #                               Keys use foundry_principal_count because the IDs
 #                               come from a module output, unknown at plan time.
 # -----------------------------------------------------------------------------
@@ -54,6 +56,16 @@ module "key_vault" {
         principal_id               = var.foundry_principal_ids[i]
       }
     },
+    # Pipeline identities: the apply identity writes access-contract secrets,
+    # the plan identity reads them during refresh.
+    { for k, id in var.secret_writer_principal_ids : "secret_writer_${k}" => {
+      role_definition_id_or_name = "Key Vault Secrets Officer"
+      principal_id               = id
+    } },
+    { for k, id in var.secret_reader_principal_ids : "secret_reader_${k}" => {
+      role_definition_id_or_name = "Key Vault Secrets User"
+      principal_id               = id
+    } },
   )
 
   # false when Azure Policy (ALZ Deploy-Private-DNS-Zones) owns the DNS zone group.
@@ -97,36 +109,4 @@ resource "time_sleep" "wait_for_kv_acl" {
     ip_rules       = join(",", sort(var.ip_rules))
     default_action = var.network_acl_default_action
   }
-}
-
-# -----------------------------------------------------------------------------
-# STORE APIM GATEWAY KEY IN KEY VAULT (placeholder — disabled by default)
-# -----------------------------------------------------------------------------
-# Gated behind `var.create_apim_gateway_key_secret`. Nothing in the Terraform
-# stack reads this secret programmatically; only notebook samples reference
-# it, and they fetch the real key out-of-band via the Azure CLI. Enabling
-# this requires KV data-plane access from the deployer IP, which is the
-# primary source of 403 ForbiddenByFirewall errors on apply.
-# -----------------------------------------------------------------------------
-
-resource "time_rotating" "apim_gateway_key_secret" {
-  count         = var.create_apim_gateway_key_secret ? 1 : 0
-  rotation_days = 60
-}
-
-resource "azurerm_key_vault_secret" "apim_subscription_key" {
-  count        = var.create_apim_gateway_key_secret ? 1 : 0
-  name         = "apim-gateway-key"
-  value        = "PLACEHOLDER-update-after-apim-deploy"
-  key_vault_id = module.key_vault.resource_id
-  tags         = var.tags
-
-  # ALZ Enforce-GR-KeyVault: content type + expiry (<= 90 days) are required.
-  content_type    = "apim-subscription-key"
-  expiration_date = timeadd(time_rotating.apim_gateway_key_secret[0].rfc3339, "${90 * 24}h")
-
-  depends_on = [
-    time_sleep.wait_for_kv_rbac,
-    time_sleep.wait_for_kv_acl,
-  ]
 }

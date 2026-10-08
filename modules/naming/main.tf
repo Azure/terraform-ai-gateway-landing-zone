@@ -1,42 +1,81 @@
 # =============================================================================
-# NAMING — one place that produces every resource name.
+# NAMING — the naming contract shared by every stack (review 7.7).
 #
-# Every name is deterministic (derived from resource group, environment and
-# subscription), so names are known at plan time and a single apply can create
-# everything. Explicit names arrive through name_overrides and always win.
+# Names are deterministic: <prefix>-<workload>-<environment>[-<seed>]. The seed
+# is 5 hex characters of sha256("<subscription>/<workload>/<environment>")
+# unless unique_seed is set, so every stack computes the same names without
+# reading another stack's state. name_overrides always win.
 # =============================================================================
 
 locals {
-  # Bicep-parity seed: sha256("<rg>-<env>-<subscription>")[0:10]
-  resource_token = substr(sha256("${var.resource_group_name}-${var.environment_name}-${var.subscription_id}"), 0, 10)
-  env            = var.environment_name
-  # 6-character suffix for globally unique names (storage accounts allow
-  # lowercase letters and digits only).
-  sfx = substr(sha256("suffix-${local.resource_token}"), 0, 6)
+  seed = coalesce(var.unique_seed, substr(sha256("${var.subscription_id}/${var.workload}/${var.environment}"), 0, 5))
+  base = "${var.workload}-${var.environment}"
+  # Alphanumeric-only stem for storage accounts (3-24 lowercase letters/digits).
+  compact = "${var.workload}${var.environment}"
 
   generated = {
-    resource_group          = "rg-${local.env}"
-    apim                    = "apim-${local.resource_token}"
-    cosmos                  = "cosmos-${local.resource_token}"
-    eventhub_namespace      = "evhns-${local.resource_token}"
-    log_analytics           = "law-${local.resource_token}"
-    key_vault               = "kv-${local.resource_token}"
-    virtual_network         = "vnet-${local.env}"
-    uami_apim               = "id-apim-${local.env}-${local.sfx}"
-    uami_usage              = "id-logicapp-${local.env}-${local.sfx}"
-    redis                   = "redis-${local.env}-${local.sfx}"
-    api_center              = "apic-${local.env}-${local.sfx}"
-    storage_logic           = "stla${local.sfx}"
-    logic_app               = "logic-usage-${local.env}-${local.sfx}"
-    logic_content_share     = "logic-content-${local.sfx}"
-    app_service_plan        = "asp-logic-${local.env}"
-    app_service_environment = "ase-${local.env}-${local.sfx}"
-    logic_app_code_artifact = "usage-ingestion-logicapp-${local.sfx}"
+    # Resource groups: one for Terraform state, one for everything else.
+    resource_group       = "rg-${local.base}"
+    state_resource_group = "rg-${local.base}-tfstate"
+
+    # Bootstrap
+    state_storage_account = "st${substr(local.compact, 0, 15)}${local.seed}tf"
+    pipeline_plan         = "id-tf-${local.base}-plan"
+    pipeline_apply        = "id-tf-${local.base}-apply"
+
+    # Identity
+    gateway_app = "app-${local.base}-gateway"
+
+    # Network (subnet names are fixed so downstream stacks can look them up)
+    virtual_network  = "vnet-${local.base}"
+    subnet_apim      = "snet-apim"
+    subnet_pe        = "snet-pe"
+    subnet_logic_app = "snet-logic"
+    subnet_agent     = "snet-agent"
+    subnet_ase       = "snet-ase"
+    subnet_cicd      = "snet-cicd"
+
+    # App hosting
+    app_service_environment = "ase-${local.base}-${local.seed}"
+
+    # Platform
+    apim                    = "apim-${local.base}-${local.seed}"
+    key_vault               = "kv-${substr(local.base, 0, 14)}-${local.seed}"
+    cosmos                  = "cosno-${local.base}-${local.seed}"
+    eventhub_namespace      = "evhns-${local.base}-${local.seed}"
+    log_analytics           = "log-${local.base}"
+    uami_apim               = "id-${local.base}-apim"
+    uami_usage              = "id-${local.base}-usage"
+    redis                   = "redis-${local.base}-${local.seed}"
+    api_center              = "apic-${local.base}-${local.seed}"
+    storage_logic           = "st${substr(local.compact, 0, 17)}${local.seed}"
+    logic_app               = "logic-${local.base}-${local.seed}"
+    logic_content_share     = "logic-content-${local.seed}"
+    app_service_plan        = "asp-${local.base}"
+    logic_app_code_artifact = "usage-ingestion-logicapp-${local.seed}"
   }
 
   names = merge(local.generated, { for k, v in var.name_overrides : k => v if v != null && v != "" })
 
+  # Private DNS zones the gateway uses (greenfield: created by stacks/network,
+  # looked up by name in platform). Logical key => zone name.
+  private_dns_zones = {
+    key_vault          = "privatelink.vaultcore.azure.net"
+    cosmos_db          = "privatelink.documents.azure.com"
+    event_hub          = "privatelink.servicebus.windows.net"
+    cognitive_services = "privatelink.cognitiveservices.azure.com"
+    openai             = "privatelink.openai.azure.com"
+    storage_blob       = "privatelink.blob.core.windows.net"
+    storage_file       = "privatelink.file.core.windows.net"
+    storage_table      = "privatelink.table.core.windows.net"
+    storage_queue      = "privatelink.queue.core.windows.net"
+    monitor            = "privatelink.monitor.azure.com"
+    apim_gateway       = "privatelink.azure-api.net"
+    ai_services        = "privatelink.services.ai.azure.com"
+    redis              = "privatelink.redis.azure.net"
+  }
+
   foundry_account_names = [
-    for i, n in var.foundry_instance_names : n != "" ? n : "aif-${local.env}-${i}-${local.sfx}"
+    for i, n in var.foundry_instance_names : n != "" ? n : "aif-${local.base}-${local.seed}-${i}"
   ]
 }

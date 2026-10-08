@@ -241,12 +241,17 @@ locals {
           for mm in b.supported_models : mm.timeout if mm.name == model_name
         ]
       ][0][0], 120)
+      inferenceApiVersion = try([
+        for b in var.llm_backend_config : [
+          for mm in b.supported_models : mm.inferenceApiVersion if mm.name == model_name
+        ]
+      ][0][0], "")
     }
   ]
 
   metadata_models_code = join(",\n", [
     for m in local.metadata_models :
-    "\t\t\t'${m.name}': {\n\t\t\t\t'backend': '${m.pool_name}',\n\t\t\t\t'apiVersion': '${m.apiVersion}',\n\t\t\t\t'timeout': ${m.timeout}\n\t\t\t}"
+    "\t\t\t'${m.name}': {\n\t\t\t\t'backend': '${m.pool_name}',\n\t\t\t\t'apiVersion': '${m.apiVersion}',\n\t\t\t\t'timeout': ${m.timeout}${m.inferenceApiVersion != "" ? ",\n\t\t\t\t'inferenceApiVersion': '${m.inferenceApiVersion}'" : ""}\n\t\t\t}"
   ])
 
   # Final XML contents for the 3 dynamic fragments

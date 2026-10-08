@@ -3,9 +3,14 @@ output "names" {
   value       = local.names
 }
 
-output "resource_token" {
-  description = "Deterministic 10-character token used in globally unique names."
-  value       = local.resource_token
+output "seed" {
+  description = "Deterministic 5-character suffix used in globally unique names."
+  value       = local.seed
+}
+
+output "base" {
+  description = "<workload>-<environment>, used by modules that derive child resource names."
+  value       = local.base
 }
 
 output "foundry_account_names" {
@@ -13,3 +18,7 @@ output "foundry_account_names" {
   value       = local.foundry_account_names
 }
 
+output "private_dns_zones" {
+  description = "Logical key => private DNS zone name used by the gateway's private endpoints."
+  value       = local.private_dns_zones
+}

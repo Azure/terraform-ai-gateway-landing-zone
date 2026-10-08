@@ -1,0 +1,215 @@
+# =============================================================================
+# Task (https://taskfile.dev) — the single entry point for people and CI.
+#
+#   task bootstrap ENV=dev                         once per environment (Owner)
+#   task up ENV=dev                                every configured stack, then every contract
+#   task apply STACK=platform ENV=dev              one stack
+#   task contract ENV=dev USE_CASE=team-a-chatbot  one access contract
+#   task plan-all ENV=dev                          read-only check of every stack
+#   task down ENV=dev                              reverse order, keeps bootstrap
+#   task test                                      mocked unit tests of every module and stack
+#
+# A stack runs only if environments/<env>/<stack>.tfvars exists, so the
+# environment folder defines the topology (e.g. no network.tfvars = byo).
+# =============================================================================
+version: "3"
+
+vars:
+  ENV: '{{.ENV | default "dev"}}'
+  ENV_DIR: '{{.ROOT_DIR}}/environments/{{.ENV}}'
+  ORDERED_STACKS: identity network app-hosting platform gateway-config llm-backend-onboarding
+  REVERSED_STACKS: llm-backend-onboarding gateway-config platform app-hosting network identity
+  CONTRACTS:
+    sh: 'if [ -d environments/{{.ENV}}/access-contracts ]; then find environments/{{.ENV}}/access-contracts -maxdepth 1 -name "*.tfvars" -exec basename {} .tfvars \; | sort; fi'
+
+env:
+  TF_IN_AUTOMATION: "true"
+
+tasks:
+  default:
+    cmds: [task --list]
+    silent: true
+
+  # ── one-time per environment ────────────────────────────────────────────────
+  bootstrap:
+    desc: "State account, workload resource group and pipeline identities (Owner, once): task bootstrap ENV=dev [-- -auto-approve]"
+    dir: stacks/bootstrap
+    preconditions:
+      - sh: test -f {{.ENV_DIR}}/common.tfvars && test -f {{.ENV_DIR}}/bootstrap.tfvars
+        msg: "Create environments/{{.ENV}}/common.tfvars and bootstrap.tfvars first (see examples/)."
+    cmds:
+      - printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+      - defer: rm -f backend_override.tf
+      - terraform init -reconfigure -input=false
+      - terraform apply -input=false -var-file={{.ENV_DIR}}/common.tfvars -var-file={{.ENV_DIR}}/bootstrap.tfvars {{.CLI_ARGS}}
+      - test -f {{.ENV_DIR}}/backend.hcl || terraform output -raw backend_hcl > {{.ENV_DIR}}/backend.hcl
+      - rm -f backend_override.tf
+      - terraform init -migrate-state -force-copy -input=false -backend-config={{.ENV_DIR}}/backend.hcl
+      - rm -f terraform.tfstate terraform.tfstate.backup
+      - terraform output
+
+  # ── one stack ───────────────────────────────────────────────────────────────
+  init:
+    internal: true
+    dir: stacks/{{.STACK}}
+    cmds:
+      - terraform init -reconfigure -input=false -lockfile=readonly -backend-config={{.ENV_DIR}}/backend.hcl -backend-config=key={{.STATE_KEY | default "terraform.tfstate"}}
+
+  plan:
+    desc: "Plan one stack: task plan STACK=platform ENV=dev  (LOCK=-lock=false for the read-only plan identity)"
+    requires: { vars: [STACK] }
+    cmds:
+      - task: init
+        vars: { STACK: "{{.STACK}}", ENV: "{{.ENV}}", STATE_KEY: "{{.STATE_KEY}}" }
+      - >-
+        terraform -chdir=stacks/{{.STACK}} plan -input=false -out=tfplan {{.LOCK}} {{.PLAN_ARGS}}
+        -var-file={{.ENV_DIR}}/common.tfvars
+        -var-file={{.VAR_FILE | default (printf "%s/%s.tfvars" .ENV_DIR .STACK)}}
+
+  apply:
+    desc: "Plan, then apply exactly that plan: task apply STACK=platform ENV=dev"
+    requires: { vars: [STACK] }
+    cmds:
+      - task: plan
+        vars: { STACK: "{{.STACK}}", ENV: "{{.ENV}}", STATE_KEY: "{{.STATE_KEY}}", VAR_FILE: "{{.VAR_FILE}}", PLAN_ARGS: "{{.PLAN_ARGS}}" }
+      - terraform -chdir=stacks/{{.STACK}} apply -input=false tfplan
+
+  destroy:
+    desc: "Destroy one stack: task destroy STACK=platform ENV=dev"
+    requires: { vars: [STACK] }
+    cmds:
+      - task: plan
+        vars: { STACK: "{{.STACK}}", ENV: "{{.ENV}}", STATE_KEY: "{{.STATE_KEY}}", VAR_FILE: "{{.VAR_FILE}}", PLAN_ARGS: "-destroy" }
+      - terraform -chdir=stacks/{{.STACK}} apply -input=false tfplan
+
+  output:
+    desc: "Stack outputs: task output STACK=identity ENV=dev [NAME=client_id]"
+    requires: { vars: [STACK] }
+    cmds:
+      - task: init
+        vars: { STACK: "{{.STACK}}", ENV: "{{.ENV}}", STATE_KEY: "{{.STATE_KEY}}" }
+      - terraform -chdir=stacks/{{.STACK}} output {{.NAME}}
+
+  logic-app-code:
+    desc: "Republish only the usage-ingestion workflows: task logic-app-code ENV=dev"
+    cmds:
+      - task: apply
+        vars:
+          STACK: platform
+          ENV: "{{.ENV}}"
+          PLAN_ARGS: >-
+            -target=module.logic_app.null_resource.publish_workflows
+            -target=module.logic_app.azurerm_storage_blob.package
+            -target=module.logic_app.azapi_resource.usage_ingestion_ase
+            -target=module.logic_app.azapi_resource_action.sync_triggers
+
+  # ── whole environment ───────────────────────────────────────────────────────
+  up:
+    desc: "Every configured stack in order, then every access contract: task up ENV=dev"
+    cmds:
+      - for: { var: ORDERED_STACKS }
+        task: apply-if-configured
+        vars: { STACK: "{{.ITEM}}", ENV: "{{.ENV}}" }
+      - task: contracts
+        vars: { ENV: "{{.ENV}}" }
+
+  down:
+    desc: "Destroy every contract and stack in reverse order (keeps bootstrap): task down ENV=dev"
+    prompt: Destroy every stack in {{.ENV}}?
+    cmds:
+      - for: { var: CONTRACTS }
+        task: destroy
+        vars: { STACK: access-contracts, ENV: "{{.ENV}}", STATE_KEY: "{{.ITEM}}.tfstate", VAR_FILE: "{{.ENV_DIR}}/access-contracts/{{.ITEM}}.tfvars" }
+      - for: { var: REVERSED_STACKS }
+        task: destroy-if-configured
+        vars: { STACK: "{{.ITEM}}", ENV: "{{.ENV}}" }
+
+  plan-all:
+    desc: "Plan every configured stack and contract without locking (what plan.yml does): task plan-all ENV=dev"
+    cmds:
+      - for: { var: ORDERED_STACKS }
+        task: plan-if-configured
+        vars: { STACK: "{{.ITEM}}", ENV: "{{.ENV}}", LOCK: "-lock=false" }
+      - for: { var: CONTRACTS }
+        task: plan
+        vars: { STACK: access-contracts, ENV: "{{.ENV}}", LOCK: "-lock=false", STATE_KEY: "{{.ITEM}}.tfstate", VAR_FILE: "{{.ENV_DIR}}/access-contracts/{{.ITEM}}.tfvars" }
+
+  apply-if-configured:
+    internal: true
+    status: ['test ! -f {{.ENV_DIR}}/{{.STACK}}.tfvars']
+    cmds:
+      - task: apply
+        vars: { STACK: "{{.STACK}}", ENV: "{{.ENV}}" }
+
+  destroy-if-configured:
+    internal: true
+    status: ['test ! -f {{.ENV_DIR}}/{{.STACK}}.tfvars']
+    cmds:
+      - task: destroy
+        vars: { STACK: "{{.STACK}}", ENV: "{{.ENV}}" }
+
+  plan-if-configured:
+    internal: true
+    status: ['test ! -f {{.ENV_DIR}}/{{.STACK}}.tfvars']
+    cmds:
+      - task: plan
+        vars: { STACK: "{{.STACK}}", ENV: "{{.ENV}}", LOCK: "{{.LOCK}}" }
+
+  # ── access contracts (one state per use case) ──────────────────────────────
+  contract:
+    desc: "Apply one access contract: task contract ENV=dev USE_CASE=team-a-chatbot"
+    requires: { vars: [USE_CASE] }
+    cmds:
+      - task: apply
+        vars:
+          STACK: access-contracts
+          ENV: "{{.ENV}}"
+          STATE_KEY: "{{.USE_CASE}}.tfstate"
+          VAR_FILE: "{{.ENV_DIR}}/access-contracts/{{.USE_CASE}}.tfvars"
+
+  contracts:
+    desc: "Apply every file in environments/<env>/access-contracts/: task contracts ENV=dev"
+    cmds:
+      - for: { var: CONTRACTS }
+        task: contract
+        vars: { USE_CASE: "{{.ITEM}}", ENV: "{{.ENV}}" }
+
+  # ── checks ──────────────────────────────────────────────────────────────────
+  validate:
+    desc: "Post-deploy smoke tests against a live environment: task validate ENV=dev"
+    cmds:
+      - task: init
+        vars: { STACK: platform, ENV: "{{.ENV}}" }
+      - bash scripts/validate.sh {{.ENV}}
+
+  test:
+    desc: "Mocked unit tests of every module and stack (no Azure access)"
+    vars:
+      DIRS:
+        sh: ls -d modules/*/ stacks/*/ | sed 's#/$##'
+    cmds:
+      - for: { var: DIRS }
+        cmd: terraform -chdir={{.ITEM}} init -backend=false -input=false >/dev/null && terraform -chdir={{.ITEM}} test
+
+  lint:
+    desc: "fmt, tflint and the repository rules (scripts/ci)"
+    vars:
+      TF_DIRS:
+        sh: scripts/ci/tf-dirs.sh
+    cmds:
+      - terraform fmt -check -recursive
+      - for: [check-common-vars, check-module-depth, check-avm-versions, check-no-remote-state, check-policy-assets]
+        cmd: bash scripts/ci/{{.ITEM}}.sh
+      - for: { var: TF_DIRS }
+        cmd: tflint --chdir={{.ITEM}} --config={{.ROOT_DIR}}/.tflint.hcl
+
+  lock:
+    desc: "Refresh the committed lock files of every stack for linux_amd64, darwin_arm64, darwin_amd64 and windows_amd64"
+    vars:
+      DIRS:
+        sh: ls -d stacks/*/ | sed 's#/$##'
+    cmds:
+      - for: { var: DIRS }
+        cmd: >-
+          terraform -chdir={{.ITEM}} init -backend=false -input=false -upgrade >/dev/null &&
+          terraform -chdir={{.ITEM}} providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64 -platform=windows_amd64

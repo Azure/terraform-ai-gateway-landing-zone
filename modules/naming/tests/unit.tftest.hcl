@@ -1,8 +1,8 @@
-# Snapshot test: fixed inputs => fixed names. A failure means an update would
-# rename (and replace) resources of an existing environment.
+# Snapshot test: fixed inputs => fixed names. Every stack depends on these
+# names to find what other stacks own, so a failure here is a breaking change.
 variables {
-  environment_name       = "citadel-dev"
-  resource_group_name    = "rg-citadel-dev"
+  workload               = "aigw"
+  environment            = "dev"
   subscription_id        = "00000000-0000-0000-0000-000000000000"
   foundry_instance_names = ["", "my-foundry"]
 }
@@ -12,39 +12,69 @@ run "snapshot" {
 
   assert {
     condition = output.names == {
-      resource_group          = "rg-citadel-dev"
-      apim                    = "apim-${substr(sha256("rg-citadel-dev-citadel-dev-00000000-0000-0000-0000-000000000000"), 0, 10)}"
-      cosmos                  = "cosmos-${substr(sha256("rg-citadel-dev-citadel-dev-00000000-0000-0000-0000-000000000000"), 0, 10)}"
-      eventhub_namespace      = "evhns-${substr(sha256("rg-citadel-dev-citadel-dev-00000000-0000-0000-0000-000000000000"), 0, 10)}"
-      log_analytics           = "law-${substr(sha256("rg-citadel-dev-citadel-dev-00000000-0000-0000-0000-000000000000"), 0, 10)}"
-      key_vault               = "kv-${substr(sha256("rg-citadel-dev-citadel-dev-00000000-0000-0000-0000-000000000000"), 0, 10)}"
-      virtual_network         = "vnet-citadel-dev"
-      uami_apim               = "id-apim-citadel-dev-20ebd0"
-      uami_usage              = "id-logicapp-citadel-dev-20ebd0"
-      redis                   = "redis-citadel-dev-20ebd0"
-      api_center              = "apic-citadel-dev-20ebd0"
-      storage_logic           = "stla20ebd0"
-      logic_app               = "logic-usage-citadel-dev-20ebd0"
-      logic_content_share     = "logic-content-20ebd0"
-      app_service_plan        = "asp-logic-citadel-dev"
-      app_service_environment = "ase-citadel-dev-20ebd0"
-      logic_app_code_artifact = "usage-ingestion-logicapp-20ebd0"
+      resource_group          = "rg-aigw-dev"
+      state_resource_group    = "rg-aigw-dev-tfstate"
+      state_storage_account   = "staigwdev27cbbtf"
+      pipeline_plan           = "id-tf-aigw-dev-plan"
+      pipeline_apply          = "id-tf-aigw-dev-apply"
+      gateway_app             = "app-aigw-dev-gateway"
+      virtual_network         = "vnet-aigw-dev"
+      subnet_apim             = "snet-apim"
+      subnet_pe               = "snet-pe"
+      subnet_logic_app        = "snet-logic"
+      subnet_agent            = "snet-agent"
+      subnet_ase              = "snet-ase"
+      subnet_cicd             = "snet-cicd"
+      app_service_environment = "ase-aigw-dev-27cbb"
+      apim                    = "apim-aigw-dev-27cbb"
+      key_vault               = "kv-aigw-dev-27cbb"
+      cosmos                  = "cosno-aigw-dev-27cbb"
+      eventhub_namespace      = "evhns-aigw-dev-27cbb"
+      log_analytics           = "log-aigw-dev"
+      uami_apim               = "id-aigw-dev-apim"
+      uami_usage              = "id-aigw-dev-usage"
+      redis                   = "redis-aigw-dev-27cbb"
+      api_center              = "apic-aigw-dev-27cbb"
+      storage_logic           = "staigwdev27cbb"
+      logic_app               = "logic-aigw-dev-27cbb"
+      logic_content_share     = "logic-content-27cbb"
+      app_service_plan        = "asp-aigw-dev"
+      logic_app_code_artifact = "usage-ingestion-logicapp-27cbb"
     }
-    error_message = "The naming contract changed: an update would rename (replace) resources."
+    error_message = "The naming contract changed: stacks would no longer find each other's resources."
   }
   assert {
-    condition     = output.foundry_account_names == ["aif-citadel-dev-0-20ebd0", "my-foundry"]
-    error_message = "Foundry names must be aif-<env>-<index>-<suffix> unless an explicit name is given."
+    condition     = output.foundry_account_names == ["aif-aigw-dev-27cbb-0", "my-foundry"]
+    error_message = "Foundry names must be aif-<workload>-<environment>-<seed>-<index> unless an explicit name is given."
   }
 }
 
-run "overrides_win" {
+run "length_limits" {
   command = plan
   variables {
+    workload    = "abcdefgh"
+    environment = "quickstart"
+  }
+  assert {
+    condition = alltrue([
+      length(output.names.key_vault) <= 24,
+      length(output.names.storage_logic) <= 24,
+      length(output.names.state_storage_account) <= 24,
+      can(regex("^[a-z0-9]+$", output.names.storage_logic)),
+      can(regex("^[a-z0-9]+$", output.names.state_storage_account)),
+    ])
+    error_message = "Key Vault and storage account names must fit their 24-character limits."
+  }
+}
+
+run "seed_and_overrides" {
+  command = plan
+  variables {
+    unique_seed    = "k3x9p"
     name_overrides = { apim = "apim-custom", key_vault = "", redis = null }
   }
   assert {
-    condition     = output.names.apim == "apim-custom" && startswith(output.names.key_vault, "kv-") && output.names.redis == "redis-citadel-dev-20ebd0"
-    error_message = "Non-empty overrides must win; empty / null overrides must be ignored."
+    condition     = output.names.apim == "apim-custom" && output.names.key_vault == "kv-aigw-dev-k3x9p" && output.names.redis == "redis-aigw-dev-k3x9p"
+    error_message = "unique_seed must replace the derived seed; non-empty overrides must win; empty / null overrides must be ignored."
   }
 }

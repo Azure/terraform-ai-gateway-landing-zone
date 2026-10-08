@@ -30,7 +30,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 
 | Name | Type |
 | ---- | ---- |
-| [azapi_resource.apim_connection](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.app_insights_connection](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.pe_dns_zone_group](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.project](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
@@ -50,16 +49,11 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id) | Subnet ID for private endpoints. | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
 | <a name="input_agent_subnet_id"></a> [agent\_subnet\_id](#input\_agent\_subnet\_id) | Resource ID of the subnet used for Foundry agent network injection. | `string` | `""` | no |
-| <a name="input_apim_connections"></a> [apim\_connections](#input\_apim\_connections) | Per-API APIM connection definitions (one connection per Foundry project × api). | <pre>list(object({<br/>    api_name               = string<br/>    api_path               = string<br/>    connection_name        = optional(string, "")<br/>    is_shared_to_all       = optional(bool, false)<br/>    deployment_in_path     = optional(string, "true")<br/>    inference_api_version  = optional(string, "")<br/>    deployment_api_version = optional(string, "")<br/>    list_models_endpoint   = optional(string, "")<br/>    get_model_endpoint     = optional(string, "")<br/>    deployment_provider    = optional(string, "")<br/>    static_models          = optional(list(any), [])<br/>    custom_headers         = optional(map(string), {})<br/>  }))</pre> | `[]` | no |
-| <a name="input_apim_gateway_url"></a> [apim\_gateway\_url](#input\_apim\_gateway\_url) | APIM gateway URL (https://...). | `string` | `""` | no |
-| <a name="input_apim_primary_key"></a> [apim\_primary\_key](#input\_apim\_primary\_key) | APIM master subscription primary key. | `string` | `""` | no |
-| <a name="input_apim_service_name"></a> [apim\_service\_name](#input\_apim\_service\_name) | APIM service name (used to construct default connection names). | `string` | `""` | no |
 | <a name="input_app_insights_id"></a> [app\_insights\_id](#input\_app\_insights\_id) | Application Insights resource ID for the Foundry App Insights connection. | `string` | `""` | no |
 | <a name="input_app_insights_instrumentation_key"></a> [app\_insights\_instrumentation\_key](#input\_app\_insights\_instrumentation\_key) | Application Insights instrumentation key used by the Foundry App Insights connection. | `string` | `""` | no |
 | <a name="input_disable_key_auth"></a> [disable\_key\_auth](#input\_disable\_key\_auth) | If true (default), only Entra ID auth is allowed (disableLocalAuth=true). The gateway reaches Foundry with its managed identity; no key is read. | `bool` | `true` | no |
 | <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoints' DNS zone groups; Terraform leaves them alone. | `bool` | `false` | no |
 | <a name="input_dns_zone_ids"></a> [dns\_zone\_ids](#input\_dns\_zone\_ids) | Map of DNS zone IDs. Expected keys: cognitive\_services, openai, ai\_services. | `map(string)` | `{}` | no |
-| <a name="input_enable_apim_connections"></a> [enable\_apim\_connections](#input\_enable\_apim\_connections) | Create Foundry-project → APIM ApiKey connections. | `bool` | `false` | no |
 | <a name="input_enable_app_insights_connection"></a> [enable\_app\_insights\_connection](#input\_enable\_app\_insights\_connection) | Create the App Insights connection on each Foundry account. | `bool` | `true` | no |
 | <a name="input_enable_diagnostics"></a> [enable\_diagnostics](#input\_enable\_diagnostics) | Create diagnostic settings sending AllMetrics to Log Analytics. | `bool` | `true` | no |
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |

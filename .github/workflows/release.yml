@@ -1,0 +1,18 @@
+# release-please: CHANGELOG + vX.Y.Z tags (consumers pin modules with ?ref=vX.Y.Z).
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: simple

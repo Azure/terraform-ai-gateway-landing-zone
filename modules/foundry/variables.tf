@@ -120,52 +120,6 @@ variable "foundry_network_injection_enabled" {
 }
 
 # ------------------------------------------------------------------------------
-# APIM → Foundry connection parameters (connection-apim.bicep parity)
-# ------------------------------------------------------------------------------
-
-variable "enable_apim_connections" {
-  description = "Create Foundry-project → APIM ApiKey connections."
-  type        = bool
-  default     = false
-}
-
-variable "apim_service_name" {
-  description = "APIM service name (used to construct default connection names)."
-  type        = string
-  default     = ""
-}
-
-variable "apim_gateway_url" {
-  description = "APIM gateway URL (https://...)."
-  type        = string
-  default     = ""
-}
-
-variable "apim_primary_key" {
-  description = "APIM master subscription primary key."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "apim_connections" {
-  description = "Per-API APIM connection definitions (one connection per Foundry project × api)."
-  type = list(object({
-    api_name               = string
-    api_path               = string
-    connection_name        = optional(string, "")
-    is_shared_to_all       = optional(bool, false)
-    deployment_in_path     = optional(string, "true")
-    inference_api_version  = optional(string, "")
-    deployment_api_version = optional(string, "")
-    list_models_endpoint   = optional(string, "")
-    get_model_endpoint     = optional(string, "")
-    deployment_provider    = optional(string, "")
-    static_models          = optional(list(any), [])
-    custom_headers         = optional(map(string), {})
-  }))
-  default = []
-}
 
 variable "account_names" {
   description = "Foundry (AI Services) account names, one per entry in foundry_instances (from modules/naming)."

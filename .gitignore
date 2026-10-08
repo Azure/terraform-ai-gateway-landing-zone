@@ -19,11 +19,16 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
-# Variable files hold environment-specific values (subscription IDs, names).
-# Commit the *.tfvars.example templates; keep real values local or in CI.
+# Ad-hoc variable files stay local.
 *.tfvars
 *.tfvars.json
 !*.tfvars.example
+# Stack inputs per environment and the scenario templates are committed: they
+# define the deployment (GitOps) and hold IDs and names only, never secrets.
+!environments/*/*.tfvars
+!environments/*/access-contracts/*.tfvars
+!examples/*/*.tfvars
+!examples/*/access-contracts/*.tfvars
 
 # NOTE: .terraform.lock.hcl is intentionally COMMITTED for root configurations
 # (HashiCorp guidance) so provider versions are reproducible. Reusable modules

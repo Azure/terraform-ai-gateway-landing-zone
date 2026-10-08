@@ -60,18 +60,23 @@ jobs:
           done
           exit $rc
 
-      - name: terraform-docs (module READMEs up to date)
+      - name: terraform-docs (module and stack READMEs up to date)
         run: |
           curl -sSLo /tmp/tfdocs.tgz "https://github.com/terraform-docs/terraform-docs/releases/download/${TERRAFORM_DOCS_VERSION}/terraform-docs-${TERRAFORM_DOCS_VERSION}-linux-amd64.tar.gz"
           tar -xzf /tmp/tfdocs.tgz -C /tmp terraform-docs
           rc=0
-          for d in $(scripts/ci/tf-dirs.sh | grep '^modules/'); do
+          for d in $(scripts/ci/tf-dirs.sh | grep -E '^(modules|stacks)/[^/]+$'); do
             /tmp/terraform-docs -c .terraform-docs.yml --output-check "$d" || { echo "::error file=$d/README.md::README out of date — run terraform-docs -c .terraform-docs.yml $d"; rc=1; }
           done
           exit $rc
 
-      - name: policy assets
-        run: scripts/ci/check-policy-assets.sh
+      - name: repository rules (review 7.1)
+        run: |
+          rc=0
+          for c in check-common-vars check-module-depth check-avm-versions check-no-remote-state check-policy-assets; do
+            echo "::group::$c"; scripts/ci/$c.sh || rc=1; echo "::endgroup::"
+          done
+          exit $rc
 
       - name: gitleaks
         run: |
@@ -119,9 +124,9 @@ jobs:
       - name: init
         working-directory: ${{ matrix.dir }}
         run: |
-          # Root configurations commit their lock file; it must not change in CI.
+          # Stacks commit their lock file; it must not change in CI.
           if [ -f .terraform.lock.hcl ]; then LOCK=-lockfile=readonly; fi
-          # Roots keep tests in tests/unit; modules use Terraform's default tests/.
+          # Everything uses Terraform's default tests/ folder (tests/unit is still honoured).
           # init must see the test directory to install modules that tests call.
           if [ -d tests/unit ]; then TESTDIR=-test-directory=tests/unit; fi
           terraform init -backend=false $LOCK $TESTDIR
@@ -148,3 +153,23 @@ jobs:
           else
             echo "no tests in ${{ matrix.dir }}"
           fi
+
+  examples:
+    name: examples plan against their stacks (mocked)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: tfver
+        run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ steps.tfver.outputs.version }}
+          terraform_wrapper: false
+
+      - name: init stacks
+        run: for d in stacks/*/; do terraform -chdir="$d" init -backend=false -lockfile=readonly -input=false >/dev/null; done
+
+      - name: check examples
+        run: scripts/ci/check-examples.sh

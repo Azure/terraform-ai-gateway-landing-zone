@@ -54,43 +54,6 @@ variable "managed_identity_id" {
   description = "Resource ID of the user-assigned managed identity the service runs as."
   type        = string
 }
-variable "managed_identity_client_id" {
-  description = "Client ID of the user-assigned managed identity the service runs as."
-  type        = string
-}
-
-variable "pii_service_endpoint" {
-  description = "Endpoint of the PII detection service (Foundry Language); empty when PII redaction is off."
-  type        = string
-}
-variable "content_safety_endpoint" {
-  description = "Endpoint of the content-safety service (Foundry); empty when content safety is off."
-  type        = string
-}
-variable "enable_pii_redaction" {
-  description = "Enable PII detection and masking via Language Service"
-  type        = bool
-}
-variable "enable_content_safety" {
-  description = "Enable Azure AI Content Safety"
-  type        = bool
-}
-variable "entra_auth_enabled" {
-  description = "Enable Entra ID JWT validation on APIM"
-  type        = bool
-}
-variable "entra_tenant_id" {
-  description = "Entra ID tenant ID for JWT validation"
-  type        = string
-}
-variable "entra_client_id" {
-  description = "Entra ID client ID (application ID)"
-  type        = string
-}
-variable "entra_audience" {
-  description = "Entra ID audience (resource identifier)"
-  type        = string
-}
 variable "dns_zone_id_apim" {
   description = "Resource ID of the privatelink.azure-api.net DNS zone for the gateway private endpoint (empty = none)."
   type        = string
@@ -115,115 +78,10 @@ variable "apim_zones" {
   default     = []
 }
 
-# -----------------------------------------------------------------------------
-# APIM logic plane (Bicep parity: llm-backends, policy fragments, extra APIs)
-# -----------------------------------------------------------------------------
-
-variable "ai_search_instances" {
-  description = "Existing AI Search endpoints to register as APIM backends."
-  type = list(object({
-    name        = string
-    description = optional(string, "AI Search backend")
-    url         = string
-  }))
-  default = []
-}
-
-variable "enable_azure_ai_search" {
-  description = "Enable Azure AI Search Index API in APIM."
-  type        = bool
-  default     = false
-}
-
-variable "enable_embeddings_backend" {
-  description = "Register a Foundry embeddings backend for semantic caching."
-  type        = bool
-  default     = false
-}
-
-variable "embeddings_backend_id" {
-  description = "APIM backend ID of the embeddings backend used by semantic caching."
-  type        = string
-  default     = "foundry-embeddings"
-}
-
-variable "embeddings_backend_url" {
-  description = "Foundry embeddings deployment endpoint (consumed only when enable_embeddings_backend = true)."
-  type        = string
-  default     = ""
-}
-
-variable "is_mcp_sample_deployed" {
-  description = "Deploy the sample MCP server (weather-api / weather-mcp / ms-learn-mcp)."
-  type        = bool
-  default     = false
-}
-
-variable "ms_learn_mcp_backend_url" {
-  description = "Backend URL for the MS Learn MCP server."
-  type        = string
-  default     = "https://learn.microsoft.com/api/mcp"
-}
-
-# -----------------------------------------------------------------------------
-# Extra-API diagnostics (Bicep parity: api.bicep `enableAPIDiagnostics`).
-# Bicep callers in apim.bicep pass `false` for AI Search, Doc Intel, OpenAI
-# Realtime, so the default here is also false. When set to true, both
-# `applicationinsights` and `azuremonitor` per-API diagnostics are created
-# matching the api.bicep resource shape (azuremonitor includes the LLM logs
-# block via azapi).
-# -----------------------------------------------------------------------------
-
-variable "enable_jwt_auth" {
-  description = "When true, JWT-* named values are populated from jwt_tenant_id / jwt_app_registration_id."
-  type        = bool
-  default     = false
-}
-
-variable "jwt_tenant_id" {
-  description = "Entra tenant ID used by the JWT-validation policies."
-  type        = string
-  default     = ""
-}
-
-variable "jwt_app_registration_id" {
-  description = "Entra application (client) ID used as the JWT audience."
-  type        = string
-  default     = ""
-}
-
-variable "azure_login_endpoint" {
-  description = "Entra login endpoint (e.g. https://login.microsoftonline.com/)."
-  type        = string
-  default     = "https://login.microsoftonline.com/"
-}
-
-# Foundry → APIM named subscription
-variable "enable_foundry_apim_connection" {
-  description = "Create a dedicated APIM subscription for Foundry connections."
-  type        = bool
-  default     = false
-}
-
-variable "aws_region" {
-  description = "AWS region for AWS Bedrock backends (APIM named value)."
-  type        = string
-  default     = ""
-}
-
-
 variable "enable_redis_cache" {
   description = "Attach Azure Managed Redis as the APIM external cache (requires redis_cache_connection_string)."
   type        = bool
   default     = false
-}
-
-variable "default_product_api_names" {
-  description = "Names of the APIs linked to the default-ai-access product (root apis.tf)."
-  type = object({
-    universal_llm = string
-    azure_openai  = string
-  })
 }
 
 variable "subscription_id" {

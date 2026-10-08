@@ -1,0 +1,9 @@
+# LLM backends are derived from the Foundry deployments of stacks/platform.
+inference_api_type = "OpenAIV1"
+features = {
+  unified_ai_api        = false
+  api_center_onboarding = false
+}
+model_aliases = [
+  { name = "fast", models = ["gpt-4o-mini"], strategy = "priority" },
+]

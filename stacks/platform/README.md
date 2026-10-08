@@ -1,0 +1,104 @@
+# platform
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+| ---- | ------- |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | ~> 1.11 |
+| <a name="requirement_archive"></a> [archive](#requirement\_archive) | ~> 2.5 |
+| <a name="requirement_azapi"></a> [azapi](#requirement\_azapi) | ~> 2.12 |
+| <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | ~> 4.81 |
+| <a name="requirement_modtm"></a> [modtm](#requirement\_modtm) | ~> 0.3 |
+| <a name="requirement_null"></a> [null](#requirement\_null) | ~> 3.2 |
+| <a name="requirement_random"></a> [random](#requirement\_random) | ~> 3.5 |
+| <a name="requirement_time"></a> [time](#requirement\_time) | ~> 0.11 |
+
+## Providers
+
+| Name | Version |
+| ---- | ------- |
+| <a name="provider_azapi"></a> [azapi](#provider\_azapi) | ~> 2.12 |
+| <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | ~> 4.81 |
+| <a name="provider_azurerm.loganalytics"></a> [azurerm.loganalytics](#provider\_azurerm.loganalytics) | ~> 4.81 |
+
+## Modules
+
+| Name | Source | Version |
+| ---- | ------ | ------- |
+| <a name="module_apic"></a> [apic](#module\_apic) | ../../modules/apic | n/a |
+| <a name="module_apim"></a> [apim](#module\_apim) | ../../modules/apim | n/a |
+| <a name="module_apim_telemetry"></a> [apim\_telemetry](#module\_apim\_telemetry) | ../../modules/apim-telemetry | n/a |
+| <a name="module_cosmosdb"></a> [cosmosdb](#module\_cosmosdb) | ../../modules/cosmosdb | n/a |
+| <a name="module_eventhub"></a> [eventhub](#module\_eventhub) | ../../modules/eventhub | n/a |
+| <a name="module_foundry"></a> [foundry](#module\_foundry) | ../../modules/foundry | n/a |
+| <a name="module_identity"></a> [identity](#module\_identity) | Azure/avm-res-managedidentity-userassignedidentity/azurerm | 0.5.3 |
+| <a name="module_logic_app"></a> [logic\_app](#module\_logic\_app) | ../../modules/logic-app | n/a |
+| <a name="module_monitoring"></a> [monitoring](#module\_monitoring) | ../../modules/monitoring | n/a |
+| <a name="module_naming"></a> [naming](#module\_naming) | ../../modules/naming | n/a |
+| <a name="module_redis"></a> [redis](#module\_redis) | ../../modules/redis | n/a |
+| <a name="module_security"></a> [security](#module\_security) | ../../modules/security | n/a |
+
+## Resources
+
+| Name | Type |
+| ---- | ---- |
+| [azurerm_resource_group_policy_assignment.deny_storage_shared_key](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/resource_group_policy_assignment) | resource |
+| [azapi_resource.ase](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource) | data source |
+| [azurerm_client_config.current](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/client_config) | data source |
+| [azurerm_log_analytics_workspace.byo](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/log_analytics_workspace) | data source |
+| [azurerm_private_dns_zone.greenfield](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/private_dns_zone) | data source |
+| [azurerm_resource_group.workload](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/resource_group) | data source |
+| [azurerm_subnet.greenfield](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/subnet) | data source |
+| [azurerm_virtual_network.greenfield](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/virtual_network) | data source |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+| ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_environment"></a> [environment](#input\_environment) | Environment code used in every resource name (2-10 lowercase letters or digits, e.g. dev, test, prod). | `string` | n/a | yes |
+| <a name="input_location"></a> [location](#input\_location) | Primary Azure region (e.g. swedencentral). | `string` | n/a | yes |
+| <a name="input_subscription_id"></a> [subscription\_id](#input\_subscription\_id) | Workload subscription ID. | `string` | n/a | yes |
+| <a name="input_workload"></a> [workload](#input\_workload) | Short workload code used in every resource name (2-8 lowercase letters or digits). | `string` | n/a | yes |
+| <a name="input_api_center"></a> [api\_center](#input\_api\_center) | Azure API Center (features.api\_center). location null = the stack location (API Center isn't in every region). | <pre>object({<br/>    sku      = optional(string, "Free")<br/>    location = optional(string)<br/>  })</pre> | `{}` | no |
+| <a name="input_apim"></a> [apim](#input\_apim) | API Management settings (network matrix: review 7.5.4.1).<br/>  sku                   Developer \| Premium \| StandardV2 \| PremiumV2.<br/>  capacity              Scale units.<br/>  vnet\_mode             none         no VNet (public endpoint and/or inbound private endpoint).<br/>                        external     Developer/Premium: classic injection, public VIP.<br/>                        internal     Developer/Premium: classic injection, private VIP.<br/>                        integration  StandardV2/PremiumV2: outbound VNet integration<br/>                                     (subnet delegated to Microsoft.Web/serverFarms).<br/>                        injection    PremiumV2: VNet injection, private VIP (subnet<br/>                                     delegated to Microsoft.Web/hostingEnvironments, >= /27).<br/>                        null = external for classic SKUs, integration for v2 SKUs.<br/>  private\_endpoint      Inbound private endpoint (v2 SKUs with vnet\_mode none or integration).<br/>  public\_network\_access Public inbound access (v2 SKUs). false needs the private endpoint;<br/>                        a new service is created public and switched on the next apply.<br/>  public\_ip\_address\_id  Classic external/internal only: Standard-SKU public IP to use. | <pre>object({<br/>    sku                   = optional(string, "StandardV2")<br/>    capacity              = optional(number, 1)<br/>    publisher_email       = optional(string, "admin@contoso.com")<br/>    publisher_name        = optional(string, "AI Citadel Admin")<br/>    vnet_mode             = optional(string)<br/>    private_endpoint      = optional(bool, true)<br/>    public_network_access = optional(bool, true)<br/>    public_ip_address_id  = optional(string)<br/>  })</pre> | `{}` | no |
+| <a name="input_apim_logging"></a> [apim\_logging](#input\_apim\_logging) | Service-level APIM diagnostics (Application Insights): verbosity (verbose \| information \| error) and body bytes logged. | <pre>object({<br/>    verbosity  = optional(string, "information")<br/>    body_bytes = optional(number, 8192)<br/>  })</pre> | `{}` | no |
+| <a name="input_deny_storage_shared_key"></a> [deny\_storage\_shared\_key](#input\_deny\_storage\_shared\_key) | Assign the built-in policy "Storage accounts should prevent shared key access" (Deny) on the workload resource group. Needs usage\_pipeline.logic\_app.hosting = "ase\_v3". Skip it when the platform already assigns the ALZ Deny-Storage-Shared-Key policy. | `bool` | `false` | no |
+| <a name="input_dev_access"></a> [dev\_access](#input\_dev\_access) | Laptop runs without a private runner (greenfield, non-prod only): public CIDRs allowed through the<br/>Key Vault and usage-storage firewalls (default action stays Deny). Behind proxied egress the services<br/>see the proxy's address, which can differ per process: use a runner in snet-cicd instead. | <pre>object({<br/>    allowed_cidrs = optional(list(string), [])<br/>  })</pre> | `{}` | no |
+| <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable AVM module telemetry (azure/modtm). See https://aka.ms/avm/telemetryinfo. | `bool` | `true` | no |
+| <a name="input_features"></a> [features](#input\_features) | Optional platform capabilities: api\_center deploys Azure API Center; semantic\_cache deploys Azure Managed Redis as the APIM external cache. | <pre>object({<br/>    api_center     = optional(bool, true)<br/>    semantic_cache = optional(bool, false)<br/>  })</pre> | `{}` | no |
+| <a name="input_foundry"></a> [foundry](#input\_foundry) | Microsoft Foundry (AI Services) accounts, projects and model deployments.<br/>  instances                  One account (+ default project) per entry; name "" = generated.<br/>  models                     Deployments; ai\_service\_index selects the instance.<br/>  external\_access            Public network access to the accounts.<br/>  network\_injection\_enabled  Inject the Agent Service into the agent subnet.<br/>  outbound\_allowed\_fqdns     Restrict the accounts' outbound access to these FQDNs (null = unrestricted). | <pre>object({<br/>    instances = optional(list(object({<br/>      name                      = optional(string, "")<br/>      location                  = string<br/>      custom_subdomain          = optional(string, "")<br/>      default_project_name      = optional(string, "citadel-governance-project")<br/>      network_injection_enabled = optional(bool, true)<br/>    })), [{ location = "swedencentral" }])<br/>    models = optional(list(object({<br/>      name             = string<br/>      publisher        = optional(string, "OpenAI")<br/>      version          = string<br/>      sku              = optional(string, "GlobalStandard")<br/>      capacity         = optional(number, 100)<br/>      ai_service_index = optional(number, 0)<br/>    })), [])<br/>    external_access           = optional(bool, false)<br/>    network_injection_enabled = optional(bool, true)<br/>    outbound_allowed_fqdns    = optional(list(string))<br/>  })</pre> | `{}` | no |
+| <a name="input_key_vault"></a> [key\_vault](#input\_key\_vault) | Key Vault settings (RBAC authorization always on). | <pre>object({<br/>    sku                           = optional(string, "standard")<br/>    soft_delete_retention_days    = optional(number, 7)<br/>    purge_protection_enabled      = optional(bool, true)<br/>    public_network_access_enabled = optional(bool, false)<br/>    network_acl_default_action    = optional(string, "Deny")<br/>  })</pre> | `{}` | no |
+| <a name="input_monitoring"></a> [monitoring](#input\_monitoring) | Log Analytics and Azure Monitor.<br/>  log\_analytics\_workspace\_id       null = create a workspace; set = use this (BYO / platform) workspace.<br/>  log\_analytics\_subscription\_id    Subscription of the BYO workspace when it differs from subscription\_id.<br/>  private\_link\_scope               Deploy an Azure Monitor Private Link Scope (AMPLS).<br/>  app\_insights\_dashboards          Create the Application Insights dashboards. | <pre>object({<br/>    log_analytics_workspace_id    = optional(string)<br/>    log_analytics_subscription_id = optional(string)<br/>    private_link_scope            = optional(bool, false)<br/>    app_insights_dashboards       = optional(bool, true)<br/>  })</pre> | `{}` | no |
+| <a name="input_naming"></a> [naming](#input\_naming) | Naming inputs shared by all stacks (modules/naming, docs/naming.md).<br/>  unique\_seed     5 lowercase letters/digits; null = derived from subscription\_id, workload and environment.<br/>  name\_overrides  logical role => explicit name (e.g. { apim = "apim-contoso-prod" }). | <pre>object({<br/>    unique_seed    = optional(string)<br/>    name_overrides = optional(map(string), {})<br/>  })</pre> | `{}` | no |
+| <a name="input_network"></a> [network](#input\_network) | alz\_spoke / byo only (greenfield: null, everything is looked up by name).<br/>  vnet\_id                            VNet that holds the subnets.<br/>  subnet\_ids.pe                      Private endpoint subnet.<br/>  subnet\_ids.apim                    APIM subnet (apim.vnet\_mode != none).<br/>  subnet\_ids.logic\_app               Logic App subnet (usage\_pipeline.logic\_app.hosting = workflow\_standard).<br/>  subnet\_ids.agent                   Foundry agent subnet (foundry.network\_injection\_enabled).<br/>  private\_dns\_zone\_ids               Logical key (modules/naming private\_dns\_zones) => hub zone ID.<br/>                                     Keys Terraform must bind even under policy: openai, ai\_services,<br/>                                     apim\_gateway, redis.<br/>  dns\_zone\_groups\_managed\_by\_policy  Azure Policy (ALZ Deploy-Private-DNS-Zones) creates the private<br/>                                     endpoint DNS zone groups; Terraform leaves them alone.<br/>`task output STACK=network NAME=platform_network` prints this object for alz\_spoke. | <pre>object({<br/>    vnet_id = string<br/>    subnet_ids = object({<br/>      pe        = string<br/>      apim      = optional(string)<br/>      logic_app = optional(string)<br/>      agent     = optional(string)<br/>    })<br/>    private_dns_zone_ids              = optional(map(string), {})<br/>    dns_zone_groups_managed_by_policy = optional(bool, false)<br/>  })</pre> | `null` | no |
+| <a name="input_network_mode"></a> [network\_mode](#input\_network\_mode) | greenfield  stacks/network creates the VNet, subnets, NSGs and private DNS zones; downstream stacks look them up by name.<br/>alz\_spoke   stacks/network adds subnets + NSGs (+ UDR) to a vended VNet; platform.tfvars carries the subnet and hub DNS zone IDs.<br/>byo         no network stack; platform.tfvars carries all IDs. | `string` | `"greenfield"` | no |
+| <a name="input_purge_soft_delete_on_destroy"></a> [purge\_soft\_delete\_on\_destroy](#input\_purge\_soft\_delete\_on\_destroy) | Purge soft-deleted Key Vaults, APIM services and Foundry accounts on destroy (needs subscription-level purge rights). | `bool` | `false` | no |
+| <a name="input_redis"></a> [redis](#input\_redis) | Azure Managed Redis for the semantic cache (features.semantic\_cache). | <pre>object({<br/>    sku_name              = optional(string, "Balanced_B10")<br/>    capacity              = optional(number, 2)<br/>    public_network_access = optional(string, "Disabled")<br/>    minimum_tls_version   = optional(string, "1.2")<br/>  })</pre> | `{}` | no |
+| <a name="input_secret_reader_principal_ids"></a> [secret\_reader\_principal\_ids](#input\_secret\_reader\_principal\_ids) | Principals that read Key Vault secrets (Secrets User): the plan pipeline identity. | `map(string)` | `{}` | no |
+| <a name="input_secret_writer_principal_ids"></a> [secret\_writer\_principal\_ids](#input\_secret\_writer\_principal\_ids) | Principals that write Key Vault secrets (Secrets Officer): the apply pipeline identity, for access contracts. | `map(string)` | `{}` | no |
+| <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource (merged with workload, environment, stack and managed-by). | `map(string)` | `{}` | no |
+| <a name="input_usage_pipeline"></a> [usage\_pipeline](#input\_usage\_pipeline) | Usage ingestion pipeline (Event Hub -> Logic App -> Cosmos DB).<br/>  logic\_app.hosting  workflow\_standard = WS plan with regional VNet integration (needs shared-key storage);<br/>                     ase\_v3 = Isolated v2 plan in an App Service Environment v3 (keyless storage).<br/>  logic\_app.sku      null = WS1 (workflow\_standard) or I1v2 (ase\_v3).<br/>  logic\_app.worker\_count / max\_worker\_count<br/>                     ase\_v3: autoscale range of the Isolated v2 plan (CPU based).<br/>  logic\_app.deployment<br/>                     ase\_v3: run\_from\_package (default; zip in the keyless storage account,<br/>                     read by the usage UAMI) or zip\_deploy (az push to SCM from a runner in<br/>                     the VNet). workflow\_standard always uses zip\_deploy.<br/>  ase.app\_service\_environment\_id<br/>                     ase\_v3: a shared / BYO ASE; null = the ASE of stacks/app-hosting,<br/>                     found by name. | <pre>object({<br/>    eventhub = optional(object({<br/>      capacity              = optional(number, 1)<br/>      public_network_access = optional(string, "Enabled")<br/>      disaster_recovery = optional(object({<br/>        partner_namespace_id = string<br/>        alias                = optional(string, "default")<br/>      }))<br/>    }), {})<br/>    cosmos = optional(object({<br/>      public_network_access = optional(string, "Disabled")<br/>      local_auth_enabled    = optional(bool, false)<br/>    }), {})<br/>    logic_app = optional(object({<br/>      hosting            = optional(string, "workflow_standard")<br/>      sku                = optional(string)<br/>      worker_count       = optional(number, 1)<br/>      max_worker_count   = optional(number, 3)<br/>      deployment         = optional(string, "run_from_package")<br/>      content_share_name = optional(string, "")<br/>      code_deploy        = optional(bool, false)<br/>      code_source_path   = optional(string, "")<br/>    }), {})<br/>    ase = optional(object({<br/>      app_service_environment_id = optional(string)<br/>      zone_redundant             = optional(bool, false)<br/>    }), {})<br/>  })</pre> | `{}` | no |
+
+## Outputs
+
+| Name | Description |
+| ---- | ----------- |
+| <a name="output_apim_gateway_url"></a> [apim\_gateway\_url](#output\_apim\_gateway\_url) | API Management gateway URL. |
+| <a name="output_apim_identity_client_id"></a> [apim\_identity\_client\_id](#output\_apim\_identity\_client\_id) | Client ID of the APIM user-assigned identity. |
+| <a name="output_apim_logger_names"></a> [apim\_logger\_names](#output\_apim\_logger\_names) | APIM logger names (contract for API diagnostics in gateway-config and llm-backend-onboarding). |
+| <a name="output_apim_name"></a> [apim\_name](#output\_apim\_name) | API Management service name. |
+| <a name="output_apim_private_ip_addresses"></a> [apim\_private\_ip\_addresses](#output\_apim\_private\_ip\_addresses) | Private IPs of the APIM gateway (private VIP modes). |
+| <a name="output_cosmos_db_endpoint"></a> [cosmos\_db\_endpoint](#output\_cosmos\_db\_endpoint) | Cosmos DB endpoint (usage records). |
+| <a name="output_eventhub_namespace"></a> [eventhub\_namespace](#output\_eventhub\_namespace) | Event Hub namespace (APIM usage events). |
+| <a name="output_foundry_account_names"></a> [foundry\_account\_names](#output\_foundry\_account\_names) | Foundry (AI Services) account names, one per instance. |
+| <a name="output_foundry_endpoints"></a> [foundry\_endpoints](#output\_foundry\_endpoints) | Foundry account endpoints, one per instance. |
+| <a name="output_foundry_project_names"></a> [foundry\_project\_names](#output\_foundry\_project\_names) | Default Foundry project per instance. |
+| <a name="output_key_vault_name"></a> [key\_vault\_name](#output\_key\_vault\_name) | Key Vault name. |
+| <a name="output_key_vault_uri"></a> [key\_vault\_uri](#output\_key\_vault\_uri) | Key Vault URI. |
+| <a name="output_log_analytics_workspace_id"></a> [log\_analytics\_workspace\_id](#output\_log\_analytics\_workspace\_id) | Log Analytics workspace resource ID. |
+| <a name="output_logic_app_hosting"></a> [logic\_app\_hosting](#output\_logic\_app\_hosting) | Usage ingestion hosting details. |
+| <a name="output_logic_app_name"></a> [logic\_app\_name](#output\_logic\_app\_name) | Usage ingestion Logic App. |
+| <a name="output_resource_group_name"></a> [resource\_group\_name](#output\_resource\_group\_name) | Workload resource group. |
+| <a name="output_usage_identity_client_id"></a> [usage\_identity\_client\_id](#output\_usage\_identity\_client\_id) | Client ID of the usage-pipeline user-assigned identity. |
+<!-- END_TF_DOCS -->

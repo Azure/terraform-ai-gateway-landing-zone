@@ -1,46 +1,34 @@
-variable "resource_group_name" {
-  description = "Resource group for the private DNS zones and VNet links."
+variable "resource_group_id" {
+  description = "Resource group for the private DNS zones."
   type        = string
+}
+
+variable "zone_names" {
+  description = "Logical key => private DNS zone name (modules/naming private_dns_zones)."
+  type        = map(string)
+}
+
+variable "vnet_id" {
+  description = "Resource ID of the VNet the zones are linked to."
+  type        = string
+}
+
+variable "extra_vnet_link_ids" {
+  description = "Additional VNets to link every zone to (name => VNet resource ID), e.g. a runner or jump-box VNet."
+  type        = map(string)
+  default     = {}
+}
+
+variable "link_monitor_zone" {
+  description = "Link privatelink.monitor.azure.com to the VNets. Only true when AMPLS is deployed: an empty linked monitor zone blackholes App Insights ingestion DNS."
+  type        = bool
+  default     = false
 }
 
 variable "tags" {
   description = "Tags applied to the private DNS zones."
   type        = map(string)
   default     = {}
-}
-
-variable "vnet_id" {
-  description = "Resource ID of the VNet the created zones are linked to."
-  type        = string
-}
-
-variable "create_zones" {
-  description = "Create the private DNS zones and link them to the VNet. false = use existing_zone_ids only."
-  type        = bool
-  default     = true
-}
-
-variable "link_monitor_zone" {
-  description = "Link privatelink.monitor.azure.com to the VNet. Only true when AMPLS is deployed: an empty linked monitor zone blackholes App Insights ingestion DNS."
-  type        = bool
-  default     = false
-}
-
-variable "existing_zone_ids" {
-  description = "Existing zone key => private DNS zone resource ID. Accepts snake_case keys and the Bicep camelCase keys (keyVault, cosmosDb, ...). Overrides a created zone with the same key."
-  type        = map(string)
-  default     = {}
-}
-
-variable "required_zone_keys" {
-  description = "Zone keys the caller dereferences (e.g. key_vault, cosmos_db). Planning fails with a clear message when one is neither created nor supplied in existing_zone_ids."
-  type        = list(string)
-  default     = []
-}
-
-variable "subscription_id" {
-  description = "Subscription of the resource group (AVM modules take the resource group ID)."
-  type        = string
 }
 
 variable "enable_telemetry" {

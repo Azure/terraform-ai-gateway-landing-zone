@@ -1,0 +1,83 @@
+# main: apply the changed stacks (in dependency order) and contracts,
+# dev -> test -> prod. The GitHub environments add approvals (test, prod).
+name: apply
+
+on:
+  push:
+    branches: [main]
+    paths: ["stacks/**", "modules/**", "environments/**", "logicapp-src/**"]
+  workflow_dispatch:
+    inputs:
+      env:
+        description: Environment (all stacks are applied)
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+concurrency:
+  group: apply
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      dev: ${{ steps.m.outputs.dev }}
+      test: ${{ steps.m.outputs.test }}
+      prod: ${{ steps.m.outputs.prod }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: m
+        run: |
+          set -euo pipefail
+          all='{"stacks":["identity","network","app-hosting","platform","gateway-config","llm-backend-onboarding"],"contracts":["*"]}'
+          for env in dev test prod; do
+            [[ -f "environments/$env/backend.hcl" ]] || { echo "$env={}" >> "$GITHUB_OUTPUT"; continue; }
+            if [[ "${{ github.event_name }}" == workflow_dispatch ]]; then
+              [[ "${{ inputs.env }}" == "$env" ]] && j="$all" || j='{"stacks":[],"contracts":[]}'
+            else
+              j=$(scripts/ci/changed-stacks.sh "${{ github.event.before }}" "$env")
+            fi
+            if [[ $(jq -r '.contracts[0] // ""' <<<"$j") == "*" ]]; then
+              j=$(jq -c --arg c "$(ls environments/$env/access-contracts/*.tfvars 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/.tfvars$//' | tr '\n' ' ')" '.contracts = ($c | split(" ") | map(select(. != "")))' <<<"$j")
+            fi
+            echo "$env=$(jq -c '{stacks: (.stacks | join(" ")), contracts: (.contracts | join(" "))}' <<<"$j")" >> "$GITHUB_OUTPUT"
+          done
+
+  dev:
+    needs: detect
+    if: fromJSON(needs.detect.outputs.dev).stacks != '' || fromJSON(needs.detect.outputs.dev).contracts != ''
+    uses: ./.github/workflows/_stack.yml
+    with:
+      env: dev
+      command: apply
+      stacks: ${{ fromJSON(needs.detect.outputs.dev).stacks }}
+      contracts: ${{ fromJSON(needs.detect.outputs.dev).contracts }}
+      runner: ${{ vars.RUNNER_dev || '"ubuntu-latest"' }}
+
+  test:
+    needs: [detect, dev]
+    if: always() && !failure() && !cancelled() && (fromJSON(needs.detect.outputs.test).stacks != '' || fromJSON(needs.detect.outputs.test).contracts != '')
+    uses: ./.github/workflows/_stack.yml
+    with:
+      env: test
+      command: apply
+      stacks: ${{ fromJSON(needs.detect.outputs.test).stacks }}
+      contracts: ${{ fromJSON(needs.detect.outputs.test).contracts }}
+      runner: ${{ vars.RUNNER_test || '"ubuntu-latest"' }}
+
+  prod:
+    needs: [detect, test]
+    if: always() && !failure() && !cancelled() && (fromJSON(needs.detect.outputs.prod).stacks != '' || fromJSON(needs.detect.outputs.prod).contracts != '')
+    uses: ./.github/workflows/_stack.yml
+    with:
+      env: prod
+      command: apply
+      stacks: ${{ fromJSON(needs.detect.outputs.prod).stacks }}
+      contracts: ${{ fromJSON(needs.detect.outputs.prod).contracts }}
+      runner: ${{ vars.RUNNER_prod || '"ubuntu-latest"' }}

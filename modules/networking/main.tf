@@ -75,6 +75,9 @@ locals {
         delegations       = null
         rules             = {}
       }
+    },
+    # Workflow Standard hosting only (regional VNet integration).
+    var.enable_logic_app_subnet ? {
       logic_app = {
         name              = var.logic_app_subnet_name
         prefix            = var.logic_app_subnet_prefix
@@ -82,7 +85,7 @@ locals {
         delegations       = local.web_delegation
         rules             = {}
       }
-    },
+    } : {},
     var.enable_agent_subnet ? {
       agent = {
         name              = var.agent_subnet_name
@@ -99,6 +102,19 @@ locals {
         prefix            = var.ase_subnet_prefix
         service_endpoints = null
         delegations       = [{ name = "Microsoft.Web.hostingEnvironments", service_delegation = { name = "Microsoft.Web/hostingEnvironments" } }]
+        rules             = {}
+      }
+    } : {},
+    # CI runners that need the private data planes (state, Key Vault, the
+    # workflow package). GitHub-hosted runners with Azure private networking
+    # need the subnet delegated to GitHub.Network/networkSettings; a
+    # self-hosted runner VM needs it undelegated.
+    var.enable_cicd_subnet ? {
+      cicd = {
+        name              = var.cicd_subnet_name
+        prefix            = var.cicd_subnet_prefix
+        service_endpoints = null
+        delegations       = var.cicd_subnet_delegation == "github" ? [{ name = "github-network", service_delegation = { name = "GitHub.Network/networkSettings" } }] : null
         rules             = {}
       }
     } : {},

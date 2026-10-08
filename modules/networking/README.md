@@ -53,10 +53,15 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
 | <a name="input_vnet_address_prefix"></a> [vnet\_address\_prefix](#input\_vnet\_address\_prefix) | Address prefix for new VNet | `string` | n/a | yes |
 | <a name="input_vnet_name"></a> [vnet\_name](#input\_vnet\_name) | Name of the virtual network to create. | `string` | n/a | yes |
-| <a name="input_ase_subnet_name"></a> [ase\_subnet\_name](#input\_ase\_subnet\_name) | Subnet for the App Service Environment v3 (only used when logic\_app\_hosting\_model = "AppServiceEnvironmentV3"). Must be empty and delegated to Microsoft.Web/hostingEnvironments when using an existing VNet. | `string` | `"snet-citadel-ase"` | no |
+| <a name="input_ase_subnet_name"></a> [ase\_subnet\_name](#input\_ase\_subnet\_name) | Subnet for the App Service Environment v3 (only used when logic\_app\_hosting\_model = "AppServiceEnvironmentV3"). Must be empty and delegated to Microsoft.Web/hostingEnvironments when using an existing VNet. | `string` | `"snet-ase"` | no |
 | <a name="input_ase_subnet_prefix"></a> [ase\_subnet\_prefix](#input\_ase\_subnet\_prefix) | Address prefix for the ASE v3 subnet (new VNet only). Minimum /27; Microsoft recommends /24 for production scale. If this range is not inside vnet\_address\_prefix it is added to the VNet as an extra address space. | `string` | `"10.170.1.0/24"` | no |
+| <a name="input_cicd_subnet_delegation"></a> [cicd\_subnet\_delegation](#input\_cicd\_subnet\_delegation) | github = delegate to GitHub.Network/networkSettings (GitHub-hosted runners with Azure private networking); none = no delegation (self-hosted runner VM). | `string` | `"github"` | no |
+| <a name="input_cicd_subnet_name"></a> [cicd\_subnet\_name](#input\_cicd\_subnet\_name) | Name of the CI runner subnet. | `string` | `"snet-cicd"` | no |
+| <a name="input_cicd_subnet_prefix"></a> [cicd\_subnet\_prefix](#input\_cicd\_subnet\_prefix) | Address prefix of the CI runner subnet (/27 or larger). | `string` | `null` | no |
 | <a name="input_default_outbound_access_enabled"></a> [default\_outbound\_access\_enabled](#input\_default\_outbound\_access\_enabled) | Default outbound internet access on the subnets. false (private subnets) needs another egress path: a NAT gateway or a UDR to a hub firewall. | `bool` | `true` | no |
 | <a name="input_enable_ase_subnet"></a> [enable\_ase\_subnet](#input\_enable\_ase\_subnet) | Create the dedicated /24 subnet for App Service Environment v3 (Logic App ASE hosting). | `bool` | `false` | no |
+| <a name="input_enable_cicd_subnet"></a> [enable\_cicd\_subnet](#input\_enable\_cicd\_subnet) | Create the CI runner subnet (private runners reach the private endpoints from it). | `bool` | `false` | no |
+| <a name="input_enable_logic_app_subnet"></a> [enable\_logic\_app\_subnet](#input\_enable\_logic\_app\_subnet) | Create the Logic App subnet (Workflow Standard hosting: regional VNet integration, delegated to Microsoft.Web/serverFarms). | `bool` | `true` | no |
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_existing_vnet_id"></a> [existing\_vnet\_id](#input\_existing\_vnet\_id) | alz\_spoke: resource ID of the platform-vended spoke VNet the subnets are created in. null = create the VNet (greenfield). | `string` | `null` | no |
 | <a name="input_hub_firewall_ip"></a> [hub\_firewall\_ip](#input\_hub\_firewall\_ip) | alz\_spoke: private IP of the hub firewall; every subnet routes 0.0.0.0/0 to it. | `string` | `null` | no |
@@ -69,9 +74,11 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="output_agent_subnet_name"></a> [agent\_subnet\_name](#output\_agent\_subnet\_name) | Name of the Foundry agent subnet (empty when disabled). |
 | <a name="output_apim_subnet_id"></a> [apim\_subnet\_id](#output\_apim\_subnet\_id) | Resource ID of the APIM subnet (empty when apim\_vnet\_mode = none). |
 | <a name="output_ase_subnet_id"></a> [ase\_subnet\_id](#output\_ase\_subnet\_id) | Resource ID of the ASE v3 subnet (empty when disabled). |
-| <a name="output_logic_app_subnet_id"></a> [logic\_app\_subnet\_id](#output\_logic\_app\_subnet\_id) | Resource ID of the Logic App integration subnet. |
+| <a name="output_cicd_subnet_id"></a> [cicd\_subnet\_id](#output\_cicd\_subnet\_id) | Resource ID of the CI runner subnet (empty when disabled). |
+| <a name="output_logic_app_subnet_id"></a> [logic\_app\_subnet\_id](#output\_logic\_app\_subnet\_id) | Resource ID of the Logic App integration subnet (empty when disabled). |
 | <a name="output_pe_subnet_id"></a> [pe\_subnet\_id](#output\_pe\_subnet\_id) | Resource ID of the private-endpoint subnet. |
 | <a name="output_spoke_routes"></a> [spoke\_routes](#output\_spoke\_routes) | alz\_spoke: subnet key => next hop of its 0.0.0.0/0 route (empty for greenfield). |
+| <a name="output_subnet_ids"></a> [subnet\_ids](#output\_subnet\_ids) | Subnet key (apim, pe, logic\_app, agent, ase, cicd) => resource ID, for the subnets created. |
 | <a name="output_subnet_nsg_names"></a> [subnet\_nsg\_names](#output\_subnet\_nsg\_names) | Subnet key => name of its network security group (every subnet has one). |
 | <a name="output_vnet_id"></a> [vnet\_id](#output\_vnet\_id) | Resource ID of the virtual network. |
 <!-- END_TF_DOCS -->

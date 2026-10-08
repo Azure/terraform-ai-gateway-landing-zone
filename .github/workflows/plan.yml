@@ -1,0 +1,48 @@
+# PR: plan the stacks and contracts the change touches, per environment, with
+# the read-only plan identity. Deletes of protected resource types fail the plan.
+name: plan
+
+on:
+  pull_request:
+    paths: ["stacks/**", "modules/**", "environments/**", "logicapp-src/**"]
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: m
+        run: |
+          set -euo pipefail
+          entries=()
+          for d in environments/*/; do
+            env=$(basename "$d"); [[ -f "$d/backend.hcl" ]] || continue
+            j=$(scripts/ci/changed-stacks.sh "origin/${{ github.base_ref }}" "$env")
+            stacks=$(jq -r '.stacks | join(" ")' <<<"$j"); contracts=$(jq -r '.contracts | join(" ")' <<<"$j")
+            [[ -z "$stacks$contracts" ]] && continue
+            entries+=("$(jq -nc --arg env "$env" --arg s "$stacks" --arg c "$contracts" '{env:$env,stacks:$s,contracts:$c}')")
+          done
+          echo "matrix=$(printf '%s\n' "${entries[@]+"${entries[@]}"}" | jq -sc '{include: .}')" >> "$GITHUB_OUTPUT"
+
+  plan:
+    needs: detect
+    if: fromJSON(needs.detect.outputs.matrix).include[0] != null
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    uses: ./.github/workflows/_stack.yml
+    with:
+      env: ${{ matrix.env }}
+      command: plan
+      stacks: ${{ matrix.stacks }}
+      contracts: ${{ matrix.contracts }}
+      runner: ${{ vars[format('RUNNER_{0}', matrix.env)] || '"ubuntu-latest"' }}

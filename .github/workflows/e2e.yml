@@ -1,0 +1,67 @@
+# Weekly / on demand: deploy examples/quickstart into a sandbox subscription,
+# run the smoke tests, tear it down. GitHub environment "e2e" holds
+# AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID of an identity with
+# Owner on the sandbox subscription (it runs bootstrap too).
+name: e2e
+
+on:
+  schedule:
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: e2e
+  cancel-in-progress: false
+
+jobs:
+  quickstart:
+    runs-on: ubuntu-latest
+    environment: e2e
+    timeout-minutes: 240
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_USE_AZUREAD: "true"
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ENV: e2e
+    steps:
+      - uses: actions/checkout@v7
+      - id: tfver
+        run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ steps.tfver.outputs.version }}
+          terraform_wrapper: false
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ github.token }}
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: environment from examples/quickstart
+        run: |
+          mkdir -p environments/e2e
+          cp -r examples/quickstart/. environments/e2e/
+          sed -i "s/<workload-subscription-id>/${ARM_SUBSCRIPTION_ID}/; s/^environment *=.*/environment = \"e2e\"/" environments/e2e/common.tfvars
+          sed -i "s#^github *=.*#github = null#" environments/e2e/bootstrap.tfvars
+          runner_ip=$(curl -s https://api.ipify.org)
+          runner_oid=$(az ad sp show --id "$ARM_CLIENT_ID" --query id -o tsv)
+          sed -i "s#<your-public-ip>#${runner_ip}#; s#<your-object-id>#${runner_oid}#" environments/e2e/platform.tfvars
+
+      - run: task bootstrap ENV=e2e -- -auto-approve
+      - run: task up ENV=e2e
+      - run: task validate ENV=e2e
+      - name: teardown
+        if: always()
+        run: |
+          task --yes down ENV=e2e || true
+          az group delete --yes --no-wait -n "$(terraform -chdir=stacks/bootstrap output -raw state_resource_group_name)" || true

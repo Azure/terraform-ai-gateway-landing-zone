@@ -1,0 +1,127 @@
+# =============================================================================
+# Reusable: run Task against the stacks of one environment.
+#   command  plan   read-only (GitHub environment <env>-plan, plan identity, -lock=false)
+#            apply  plan + apply (GitHub environment <env>, apply identity, approvals in prod)
+#            drift  plan -detailed-exitcode, opens an issue when a stack drifted
+#   stacks   space-separated, applied in the order given (callers pass dependency order)
+#   contracts space-separated use-case names (environments/<env>/access-contracts/<name>.tfvars)
+#
+# GitHub environment variables (set from `task bootstrap` output):
+#   AZURE_CLIENT_ID (plan or apply identity), AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
+# Repository variable RUNNER_<ENV> (JSON) picks a runner that reaches the private
+# data planes (state account, Key Vault, workflow package), e.g.
+#   ["self-hosted","aigw-dev"]  or  "aigw-dev-private" (GitHub-hosted, Azure private networking)
+# =============================================================================
+name: _stack
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        type: string
+        required: true
+      command:
+        type: string
+        required: true
+      stacks:
+        type: string
+        default: ""
+      contracts:
+        type: string
+        default: ""
+      runner:
+        type: string
+        default: '"ubuntu-latest"'
+      timeout-minutes:
+        type: number
+        default: 480 # an ASE v3 create (app-hosting) takes 2-4 h
+
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
+jobs:
+  run:
+    name: ${{ inputs.command }} ${{ inputs.env }}
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    environment: ${{ inputs.command == 'apply' && inputs.env || format('{0}-plan', inputs.env) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    concurrency:
+      group: tf-${{ inputs.env }}-${{ inputs.command == 'apply' && 'apply' || github.run_id }}
+      cancel-in-progress: false
+    env:
+      ARM_USE_OIDC: "true"
+      ARM_USE_AZUREAD: "true"
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TF_INPUT: "false"
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: tfver
+        run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ steps.tfver.outputs.version }}
+          terraform_wrapper: false
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ github.token }}
+
+      # az CLI (OIDC) for the steps that shell out (workflow package / zip deploy).
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: stacks
+        if: inputs.stacks != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          drifted=()
+          for s in ${{ inputs.stacks }}; do
+            [[ -f "environments/${{ inputs.env }}/$s.tfvars" ]] || { echo "skip $s (no $s.tfvars)"; continue; }
+            echo "::group::${{ inputs.command }} $s"
+            case "${{ inputs.command }}" in
+              apply) task apply STACK="$s" ENV="${{ inputs.env }}" ;;
+              plan)  task plan  STACK="$s" ENV="${{ inputs.env }}" LOCK=-lock=false
+                     scripts/ci/plan-summary.sh "stacks/$s" "$s" >> "$GITHUB_STEP_SUMMARY" ;;
+              drift) rc=0; task -x plan STACK="$s" ENV="${{ inputs.env }}" LOCK=-lock=false PLAN_ARGS=-detailed-exitcode || rc=$?
+                     [[ $rc -eq 2 ]] && drifted+=("$s")
+                     [[ $rc -eq 1 ]] && exit 1 ;;
+            esac
+            echo "::endgroup::"
+          done
+          if [[ ${#drifted[@]} -gt 0 ]]; then echo "DRIFTED=${drifted[*]}" >> "$GITHUB_ENV"; fi
+
+      - name: contracts
+        if: inputs.contracts != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          for c in ${{ inputs.contracts }}; do
+            f="environments/${{ inputs.env }}/access-contracts/$c.tfvars"
+            [[ -f "$f" ]] || { echo "skip $c (no $f)"; continue; }
+            echo "::group::${{ inputs.command }} contract $c"
+            if [[ "${{ inputs.command }}" == apply ]]; then
+              task contract ENV="${{ inputs.env }}" USE_CASE="$c"
+            else
+              task plan STACK=access-contracts ENV="${{ inputs.env }}" STATE_KEY="$c.tfstate" VAR_FILE="$PWD/$f" LOCK=-lock=false
+              scripts/ci/plan-summary.sh stacks/access-contracts "contract $c" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: open drift issue
+        if: inputs.command == 'drift' && env.DRIFTED != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --title "Drift in ${{ inputs.env }}: ${DRIFTED}" \
+            --body "Nightly plan found changes in: ${DRIFTED}. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. See docs/operations/handle-drift.md." \
+            --label drift || true

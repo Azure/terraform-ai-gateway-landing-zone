@@ -2,7 +2,7 @@
 # =============================================================================
 # AI Citadel Governance Hub — Validate Script
 # Runs post-deployment smoke tests against the live deployment.
-# Usage: ./scripts/validate.sh [dev|prod]
+# Usage: ./scripts/validate.sh <env>   (or: task validate ENV=<env>; reads stacks/platform outputs)
 # =============================================================================
 
 set -euo pipefail
@@ -32,8 +32,8 @@ cd "$ROOT_DIR"
 # --- Wrap az to never block on stdin (extension prompts, etc.) ---
 az() { command az "$@" </dev/null; }
 
-# --- Pin subscription from tfvars so RG/KV lookups don't hit the wrong sub ---
-TFVARS="environments/${ENVIRONMENT}.tfvars"
+# --- Pin subscription from common.tfvars so RG/KV lookups don't hit the wrong sub ---
+TFVARS="environments/${ENVIRONMENT}/common.tfvars"
 if [[ -f "$TFVARS" ]]; then
   TFVAR_SUB=$(grep -E '^[[:space:]]*subscription_id[[:space:]]*=' "$TFVARS" \
               | head -n1 | sed -E 's/.*=[[:space:]]*"([^"]+)".*/\1/')
@@ -64,10 +64,10 @@ az_retry() {
 
 # --- Get Terraform outputs ---
 info "Reading Terraform outputs..."
-APIM_URL=$(terraform output -raw apim_gateway_url 2>/dev/null)         || { warn "Could not read apim_gateway_url output"; APIM_URL=""; }
-RG_NAME=$(terraform output -raw resource_group_name 2>/dev/null)       || RG_NAME=""
-APIM_NAME=$(terraform output -raw apim_name 2>/dev/null)               || APIM_NAME=""
-COSMOS_ENDPOINT=$(terraform output -raw cosmos_db_endpoint 2>/dev/null) || COSMOS_ENDPOINT=""
+APIM_URL=$(terraform -chdir=stacks/platform output -raw apim_gateway_url 2>/dev/null)         || { warn "Could not read apim_gateway_url output"; APIM_URL=""; }
+RG_NAME=$(terraform -chdir=stacks/platform output -raw resource_group_name 2>/dev/null)       || RG_NAME=""
+APIM_NAME=$(terraform -chdir=stacks/platform output -raw apim_name 2>/dev/null)               || APIM_NAME=""
+COSMOS_ENDPOINT=$(terraform -chdir=stacks/platform output -raw cosmos_db_endpoint 2>/dev/null) || COSMOS_ENDPOINT=""
 
 echo ""
 info "Outputs detected:"

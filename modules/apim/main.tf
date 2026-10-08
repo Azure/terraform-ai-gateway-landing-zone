@@ -1,7 +1,7 @@
 # =============================================================================
-# MODULE: API Management
-# Unified AI Gateway — core of the Citadel Governance Hub
-# Mirrors bicep/infra/modules/apim.bicep
+# MODULE: API Management service (platform stack)
+# The service, its network model, private endpoint, internal DNS and the
+# external (Redis) cache. Mirrors bicep/infra/modules/apim.bicep.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -34,8 +34,9 @@ locals {
   use_private_endpoint = local.is_apim_v2 && var.apim_v2_use_private_endpoint && contains(["none", "integration"], var.vnet_mode)
 }
 
-# APIM service (Azure Verified Module). Child objects (APIs, products, named
-# values, loggers, policies) stay in this module and the gateway modules.
+# APIM service (Azure Verified Module). Child objects belong to other stacks
+# (review 7.8): named values, fragments, backends and APIs to gateway-config
+# and llm-backend-onboarding, products and subscriptions to access-contracts.
 module "service" {
   source  = "Azure/avm-res-apimanagement-service/azurerm"
   version = "0.9.0"
@@ -146,125 +147,6 @@ data "azapi_resource" "service_state" {
 
 locals {
   apim_exists = data.azapi_resource.service_state.exists
-}
-
-# -----------------------------------------------------------------------------
-# PRIVATE ENDPOINT (for APIM V2 SKUs)
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# APIM public network access — set AFTER activation.
-# Azure rejects CreateOrUpdate with publicNetworkAccess=Disabled on initial
-# activation (error: ActivateServiceWithPrivateEndpointAccessNotAllowed).
-# This azapi PATCH runs once the service is active and applies the desired
-# setting (V2 SKUs only; classic SKUs always keep public access enabled).
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# NAMED VALUES (configuration pushed into APIM policies)
-# -----------------------------------------------------------------------------
-
-resource "azurerm_api_management_named_value" "uami_client_id" {
-  name                = "uami-client-id"
-  display_name        = "uami-client-id"
-  api_management_name = local.apim.name
-  resource_group_name = var.resource_group_name
-  value               = var.managed_identity_client_id
-  secret              = false
-}
-
-resource "azurerm_api_management_named_value" "pii_service_url" {
-  count               = var.enable_pii_redaction ? 1 : 0
-  name                = "piiServiceUrl"
-  display_name        = "piiServiceUrl"
-  api_management_name = local.apim.name
-  resource_group_name = var.resource_group_name
-  value               = var.pii_service_endpoint
-  secret              = false
-}
-
-resource "azurerm_api_management_named_value" "content_safety_url" {
-  count               = var.enable_content_safety ? 1 : 0
-  name                = "contentSafetyServiceUrl"
-  display_name        = "contentSafetyServiceUrl"
-  api_management_name = local.apim.name
-  resource_group_name = var.resource_group_name
-  value               = var.content_safety_endpoint
-  secret              = false
-}
-
-# NOTE: APIM validates <validate-jwt> <openid-config url="..."/> at fragment
-# create time even when wrapped in <choose><when>. The URL must resolve to a
-# reachable OIDC metadata document, so when Entra auth is disabled we fall
-# back to the Microsoft 'common' tenant (always reachable). Runtime gate is
-# still enforced by the `entra-auth` flag in frag-aad-auth.xml.
-
-resource "azurerm_api_management_named_value" "entra_tenant_id" {
-  name                = "tenant-id"
-  display_name        = "tenant-id"
-  api_management_name = local.apim.name
-  resource_group_name = var.resource_group_name
-  value               = var.entra_auth_enabled && var.entra_tenant_id != "" ? var.entra_tenant_id : "common"
-  secret              = false
-}
-
-resource "azurerm_api_management_named_value" "entra_client_id" {
-  name                = "client-id"
-  display_name        = "client-id"
-  api_management_name = local.apim.name
-  resource_group_name = var.resource_group_name
-  value               = var.entra_auth_enabled && var.entra_client_id != "" ? var.entra_client_id : "00000000-0000-0000-0000-000000000000"
-  secret              = false
-}
-
-resource "azurerm_api_management_named_value" "entra_audience" {
-  name                = "audience"
-  display_name        = "audience"
-  api_management_name = local.apim.name
-  resource_group_name = var.resource_group_name
-  value               = var.entra_auth_enabled && var.entra_audience != "" ? var.entra_audience : "api://disabled"
-  secret              = false
-}
-
-resource "azurerm_api_management_named_value" "entra_auth_flag" {
-  name                = "entra-auth"
-  display_name        = "entra-auth"
-  api_management_name = local.apim.name
-  resource_group_name = var.resource_group_name
-  value               = tostring(var.entra_auth_enabled)
-  secret              = false
-}
-
-# APIs (Universal LLM, Azure OpenAI, Unified AI, service APIs, MCP servers) are
-# published by modules/gateway-api from the root apis.tf.
-
-# -----------------------------------------------------------------------------
-# PRODUCTS (use-case access contracts)
-# -----------------------------------------------------------------------------
-
-resource "azurerm_api_management_product" "default_contract" {
-  product_id            = "default-ai-access"
-  display_name          = "Default AI Access Contract"
-  description           = "Default governed access to all LLM backends"
-  api_management_name   = local.apim.name
-  resource_group_name   = var.resource_group_name
-  subscription_required = true
-  approval_required     = false
-  published             = true
-}
-
-resource "azurerm_api_management_product_api" "universal_llm_default" {
-  api_name            = var.default_product_api_names.universal_llm
-  product_id          = azurerm_api_management_product.default_contract.product_id
-  api_management_name = local.apim.name
-  resource_group_name = var.resource_group_name
-}
-
-resource "azurerm_api_management_product_api" "openai_default" {
-  api_name            = var.default_product_api_names.azure_openai
-  product_id          = azurerm_api_management_product.default_contract.product_id
-  api_management_name = local.apim.name
-  resource_group_name = var.resource_group_name
 }
 
 # -----------------------------------------------------------------------------

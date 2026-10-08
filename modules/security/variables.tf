@@ -77,19 +77,6 @@ variable "foundry_principal_count" {
   default     = 0
 }
 
-variable "create_apim_gateway_key_secret" {
-  description = <<-EOT
-    Create a placeholder `apim-gateway-key` secret in Key Vault. Disabled by
-    default — nothing in the Terraform stack consumes it programmatically
-    (only notebook samples reference it, and they fetch the key out-of-band
-    via `az apim`). Creating it requires KV data-plane write access from the
-    deployer IP and commonly trips the KV firewall on locked-down
-    environments. Set to `true` only if you have downstream tooling that
-    reads `apim-gateway-key` from KV directly.
-  EOT
-  type        = bool
-  default     = false
-}
 
 variable "dns_zone_group_managed_by_policy" {
   description = "Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone."
@@ -101,4 +88,16 @@ variable "enable_telemetry" {
   description = "Enable Azure Verified Modules usage telemetry."
   type        = bool
   default     = true
+}
+
+variable "secret_writer_principal_ids" {
+  description = "Principals that write secrets (Key Vault Secrets Officer), e.g. the apply pipeline identity (access contracts)."
+  type        = map(string)
+  default     = {}
+}
+
+variable "secret_reader_principal_ids" {
+  description = "Principals that read secrets (Key Vault Secrets User), e.g. the plan pipeline identity."
+  type        = map(string)
+  default     = {}
 }
