@@ -4,7 +4,7 @@ output "names" {
 }
 
 output "resource_token" {
-  description = "Deterministic 10-character token used in v1 names."
+  description = "Deterministic 10-character token used in globally unique names."
   value       = local.resource_token
 }
 
@@ -13,7 +13,3 @@ output "foundry_account_names" {
   value       = local.foundry_account_names
 }
 
-output "convention" {
-  description = "Naming convention used to produce the names."
-  value       = var.convention
-}

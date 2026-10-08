@@ -82,17 +82,3 @@ module "zone" {
   } : {}
 }
 
-# v1 -> AVM (WP-2.6): imported by the root (adopt.tf).
-removed {
-  from = azurerm_private_dns_zone.zones
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_private_dns_zone_virtual_network_link.links
-  lifecycle {
-    destroy = false
-  }
-}

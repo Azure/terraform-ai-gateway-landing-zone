@@ -195,11 +195,17 @@ Add one or more flags to enable add-ons. Re-run whenever you want to layer one o
 |---|---|
 | `--with-entra` | Creates Entra app registration + SP + secret, enables JWT auth |
 | `--with-foundry-conn` | Creates Foundry → APIM connection + dedicated subscription |
-| `--with-access-contracts` | Creates per-use-case APIM products/policies (requires `access_contracts` in tfvars) |
-| `--with-mcp-samples` | Adds Weather API + Weather MCP + MS Learn MCP |
-| `--with-apic-onboarding` | Registers APIs in API Center |
 | `--with-jwt` | Enable JWT auth with existing app reg (set `jwt_tenant_id` + `jwt_app_registration_id`) |
 | `--all-addons` | Shortcut for all of the above |
+
+The MCP samples (Weather API + Weather MCP + MS Learn MCP) and API Center
+onboarding are not flags: set `features.mcp_sample = true` and
+`features.api_center_onboarding = true` in the tfvars. Per-use-case access
+contracts are applied separately from [citadel-access-contracts/](citadel-access-contracts/README.md).
+
+`--phased` runs phase 1 with `-var=rollout_phase=core` (every add-on forced off),
+then phase 2 with the selected add-ons. Resource names are known at plan time, so
+a single apply works too.
 
 Examples:
 

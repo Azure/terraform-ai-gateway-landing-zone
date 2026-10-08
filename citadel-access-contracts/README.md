@@ -611,7 +611,7 @@ The Terraform provider is pinned to `apim.subscription_id`. Key Vault and Foundr
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/deploy.sh` / `scripts/deploy.ps1` | Init, plan, and apply. Pre-existing products, policies, subscriptions and API links are adopted by the `import {}` blocks in `imports.tf`. |
+| `scripts/deploy.sh` / `scripts/deploy.ps1` | Init, plan, and apply. |
 | `scripts/test.sh` / `scripts/test.ps1` | Smoke-test the onboarded services through the APIM gateway. |
 
 ### Deploy script options
@@ -658,7 +658,6 @@ PowerShell (`test.ps1`):
 
 ```
 citadel-access-contracts/
-├── imports.tf                 # import {} blocks that adopt existing products, policies, subscriptions, API links
 ├── main.tf                    # Products, product-APIs, policies, subscriptions, KV secrets, Foundry connection
 ├── variables.tf               # Input variables
 ├── outputs.tf                 # Output values

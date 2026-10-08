@@ -57,21 +57,6 @@ resource "azapi_resource_action" "azure_monitor_logger" {
   }
 }
 
-# The az-CLI local-exec that used to upsert the logger (Phase 1, WP-1.5).
-removed {
-  from = terraform_data.azure_monitor_logger_posix
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = terraform_data.azure_monitor_logger_windows
-  lifecycle {
-    destroy = false
-  }
-}
-
 # -----------------------------------------------------------------------------
 # APIM LOGGER: Event Hub (for usage streaming)
 # -----------------------------------------------------------------------------

@@ -1,10 +1,8 @@
 # =============================================================================
 # Typed inputs (WP-1.3)
 # =============================================================================
-# Grouped, typed replacements for the flat inputs. The defaults that matter live
-# in the optional() attributes below. The old flat variables still work for one
-# release: they default to null, take precedence when set, and raise the
-# "deprecated_flat_inputs" warning (checks.tf) naming the replacement attribute.
+# Grouped, typed inputs. The defaults live in the optional() attributes below;
+# the locals at the end normalise them for the rest of the configuration.
 # =============================================================================
 
 variable "apim" {
@@ -46,7 +44,7 @@ variable "apim" {
     error_message = "apim.vnet_mode isn't supported for this SKU: Developer/Premium take none, external or internal; StandardV2/PremiumV2 take integration."
   }
   validation {
-    condition     = coalesce(var.apim_sku, var.apim.sku) != "Developer" || coalesce(var.apim_sku_units, var.apim.capacity) == 1
+    condition     = var.apim.sku != "Developer" || var.apim.capacity == 1
     error_message = "The Developer SKU can't scale out: apim.capacity must be 1."
   }
 }
@@ -117,8 +115,7 @@ variable "network" {
     error_message = "network.mode must be greenfield, alz_spoke or byo."
   }
   validation {
-    # Also covers the deprecated flat inputs (use_existing_vnet / existing_vnet_rg).
-    condition     = !(var.use_existing_vnet != null ? var.use_existing_vnet : contains(["byo", "alz_spoke"], var.network.mode)) || (coalesce(var.existing_vnet_rg, var.network.resource_group_name, "-") != "-" && coalesce(var.vnet_name, var.network.vnet_name, "-") != "-")
+    condition     = !contains(["byo", "alz_spoke"], var.network.mode) || (coalesce(var.network.resource_group_name, "-") != "-" && coalesce(var.network.vnet_name, "-") != "-")
     error_message = "network.mode = \"byo\" / \"alz_spoke\" needs network.resource_group_name and network.vnet_name (the existing VNet)."
   }
   validation {
@@ -226,201 +223,86 @@ variable "monitoring" {
   nullable = false
 
   validation {
-    # Also covers the deprecated flat inputs (use_existing_log_analytics / existing_log_analytics_id).
-    condition = !(var.use_existing_log_analytics != null ? var.use_existing_log_analytics : var.monitoring.log_analytics_workspace_id != null) || can(regex(
+    condition = var.monitoring.log_analytics_workspace_id == null || can(regex(
       "(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.OperationalInsights/workspaces/[^/]+$",
-      coalesce(var.existing_log_analytics_id, var.monitoring.log_analytics_workspace_id, "-")
+      var.monitoring.log_analytics_workspace_id
     ))
     error_message = "monitoring.log_analytics_workspace_id must be a Log Analytics workspace resource ID (/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<name>)."
   }
 }
 
 # -----------------------------------------------------------------------------
-# Effective configuration: a non-null deprecated flat input wins over the typed
-# attribute. Downstream code reads only these locals.
+# Effective configuration read by the rest of the root module.
 # -----------------------------------------------------------------------------
 
 locals {
-  cfg_apim_sku    = coalesce(var.apim_sku, var.apim.sku)
-  cfg_apim_is_v2  = contains(["StandardV2", "PremiumV2"], local.cfg_apim_sku)
-  cfg_flat_vmodes = { External = "external", Internal = "internal", None = "none" }
-
   apim_cfg = {
-    name            = coalesce(var.apim_service_name, var.apim.name, "-") == "-" ? "" : coalesce(var.apim_service_name, var.apim.name)
-    sku             = local.cfg_apim_sku
-    capacity        = coalesce(var.apim_sku_units, var.apim.capacity)
-    publisher_email = coalesce(var.apim_publisher_email, var.apim.publisher_email)
-    publisher_name  = coalesce(var.apim_publisher_name, var.apim.publisher_name)
-    # v1 ignores the network type on v2 SKUs: they always use outbound integration.
-    vnet_mode = local.cfg_apim_is_v2 ? "integration" : (
-      var.apim_network_type != null ? local.cfg_flat_vmodes[var.apim_network_type] : coalesce(var.apim.vnet_mode, "external")
-    )
-    private_endpoint      = var.apim_v2_use_private_endpoint != null ? var.apim_v2_use_private_endpoint : var.apim.private_endpoint
-    public_network_access = var.apim_v2_public_network_access != null ? var.apim_v2_public_network_access : var.apim.public_network_access
+    name            = coalesce(var.apim.name, "-") == "-" ? "" : var.apim.name
+    sku             = var.apim.sku
+    capacity        = var.apim.capacity
+    publisher_email = var.apim.publisher_email
+    publisher_name  = var.apim.publisher_name
+    # v2 SKUs always use outbound VNet integration; classic SKUs default to external.
+    vnet_mode             = contains(["StandardV2", "PremiumV2"], var.apim.sku) ? "integration" : coalesce(var.apim.vnet_mode, "external")
+    private_endpoint      = var.apim.private_endpoint
+    public_network_access = var.apim.public_network_access
   }
-  # Legacy network-type string still consumed by modules/apim and modules/networking.
+  # Network-type string consumed by modules/apim and modules/networking.
   apim_network_type = lookup({ external = "External", internal = "Internal" }, local.apim_cfg.vnet_mode, "None")
 
-  cfg_subnets = var.network.subnets
   network_cfg = {
-    mode                = var.use_existing_vnet != null ? (var.use_existing_vnet ? "byo" : "greenfield") : var.network.mode
-    byo                 = var.use_existing_vnet != null ? var.use_existing_vnet : var.network.mode == "byo"
-    alz_spoke           = var.use_existing_vnet == null && var.network.mode == "alz_spoke"
+    mode                = var.network.mode
+    byo                 = var.network.mode == "byo"
+    alz_spoke           = var.network.mode == "alz_spoke"
     hub_firewall_ip     = var.network.hub_firewall_ip
-    resource_group_name = coalesce(var.existing_vnet_rg, var.network.resource_group_name, "-") == "-" ? "" : coalesce(var.existing_vnet_rg, var.network.resource_group_name)
-    vnet_name           = coalesce(var.vnet_name, var.network.vnet_name, "-") == "-" ? "" : coalesce(var.vnet_name, var.network.vnet_name)
-    address_space       = coalesce(var.vnet_address_prefix, var.network.address_space)
+    resource_group_name = coalesce(var.network.resource_group_name, "-") == "-" ? "" : var.network.resource_group_name
+    vnet_name           = coalesce(var.network.vnet_name, "-") == "-" ? "" : var.network.vnet_name
+    address_space       = var.network.address_space
     subnets = {
-      apim = {
-        name   = coalesce(var.apim_subnet_name, local.cfg_subnets.apim.name)
-        prefix = coalesce(var.apim_subnet_prefix, local.cfg_subnets.apim.prefix)
-      }
-      private_endpoint = {
-        name   = coalesce(var.private_endpoint_subnet_name, local.cfg_subnets.private_endpoint.name)
-        prefix = coalesce(var.private_endpoint_subnet_prefix, local.cfg_subnets.private_endpoint.prefix)
-      }
-      logic_app = {
-        name   = coalesce(var.logic_app_subnet_name, local.cfg_subnets.logic_app.name)
-        prefix = coalesce(var.logic_app_subnet_prefix, local.cfg_subnets.logic_app.prefix)
-      }
-      agent = {
-        enabled = var.enable_agent_subnet != null ? var.enable_agent_subnet : local.cfg_subnets.agent.enabled
-        name    = coalesce(var.agent_subnet_name, local.cfg_subnets.agent.name)
-        prefix  = coalesce(var.agent_subnet_prefix, local.cfg_subnets.agent.prefix)
-      }
-      ase = {
-        name   = coalesce(var.ase_subnet_name, local.cfg_subnets.ase.name)
-        prefix = coalesce(var.ase_subnet_prefix, local.cfg_subnets.ase.prefix)
-      }
+      apim             = var.network.subnets.apim
+      private_endpoint = var.network.subnets.private_endpoint
+      logic_app        = var.network.subnets.logic_app
+      agent            = var.network.subnets.agent
+      ase              = var.network.subnets.ase
     }
-    private_dns_resource_group_name = coalesce(var.dns_zone_rg, var.network.private_dns.resource_group_name, "-") == "-" ? "" : coalesce(var.dns_zone_rg, var.network.private_dns.resource_group_name)
-    private_dns_zone_ids            = var.existing_private_dns_zones != null ? var.existing_private_dns_zones : var.network.private_dns.zone_ids
+    private_dns_resource_group_name = coalesce(var.network.private_dns.resource_group_name, "-") == "-" ? "" : var.network.private_dns.resource_group_name
+    private_dns_zone_ids            = var.network.private_dns.zone_ids
     # alz_spoke without zone IDs: Azure Policy (Deploy-Private-DNS-Zones) creates the zone groups.
-    zone_groups_managed_by_policy = var.network.private_dns.zone_groups_managed_by_policy || (
-      var.use_existing_vnet == null && var.network.mode == "alz_spoke" && length(var.network.private_dns.zone_ids) == 0
-    )
-    default_outbound_access = coalesce(var.network.default_outbound_access, !(var.use_existing_vnet == null && var.network.mode == "alz_spoke"))
+    zone_groups_managed_by_policy = var.network.private_dns.zone_groups_managed_by_policy || (var.network.mode == "alz_spoke" && length(var.network.private_dns.zone_ids) == 0)
+    default_outbound_access       = coalesce(var.network.default_outbound_access, var.network.mode != "alz_spoke")
   }
 
-  cfg_flat_features = {
-    api_center            = var.enable_api_center
-    api_center_onboarding = var.enable_api_center_onboarding
-    pii_redaction         = var.enable_pii_redaction
-    pii_anonymization     = var.enable_pii_anonymization
-    content_safety        = var.enable_content_safety
-    semantic_cache        = var.enable_redis_cache
-    unified_ai_api        = var.enable_unified_ai_api
-    openai_realtime       = var.enable_openai_realtime
-    document_intelligence = var.enable_document_intelligence
-    ai_model_inference    = var.enable_ai_model_inference
-    azure_ai_search       = var.enable_azure_ai_search
-    embeddings_backend    = var.enable_embeddings_backend
-    mcp_sample            = var.is_mcp_sample_deployed
-  }
-  features = {
-    for k, v in var.features : k => lookup(local.cfg_flat_features, k, null) != null ? local.cfg_flat_features[k] : v
-  }
+  core_rollout = var.rollout_phase == "core"
 
-  cfg_la_hosting = var.logic_app_hosting_model != null ? (
-    var.logic_app_hosting_model == "AppServiceEnvironmentV3" ? "ase_v3" : "workflow_standard"
-  ) : var.usage_pipeline.logic_app.hosting
-  cfg_la = var.usage_pipeline.logic_app
+  features = merge(var.features, local.core_rollout ? { mcp_sample = false, api_center_onboarding = false } : {})
+
+  # Add-ons that are plain root inputs, forced off in the core rollout phase.
+  enable_entra_id_setup          = var.enable_entra_id_setup && !local.core_rollout
+  enable_foundry_apim_connection = var.enable_foundry_apim_connection && !local.core_rollout
+  enable_jwt_auth                = var.enable_jwt_auth && !local.core_rollout
+
   usage_cfg = {
-    eventhub = {
-      capacity              = coalesce(var.eventhub_capacity_units, var.usage_pipeline.eventhub.capacity)
-      public_network_access = coalesce(var.eventhub_network_access, var.usage_pipeline.eventhub.public_network_access)
-      disaster_recovery     = var.eventhub_disaster_recovery_config != null ? var.eventhub_disaster_recovery_config : var.usage_pipeline.eventhub.disaster_recovery
-    }
-    cosmos = {
-      public_network_access = coalesce(var.cosmos_db_public_access, var.usage_pipeline.cosmos.public_network_access)
-      local_auth_enabled    = var.cosmos_db_local_auth_enabled != null ? var.cosmos_db_local_auth_enabled : var.usage_pipeline.cosmos.local_auth_enabled
-    }
+    eventhub = var.usage_pipeline.eventhub
+    cosmos   = var.usage_pipeline.cosmos
     logic_app = {
-      hosting = local.cfg_la_hosting
-      # Legacy hosting-model string still consumed by modules/logic-app and modules/networking.
-      hosting_model      = local.cfg_la_hosting == "ase_v3" ? "AppServiceEnvironmentV3" : "WorkflowStandard"
-      ws_sku             = coalesce(var.logic_app_sku_size, local.cfg_la_hosting == "workflow_standard" ? local.cfg_la.sku : null, "WS1")
-      ase_sku            = coalesce(var.logic_app_ase_sku_size, local.cfg_la_hosting == "ase_v3" ? local.cfg_la.sku : null, "I1v2")
-      worker_count       = coalesce(var.logic_app_ase_worker_count, local.cfg_la.worker_count)
-      content_share_name = var.logic_content_share_name != null ? var.logic_content_share_name : local.cfg_la.content_share_name
-      code_deploy        = var.enable_logic_app_code_deploy != null ? var.enable_logic_app_code_deploy : local.cfg_la.code_deploy
-      code_source_path   = var.logic_app_code_source_path != null ? var.logic_app_code_source_path : local.cfg_la.code_source_path
+      hosting = var.usage_pipeline.logic_app.hosting
+      # Hosting-model string consumed by modules/logic-app.
+      hosting_model      = var.usage_pipeline.logic_app.hosting == "ase_v3" ? "AppServiceEnvironmentV3" : "WorkflowStandard"
+      ws_sku             = var.usage_pipeline.logic_app.hosting == "workflow_standard" ? coalesce(var.usage_pipeline.logic_app.sku, "WS1") : "WS1"
+      ase_sku            = var.usage_pipeline.logic_app.hosting == "ase_v3" ? coalesce(var.usage_pipeline.logic_app.sku, "I1v2") : "I1v2"
+      worker_count       = var.usage_pipeline.logic_app.worker_count
+      content_share_name = var.usage_pipeline.logic_app.content_share_name
+      code_deploy        = var.usage_pipeline.logic_app.code_deploy && !var.skip_logic_app_code_deploy
+      code_source_path   = var.usage_pipeline.logic_app.code_source_path
     }
-    ase = {
-      internal_load_balancing_mode = coalesce(var.ase_internal_load_balancing_mode, var.usage_pipeline.ase.internal_load_balancing_mode)
-      zone_redundant               = var.ase_zone_redundant != null ? var.ase_zone_redundant : var.usage_pipeline.ase.zone_redundant
-      create_private_dns_zone      = var.ase_create_private_dns_zone != null ? var.ase_create_private_dns_zone : var.usage_pipeline.ase.create_private_dns_zone
-    }
+    ase = var.usage_pipeline.ase
   }
 
-  cfg_la_workspace_id = coalesce(var.existing_log_analytics_id, var.monitoring.log_analytics_workspace_id, "-") == "-" ? "" : coalesce(var.existing_log_analytics_id, var.monitoring.log_analytics_workspace_id)
   monitoring_cfg = {
-    byo_workspace             = var.use_existing_log_analytics != null ? var.use_existing_log_analytics : var.monitoring.log_analytics_workspace_id != null
-    workspace_id              = local.cfg_la_workspace_id
-    workspace_subscription_id = coalesce(var.existing_log_analytics_subscription_id, var.monitoring.log_analytics_subscription_id, "-") == "-" ? "" : coalesce(var.existing_log_analytics_subscription_id, var.monitoring.log_analytics_subscription_id)
-    private_link_scope        = var.use_azure_monitor_private_link_scope != null ? var.use_azure_monitor_private_link_scope : var.monitoring.private_link_scope
-    app_insights_dashboards   = var.create_app_insights_dashboards != null ? var.create_app_insights_dashboards : var.monitoring.app_insights_dashboards
-  }
-
-  # Deprecated flat input => replacement attribute, for the warning in checks.tf.
-  deprecated_flat_inputs = {
-    "apim_service_name -> apim.name"                                                      = var.apim_service_name != null
-    "apim_sku -> apim.sku"                                                                = var.apim_sku != null
-    "apim_sku_units -> apim.capacity"                                                     = var.apim_sku_units != null
-    "apim_publisher_email -> apim.publisher_email"                                        = var.apim_publisher_email != null
-    "apim_publisher_name -> apim.publisher_name"                                          = var.apim_publisher_name != null
-    "apim_network_type -> apim.vnet_mode"                                                 = var.apim_network_type != null
-    "apim_v2_use_private_endpoint -> apim.private_endpoint"                               = var.apim_v2_use_private_endpoint != null
-    "apim_v2_public_network_access -> apim.public_network_access"                         = var.apim_v2_public_network_access != null
-    "use_existing_vnet -> network.mode"                                                   = var.use_existing_vnet != null
-    "existing_vnet_rg -> network.resource_group_name"                                     = var.existing_vnet_rg != null
-    "vnet_name -> network.vnet_name"                                                      = var.vnet_name != null
-    "vnet_address_prefix -> network.address_space"                                        = var.vnet_address_prefix != null
-    "apim_subnet_name -> network.subnets.apim.name"                                       = var.apim_subnet_name != null
-    "apim_subnet_prefix -> network.subnets.apim.prefix"                                   = var.apim_subnet_prefix != null
-    "private_endpoint_subnet_name -> network.subnets.private_endpoint.name"               = var.private_endpoint_subnet_name != null
-    "private_endpoint_subnet_prefix -> network.subnets.private_endpoint.prefix"           = var.private_endpoint_subnet_prefix != null
-    "logic_app_subnet_name -> network.subnets.logic_app.name"                             = var.logic_app_subnet_name != null
-    "logic_app_subnet_prefix -> network.subnets.logic_app.prefix"                         = var.logic_app_subnet_prefix != null
-    "enable_agent_subnet -> network.subnets.agent.enabled"                                = var.enable_agent_subnet != null
-    "agent_subnet_name -> network.subnets.agent.name"                                     = var.agent_subnet_name != null
-    "agent_subnet_prefix -> network.subnets.agent.prefix"                                 = var.agent_subnet_prefix != null
-    "ase_subnet_name -> network.subnets.ase.name"                                         = var.ase_subnet_name != null
-    "ase_subnet_prefix -> network.subnets.ase.prefix"                                     = var.ase_subnet_prefix != null
-    "dns_zone_rg -> network.private_dns.resource_group_name"                              = var.dns_zone_rg != null
-    "existing_private_dns_zones -> network.private_dns.zone_ids"                          = var.existing_private_dns_zones != null
-    "enable_api_center -> features.api_center"                                            = var.enable_api_center != null
-    "enable_api_center_onboarding -> features.api_center_onboarding"                      = var.enable_api_center_onboarding != null
-    "enable_pii_redaction -> features.pii_redaction"                                      = var.enable_pii_redaction != null
-    "enable_pii_anonymization -> features.pii_anonymization"                              = var.enable_pii_anonymization != null
-    "enable_content_safety -> features.content_safety"                                    = var.enable_content_safety != null
-    "enable_redis_cache -> features.semantic_cache"                                       = var.enable_redis_cache != null
-    "enable_unified_ai_api -> features.unified_ai_api"                                    = var.enable_unified_ai_api != null
-    "enable_openai_realtime -> features.openai_realtime"                                  = var.enable_openai_realtime != null
-    "enable_document_intelligence -> features.document_intelligence"                      = var.enable_document_intelligence != null
-    "enable_ai_model_inference -> features.ai_model_inference"                            = var.enable_ai_model_inference != null
-    "enable_azure_ai_search -> features.azure_ai_search"                                  = var.enable_azure_ai_search != null
-    "enable_embeddings_backend -> features.embeddings_backend"                            = var.enable_embeddings_backend != null
-    "is_mcp_sample_deployed -> features.mcp_sample"                                       = var.is_mcp_sample_deployed != null
-    "eventhub_capacity_units -> usage_pipeline.eventhub.capacity"                         = var.eventhub_capacity_units != null
-    "eventhub_network_access -> usage_pipeline.eventhub.public_network_access"            = var.eventhub_network_access != null
-    "eventhub_disaster_recovery_config -> usage_pipeline.eventhub.disaster_recovery"      = var.eventhub_disaster_recovery_config != null
-    "cosmos_db_public_access -> usage_pipeline.cosmos.public_network_access"              = var.cosmos_db_public_access != null
-    "cosmos_db_local_auth_enabled -> usage_pipeline.cosmos.local_auth_enabled"            = var.cosmos_db_local_auth_enabled != null
-    "logic_app_hosting_model -> usage_pipeline.logic_app.hosting"                         = var.logic_app_hosting_model != null
-    "logic_app_sku_size -> usage_pipeline.logic_app.sku"                                  = var.logic_app_sku_size != null
-    "logic_app_ase_sku_size -> usage_pipeline.logic_app.sku"                              = var.logic_app_ase_sku_size != null
-    "logic_app_ase_worker_count -> usage_pipeline.logic_app.worker_count"                 = var.logic_app_ase_worker_count != null
-    "logic_content_share_name -> usage_pipeline.logic_app.content_share_name"             = var.logic_content_share_name != null
-    "enable_logic_app_code_deploy -> usage_pipeline.logic_app.code_deploy"                = var.enable_logic_app_code_deploy != null
-    "logic_app_code_source_path -> usage_pipeline.logic_app.code_source_path"             = var.logic_app_code_source_path != null
-    "ase_internal_load_balancing_mode -> usage_pipeline.ase.internal_load_balancing_mode" = var.ase_internal_load_balancing_mode != null
-    "ase_zone_redundant -> usage_pipeline.ase.zone_redundant"                             = var.ase_zone_redundant != null
-    "ase_create_private_dns_zone -> usage_pipeline.ase.create_private_dns_zone"           = var.ase_create_private_dns_zone != null
-    "use_existing_log_analytics -> monitoring.log_analytics_workspace_id"                 = var.use_existing_log_analytics != null
-    "existing_log_analytics_id -> monitoring.log_analytics_workspace_id"                  = var.existing_log_analytics_id != null
-    "existing_log_analytics_subscription_id -> monitoring.log_analytics_subscription_id"  = var.existing_log_analytics_subscription_id != null
-    "use_azure_monitor_private_link_scope -> monitoring.private_link_scope"               = var.use_azure_monitor_private_link_scope != null
-    "create_app_insights_dashboards -> monitoring.app_insights_dashboards"                = var.create_app_insights_dashboards != null
+    byo_workspace             = var.monitoring.log_analytics_workspace_id != null
+    workspace_id              = coalesce(var.monitoring.log_analytics_workspace_id, "-") == "-" ? "" : var.monitoring.log_analytics_workspace_id
+    workspace_subscription_id = coalesce(var.monitoring.log_analytics_subscription_id, "-") == "-" ? "" : var.monitoring.log_analytics_subscription_id
+    private_link_scope        = var.monitoring.private_link_scope
+    app_insights_dashboards   = var.monitoring.app_insights_dashboards
   }
 }

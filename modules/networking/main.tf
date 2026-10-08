@@ -6,7 +6,7 @@
 #               firewall (hub_firewall_ip).
 # Every subnet gets an NSG (ALZ Deny-Subnet-Without-Nsg). An existing (byo)
 # network is looked up by the root module instead; private DNS lives in
-# modules/private-dns. Existing v1 networks are adopted by the root (adopt.tf).
+# modules/private-dns.
 # =============================================================================
 
 locals {
@@ -104,7 +104,7 @@ module "nsg" {
   tags             = var.tags
   enable_telemetry = var.enable_telemetry
 
-  # No rules on the non-APIM subnets: the default NSG rules keep v1 behaviour.
+  # No custom rules on the non-APIM subnets: the default NSG rules apply.
   security_rules = {
     for name, r in each.value.rules : name => {
       name                       = name
@@ -180,8 +180,6 @@ locals {
       network_security_group          = { id = module.nsg[k].resource_id }
       route_table                     = local.alz_spoke ? { id = azurerm_route_table.spoke[k].id } : (k == "apim" && var.is_apim_vnet ? { id = azurerm_route_table.apim[0].id } : null)
       default_outbound_access_enabled = var.default_outbound_access_enabled
-      # v1 behaviour: NSGs/UDRs don't apply to private endpoints in the subnet.
-      private_endpoint_network_policies = "Disabled"
     }
   }
 }
@@ -191,15 +189,14 @@ module "spoke_subnet" {
   version  = "0.22.2"
   for_each = { for k, sn in local.subnet_config : k => sn if local.alz_spoke }
 
-  parent_id                         = var.existing_vnet_id
-  name                              = each.value.name
-  address_prefixes                  = each.value.address_prefixes
-  service_endpoints                 = each.value.service_endpoints
-  delegations                       = each.value.delegations
-  network_security_group            = each.value.network_security_group
-  route_table                       = each.value.route_table
-  default_outbound_access_enabled   = each.value.default_outbound_access_enabled
-  private_endpoint_network_policies = each.value.private_endpoint_network_policies
+  parent_id                       = var.existing_vnet_id
+  name                            = each.value.name
+  address_prefixes                = each.value.address_prefixes
+  service_endpoints               = each.value.service_endpoints
+  delegations                     = each.value.delegations
+  network_security_group          = each.value.network_security_group
+  route_table                     = each.value.route_table
+  default_outbound_access_enabled = each.value.default_outbound_access_enabled
 }
 
 module "vnet" {
@@ -215,128 +212,4 @@ module "vnet" {
   enable_telemetry = var.enable_telemetry
 
   subnets = local.subnet_config
-}
-
-# -----------------------------------------------------------------------------
-# v1 -> AVM (WP-2.6): the azurerm network resources leave the state without
-# being destroyed; the root (adopt.tf) imports the same Azure resources.
-# -----------------------------------------------------------------------------
-
-removed {
-  from = azurerm_virtual_network.citadel
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet.apim
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet.pe
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet.logic_app
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet.agent
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet.ase
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_network_security_group.apim
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_network_security_group.agent
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_network_security_group.ase
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_network_security_group.pe
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_network_security_group.logic_app
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet_network_security_group_association.apim
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet_network_security_group_association.agent
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet_network_security_group_association.ase
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet_network_security_group_association.pe
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet_network_security_group_association.logic_app
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_subnet_route_table_association.apim
-  lifecycle {
-    destroy = false
-  }
 }

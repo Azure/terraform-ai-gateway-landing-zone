@@ -32,7 +32,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | ---- | ---- |
 | [azapi_resource.apim_connection](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.app_insights_connection](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
-| [azapi_resource.model_deployment](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.project](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azurerm_monitor_diagnostic_setting.foundry](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_diagnostic_setting) | resource |
 | [azurerm_private_endpoint.foundry](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
@@ -71,7 +70,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_foundry_network_injection_enabled"></a> [foundry\_network\_injection\_enabled](#input\_foundry\_network\_injection\_enabled) | Inject the Foundry Agent Service into the agent subnet (needs enable\_agent\_subnet = true). | `bool` | `true` | no |
 | <a name="input_foundry_project_default_name"></a> [foundry\_project\_default\_name](#input\_foundry\_project\_default\_name) | Default AI Foundry project name (used when an instance entry does not override it). | `string` | `"citadel-governance-project"` | no |
 | <a name="input_log_analytics_id"></a> [log\_analytics\_id](#input\_log\_analytics\_id) | Log Analytics workspace ID for diagnostic settings. | `string` | `""` | no |
-| <a name="input_outbound_allowed_fqdns"></a> [outbound\_allowed\_fqdns](#input\_outbound\_allowed\_fqdns) | Restrict the Foundry accounts' outbound network access to these FQDNs. null = unrestricted (v1 behaviour). | `list(string)` | `null` | no |
+| <a name="input_outbound_allowed_fqdns"></a> [outbound\_allowed\_fqdns](#input\_outbound\_allowed\_fqdns) | Restrict the Foundry accounts' outbound network access to these FQDNs. null = unrestricted. | `list(string)` | `null` | no |
 
 ## Outputs
 

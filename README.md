@@ -188,8 +188,6 @@ network = {
 ```
 This deployment creates the subnets inside the spoke VNet, each with an NSG and a route table sending `0.0.0.0/0` to the hub firewall; default outbound access is off. See [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md) for what to request from the platform team.
 
-> The old flat inputs (`use_existing_vnet`, `apim_network_type`, `logic_app_hosting_model`, …) still work for one release but raise a plan-time deprecation warning. See [VARIABLES.md §23](VARIABLES.md#23-deprecated-flat-inputs) for the old → new mapping.
-
 ### Entra ID Authentication
 
 ```hcl
@@ -305,9 +303,9 @@ there.
 | `private-dns` | Private DNS zones + VNet links (created, or the zone IDs you supply; none in `alz_spoke`). AVM: `avm-res-network-privatednszone` 0.5.0 |
 | `monitoring` | Log Analytics workspace, 2× Application Insights, dashboard. AVM: `avm-res-operationalinsights-workspace` 0.5.1, `avm-res-insights-component` 0.4.0 |
 | `security` | Key Vault, RBAC assignments, PE. AVM: `avm-res-keyvault-vault` 0.11.0 |
-| `cosmosdb` | Cosmos DB account, `usage-db` database, `usage` + `model-pricing` containers. AVM: `avm-res-documentdb-databaseaccount` 0.11.0 (account, database, PE; containers stay azurerm) |
+| `cosmosdb` | Cosmos DB account, `usage-db` database, `usage` + `model-pricing` containers. AVM: `avm-res-documentdb-databaseaccount` 0.11.0 (account, database, containers, PE) |
 | `eventhub` | Event Hub namespace, `apim-usage` + `pii-usage` hubs, auth rules, consumer groups. AVM: `avm-res-eventhub-namespace` 0.1.1 (namespace, hubs, RBAC, PE) |
-| `foundry` | AI Foundry accounts (n instances), projects, model deployments, APIM connection. AVM: `avm-res-cognitiveservices-account` 0.11.1 (accounts; deployments and projects stay azapi) |
+| `foundry` | AI Foundry accounts (n instances), projects, model deployments, APIM connection. AVM: `avm-res-cognitiveservices-account` 0.11.1 (accounts and model deployments, created one at a time; projects stay azapi) |
 | `apic` | API Center service, workspace, environments |
 | `api-center-registration` | API Center registration of the enabled gateway APIs (`features.api_center_onboarding`) |
 | `apim` | APIM instance, private endpoint, named values, non-LLM backends, default product, Foundry subscription, Redis external cache. AVM: `avm-res-apimanagement-service` 0.9.0 (service + PE) |
@@ -429,10 +427,7 @@ citadel-terraform/
 ├── apis.tf                  # API catalogue → modules/gateway-api
 ├── policy-fragments.tf      # Policy-fragment catalogue → modules/apim-policy-fragments
 ├── api-center-registration.tf # API Center registration → modules/api-center-registration
-├── moved.tf                 # moved {} blocks for relocated resource addresses
-├── adopt.tf                 # Phase 2 import {} blocks — adopts v1 resources into AVM modules (adopt_existing_resources)
-├── variables.tf             # All input variables (flat inputs are deprecated shims; deprecated inputs at the end)
-├── checks.tf                # Plan-time checks (deprecated inputs, deprecated flat inputs)
+├── variables.tf             # All other input variables (the typed objects live in interfaces.tf)
 ├── outputs.tf               # Key deployment outputs
 ├── tests/unit/              # Mocked unit tests — terraform test -test-directory=tests/unit
 ├── .github/workflows/ci.yml # CI: fmt, tflint, validate, tests, terraform-docs, checkov, gitleaks
@@ -469,14 +464,13 @@ citadel-terraform/
 │
 ├── llm-backend-onboarding/  # Standalone module — onboard LLM backends to an existing APIM
 │   ├── main.tf              # Backends, backend pools, policy fragments, named values
-│   ├── imports.tf           # Conditional import {} blocks — adopts existing objects automatically
+│   ├── imports.tf           # Conditional import {} blocks — takes over the backends, fragments and named values the main deployment creates
 │   ├── terraform.tfvars.example
 │   ├── tests/unit/          # Mocked unit tests
 │   └── scripts/             # deploy.sh / destroy.sh / test.sh
 │
 ├── citadel-access-contracts/ # Standalone module — onboard a use-case to an existing APIM
 │   ├── main.tf              # APIM products, subscriptions, policies, KV secrets, Foundry conns
-│   ├── imports.tf           # Conditional import {} blocks — adopts existing objects automatically
 │   ├── terraform.tfvars.example
 │   ├── contracts/           # Per-use-case contract definitions
 │   ├── policies/            # Inbound product policy XML (incl. default-ai-product-policy.xml)
@@ -488,15 +482,13 @@ citadel-terraform/
 │   ├── prod.tfvars.example  # Production template (typed inputs) — copy to prod.tfvars and fill in
 │   └── asetest.tfvars.example # Logic App on ASE v3 (keyless storage) template
 │
-├── docs/operations/         # Runbooks — platform-team-requests.md (ALZ prerequisites),
-│                            #   adopting-existing-resources.md (import {} blocks, Phase 2 upgrade)
+├── docs/operations/         # Runbooks — platform-team-requests.md (ALZ prerequisites)
 │
 ├── scripts/                # Bash (*.sh) + PowerShell (*.ps1) equivalents
 │   ├── ci/                     # CI helpers: tf-dirs.sh, check-policy-assets.sh
 │   ├── deploy.sh / .ps1        # Full deploy script (init + plan + apply)
 │   ├── destroy.sh / .ps1       # Teardown script
 │   ├── validate.sh / .ps1      # Post-deployment smoke tests
-│   ├── import-blocks-from-log.py  # Prints import {} blocks for "already exists" apply errors
 │   └── bootstrap-state.sh / .ps1  # One-time remote state backend setup
 │
 ├── shared/                  # Python helpers for the validation notebooks
@@ -520,7 +512,6 @@ citadel-terraform/
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — local quality checks (fmt, tflint, tests, checkov, gitleaks) and the rules CI enforces
 - [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md) — what to request from the Azure Landing Zone platform team
-- [docs/operations/adopting-existing-resources.md](docs/operations/adopting-existing-resources.md) — adopting existing objects with `import {}` blocks, and upgrading a pre-Phase 2 environment to Azure Verified Modules (`adopt_existing_resources = true`)
 
 - [AI Citadel Governance Hub README](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1)
 - [Full Deployment Guide](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/full-deployment-guide.md)

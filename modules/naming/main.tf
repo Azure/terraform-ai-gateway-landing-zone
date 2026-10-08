@@ -1,17 +1,18 @@
 # =============================================================================
 # NAMING — one place that produces every resource name.
 #
-# convention = "v1" reproduces the names the root module and the foundry /
-# logic-app / apic modules generated before this module existed, so moving the
-# logic here is zero-diff. Explicit names (apim_service_name, …) arrive through
-# name_overrides and always win.
+# Every name is deterministic (derived from resource group, environment and
+# subscription), so names are known at plan time and a single apply can create
+# everything. Explicit names arrive through name_overrides and always win.
 # =============================================================================
 
 locals {
   # Bicep-parity seed: sha256("<rg>-<env>-<subscription>")[0:10]
   resource_token = substr(sha256("${var.resource_group_name}-${var.environment_name}-${var.subscription_id}"), 0, 10)
   env            = var.environment_name
-  sfx            = var.legacy_suffix
+  # 6-character suffix for globally unique names (storage accounts allow
+  # lowercase letters and digits only).
+  sfx = substr(sha256("suffix-${local.resource_token}"), 0, 6)
 
   generated = {
     resource_group          = "rg-${local.env}"

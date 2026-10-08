@@ -8,8 +8,6 @@ Comprehensive reference for all input variables exposed by the **root Terraform 
 
 Most settings are grouped into five **typed objects** declared in [interfaces.tf](interfaces.tf): [`apim`](#5-api-management-apim--other-skus), [`network`](#4-networking-network), [`features`](#6-feature-flags-features), [`usage_pipeline`](#8-usage-pipeline--network-access-usage_pipeline) and [`monitoring`](#7-log-analytics--azure-monitor-monitoring). Every attribute is optional; omit an attribute (or the whole object) to take its default. `interfaces.tf` also computes the effective configuration (`local.apim_cfg`, `local.network_cfg`, `local.features`, `local.usage_cfg`, `local.monitoring_cfg`) that the rest of the configuration reads.
 
-The old **flat** inputs (`apim_sku`, `use_existing_vnet`, `enable_unified_ai_api`, …) still work for one release: they default to `null`, override the typed attribute when set, and raise the `deprecated_flat_inputs` plan-time warning ([checks.tf](checks.tf)). See [§23 Deprecated Flat Inputs](#23-deprecated-flat-inputs) for the full mapping.
-
 ---
 
 ## Table of Contents
@@ -36,9 +34,8 @@ The old **flat** inputs (`apim_sku`, `use_existing_vnet`, `enable_unified_ai_api
 20. [APIM Logic Plane (JWT / PII / MCP)](#20-apim-logic-plane-jwt--pii--mcp)
 21. [Entra ID Add-On (App Registration)](#21-entra-id-add-on-app-registration)
 22. [Foundry → APIM Connection](#22-foundry--apim-connection)
-23. [Deprecated Flat Inputs](#23-deprecated-flat-inputs)
-24. [Sub-Module Variable Map](#24-sub-module-variable-map)
-25. [Outputs](#25-outputs)
+23. [Sub-Module Variable Map](#23-sub-module-variable-map)
+24. [Outputs](#24-outputs)
 
 ---
 
@@ -51,17 +48,17 @@ The old **flat** inputs (`apim_sku`, `use_existing_vnet`, `enable_unified_ai_api
 | ☆ `location` | string | `eastus` | Primary Azure region for the resource group. |
 | ☆ `tags` | map(string) | `{}` | Merged with defaults (`azd-env-name`, `Solution`, `ManagedBy`). |
 | ☆ `purge_soft_delete_on_destroy` | bool | `false` | If `true`, purges soft-deleted Key Vault / Cosmos on destroy (dev convenience). |
-| ☆ `adopt_existing_resources` | bool | `false` | Set `true` for the run that upgrades an environment deployed **before Phase 2**: resources that moved to azapi-based Azure Verified Modules (usage-pipeline storage account + content share + App Service plan; greenfield VNet, subnets, NSGs + APIM NSG rules, private DNS zones + VNet links) are imported by [adopt.tf](adopt.tf) instead of created. Each import runs only when the Azure resource exists. Leave `false` for new environments. Runbook: [docs/operations/adopting-existing-resources.md](docs/operations/adopting-existing-resources.md). |
+| ☆ `rollout_phase` | string | `full` | `full` = deploy everything configured. `core` = first phase of a phased rollout (`scripts/deploy.sh --phased` / `deploy.ps1 -Phased` pass `-var=rollout_phase=core` for phase 1): forces the add-ons off — Entra ID setup, JWT auth, the Foundry → APIM connections, `features.mcp_sample` and `features.api_center_onboarding` — so the core platform converges first; the next run with `full` adds them. Resource names are known at plan time, so a single `full` apply works too. |
 | ☆ `enable_telemetry` | bool | `true` | Let the Azure Verified Modules (AVM) send their usage telemetry to Microsoft ([aka.ms/avm/telemetryinfo](https://aka.ms/avm/telemetryinfo)). No deployment data is sent. |
 
 ## 2. Resource Naming
 
-Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`) via [modules/naming](modules/naming/README.md). The APIM name is set with `apim.name` (see [§5](#5-api-management-apim--other-skus)).
+Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`, or a 6-character suffix such as `redis-<environment_name>-<suffix>` for globally unique names) via [modules/naming](modules/naming/README.md). Generated names are deterministic — the token and the 6-character suffix are derived from the resource group, environment and subscription — so they are known at plan time. The APIM name is set with `apim.name` (see [§5](#5-api-management-apim--other-skus)).
 
 | Variable | Type | Default | Notes |
 |---|---|---|---|
 | ☆ `resource_group_name` | string | `""` | Auto: `rg-<environment_name>`. |
-| ☆ `use_existing_resource_group` | bool | `false` | `true` imports RG instead of creating. |
+| ☆ `use_existing_resource_group` | bool | `false` | `true` looks the existing RG up instead of creating it. |
 | ☆ `cosmos_db_account_name` | string | `""` | Auto: `cosmos-<token>`. |
 | ☆ `eventhub_namespace_name` | string | `""` | Auto: `evhns-<token>`. |
 | ☆ `log_analytics_name` | string | `""` | Auto: `law-<token>`. |
@@ -129,13 +126,6 @@ network = {
 
 > Subnet prefixes are used in greenfield and alz_spoke modes; in byo mode only the names matter. Every subnet created in greenfield / alz_spoke mode has an NSG (Azure Landing Zone `Deny-Subnet-Without-Nsg`).
 
-Other networking inputs (flat, unchanged):
-
-| Variable | Type | Default | Notes |
-|---|---|---|---|
-| ☆ `nsg_on_all_subnets` | bool | `null` | **Deprecated — ignored.** Every greenfield / alz_spoke subnet now has an NSG. |
-| ☆ `dns_subscription_id` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). Cross-subscription lookup was never implemented; pass full zone IDs in `network.private_dns.zone_ids`. |
-
 ## 5. API Management (`apim`) & Other SKUs
 
 Typed object declared in [interfaces.tf](interfaces.tf), consumed by [modules/apim](modules/apim/README.md).
@@ -169,11 +159,6 @@ Other SKU & sizing inputs (flat):
 | Variable | Type | Default | Notes |
 |---|---|---|---|
 | ☆ `api_center_sku` | string | `Free` | |
-| ☆ `cosmos_db_rus` | number | `null` | **Deprecated — ignored** (warns if set; removed next major). Cosmos DB is serverless. |
-| ☆ `eventhub_partition_count` | number | `null` | **Deprecated — ignored** (warns if set; removed next major). Partitions are fixed (ai-usage 4, pii-usage 2); changing them would recreate the hubs. |
-| ☆ `logic_app_sku_tier` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). The tier follows `usage_pipeline.logic_app.hosting` / `.sku`. |
-| ☆ `language_service_sku` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). No Language resource is deployed; PII uses Foundry. |
-| ☆ `content_safety_sku` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). No Content Safety resource is deployed; content safety uses Foundry. |
 
 ## 6. Feature Flags (`features`)
 
@@ -243,7 +228,7 @@ usage_pipeline = {
 | ☆ `ase.zone_redundant` | bool | `false` | Zone-redundant ASE v3 (region must support AZs; raises minimum billed instances). |
 | ☆ `ase.create_private_dns_zone` | bool | `true` | ILB ASE only: create `<ase>.appserviceenvironment.net` (`*`, `*.scm`, `@` → ILB IP) and link it to the VNet. Set `false` when DNS is centralised in a hub. |
 
-Other network access inputs (flat, unchanged):
+Other network access inputs (flat):
 
 | Variable | Type | Default | Notes |
 |---|---|---|---|
@@ -274,7 +259,6 @@ Things to plan for:
 | ☆ `entra_tenant_id` | string | `""` | |
 | ☆ `entra_client_id` | string | `""` | Application (client) ID. |
 | ☆ `entra_audience` | string | `""` | JWT `aud`. |
-| ☆🔒 `entra_client_secret` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). The Entra module generates and rotates its own secret. |
 
 ## 10. AI Foundry
 
@@ -377,8 +361,6 @@ extra_llm_backends = [
 |---|---|---|---|
 | ☆ `apim_log_verbosity` | string | `information` | `verbose`/`information`/`error`. |
 | ☆ `apim_log_body_bytes` | number | `8192` | Body bytes per log entry. |
-| ☆ `azure_monitor_log_settings` | object | `null` | **Deprecated — ignored** (warns if set; removed next major). Use `extra_api_log_settings`. |
-| ☆ `app_insights_log_settings` | object | `null` | **Deprecated — ignored** (warns if set; removed next major). Use `extra_api_log_settings`. |
 
 ## 13. Redis (Azure Managed Redis)
 
@@ -398,7 +380,6 @@ The extra APIs themselves are switched on through [`features`](#6-feature-flags-
 | Variable | Type | Default | Notes |
 |---|---|---|---|
 | ☆ `inference_api_type` | string | `OpenAIV1` | Universal LLM API inference contract. One of `AzureOpenAI`, `AzureAI`, `OpenAI`, `OpenAIV1`. |
-| ☆ `enable_ai_gateway_pii_redaction` | bool | `null` | **Deprecated — ignored** (warns if set; removed next major). Use `features.pii_redaction`. |
 
 ## 15. API Center
 
@@ -426,12 +407,15 @@ Set `monitoring.private_link_scope = true` to create an AMPLS for private ingest
 
 | Variable | Type | Default | Notes |
 |---|---|---|---|
-| ☆ `primary_foundry_embedding_model_name` | string | `null` | **Deprecated — ignored** (warns if set; removed next major). Use `features.embeddings_backend` + `embeddings_backend_url`. |
 | ☆ `embeddings_backend_url` | string | `""` | Used only when `features.embeddings_backend = true`. |
 
 ## 19. Logic App Content Share
 
-The content share and workflow-code publish settings are now attributes of `usage_pipeline.logic_app` (`content_share_name`, `code_deploy`, `code_source_path`) — see [§8](#8-usage-pipeline--network-access-usage_pipeline).
+The content share and workflow-code publish settings are attributes of `usage_pipeline.logic_app` (`content_share_name`, `code_deploy`, `code_source_path`) — see [§8](#8-usage-pipeline--network-access-usage_pipeline).
+
+| Variable | Type | Default | Notes |
+|---|---|---|---|
+| ☆ `skip_logic_app_code_deploy` | bool | `false` | Skip publishing the Logic App workflow code on this run even when `usage_pipeline.logic_app.code_deploy = true` (what `scripts/deploy.sh --skip-logic-app-code` / `deploy.ps1 -SkipLogicAppCode` pass), e.g. when the SCM endpoint is only reachable from inside the VNet. |
 
 ## 20. APIM Logic Plane (JWT / PII / MCP)
 
@@ -464,76 +448,7 @@ Port of `entra-id-setup/setup.ps1`. When enabled, creates an app registration + 
 
 ---
 
-## 23. Deprecated Flat Inputs
-
-The flat inputs below are **deprecated shims** kept for one release. They default to `null`; when set, they take precedence over the typed attribute and `terraform plan` shows the `deprecated_flat_inputs` warning ([checks.tf](checks.tf)) listing each `old -> new` pair. The mapping is the `deprecated_flat_inputs` map at the bottom of [interfaces.tf](interfaces.tf). Move the values into the typed objects and remove the flat inputs from your tfvars; the [environments/*.tfvars.example](environments/) files already use the typed syntax.
-
-| Deprecated flat input | Typed replacement | Notes |
-|---|---|---|
-| `apim_service_name` | `apim.name` |  |
-| `apim_sku` | `apim.sku` |  |
-| `apim_sku_units` | `apim.capacity` |  |
-| `apim_publisher_email` | `apim.publisher_email` |  |
-| `apim_publisher_name` | `apim.publisher_name` |  |
-| `apim_network_type` | `apim.vnet_mode` | `External`/`Internal`/`None` → `external`/`internal`/`none`. Ignored for `StandardV2`/`PremiumV2`, which always use `integration`. |
-| `apim_v2_use_private_endpoint` | `apim.private_endpoint` |  |
-| `apim_v2_public_network_access` | `apim.public_network_access` |  |
-| `use_existing_vnet` | `network.mode` | `true` → `mode = "byo"`, `false` → `mode = "greenfield"`. |
-| `existing_vnet_rg` | `network.resource_group_name` |  |
-| `vnet_name` | `network.vnet_name` |  |
-| `vnet_address_prefix` | `network.address_space` |  |
-| `apim_subnet_name` | `network.subnets.apim.name` |  |
-| `apim_subnet_prefix` | `network.subnets.apim.prefix` |  |
-| `private_endpoint_subnet_name` | `network.subnets.private_endpoint.name` |  |
-| `private_endpoint_subnet_prefix` | `network.subnets.private_endpoint.prefix` |  |
-| `logic_app_subnet_name` | `network.subnets.logic_app.name` |  |
-| `logic_app_subnet_prefix` | `network.subnets.logic_app.prefix` |  |
-| `enable_agent_subnet` | `network.subnets.agent.enabled` |  |
-| `agent_subnet_name` | `network.subnets.agent.name` |  |
-| `agent_subnet_prefix` | `network.subnets.agent.prefix` |  |
-| `ase_subnet_name` | `network.subnets.ase.name` |  |
-| `ase_subnet_prefix` | `network.subnets.ase.prefix` |  |
-| `dns_zone_rg` | `network.private_dns.resource_group_name` |  |
-| `existing_private_dns_zones` | `network.private_dns.zone_ids` |  |
-| `enable_api_center` | `features.api_center` |  |
-| `enable_api_center_onboarding` | `features.api_center_onboarding` |  |
-| `enable_pii_redaction` | `features.pii_redaction` |  |
-| `enable_pii_anonymization` | `features.pii_anonymization` |  |
-| `enable_content_safety` | `features.content_safety` |  |
-| `enable_redis_cache` | `features.semantic_cache` | Deploys Azure Managed Redis as the APIM external cache. |
-| `enable_unified_ai_api` | `features.unified_ai_api` |  |
-| `enable_openai_realtime` | `features.openai_realtime` |  |
-| `enable_document_intelligence` | `features.document_intelligence` |  |
-| `enable_ai_model_inference` | `features.ai_model_inference` |  |
-| `enable_azure_ai_search` | `features.azure_ai_search` |  |
-| `enable_embeddings_backend` | `features.embeddings_backend` |  |
-| `is_mcp_sample_deployed` | `features.mcp_sample` |  |
-| `eventhub_capacity_units` | `usage_pipeline.eventhub.capacity` |  |
-| `eventhub_network_access` | `usage_pipeline.eventhub.public_network_access` |  |
-| `eventhub_disaster_recovery_config` | `usage_pipeline.eventhub.disaster_recovery` |  |
-| `cosmos_db_public_access` | `usage_pipeline.cosmos.public_network_access` |  |
-| `cosmos_db_local_auth_enabled` | `usage_pipeline.cosmos.local_auth_enabled` |  |
-| `logic_app_hosting_model` | `usage_pipeline.logic_app.hosting` | `WorkflowStandard` → `workflow_standard`, `AppServiceEnvironmentV3` → `ase_v3`. |
-| `logic_app_sku_size` | `usage_pipeline.logic_app.sku` | WS SKU (`workflow_standard`). |
-| `logic_app_ase_sku_size` | `usage_pipeline.logic_app.sku` | Isolated v2 SKU (`ase_v3`). |
-| `logic_app_ase_worker_count` | `usage_pipeline.logic_app.worker_count` |  |
-| `logic_content_share_name` | `usage_pipeline.logic_app.content_share_name` |  |
-| `enable_logic_app_code_deploy` | `usage_pipeline.logic_app.code_deploy` |  |
-| `logic_app_code_source_path` | `usage_pipeline.logic_app.code_source_path` |  |
-| `ase_internal_load_balancing_mode` | `usage_pipeline.ase.internal_load_balancing_mode` |  |
-| `ase_zone_redundant` | `usage_pipeline.ase.zone_redundant` |  |
-| `ase_create_private_dns_zone` | `usage_pipeline.ase.create_private_dns_zone` |  |
-| `use_existing_log_analytics` | `monitoring.log_analytics_workspace_id` | Replaced together with `existing_log_analytics_id`: set `log_analytics_workspace_id` to the workspace resource ID (null = create a workspace). |
-| `existing_log_analytics_id` | `monitoring.log_analytics_workspace_id` | See `use_existing_log_analytics`. |
-| `existing_log_analytics_subscription_id` | `monitoring.log_analytics_subscription_id` |  |
-| `use_azure_monitor_private_link_scope` | `monitoring.private_link_scope` |  |
-| `create_app_insights_dashboards` | `monitoring.app_insights_dashboards` |  |
-
-Inputs that are deprecated **and ignored** (no replacement; warning `deprecated_inputs`) are listed in their sections above: `cosmos_db_rus`, `eventhub_partition_count`, `logic_app_sku_tier`, `dns_subscription_id`, `primary_foundry_embedding_model_name`, `language_service_sku`, `content_safety_sku`, `enable_ai_gateway_pii_redaction`, `entra_client_secret`, `azure_monitor_log_settings`, `app_insights_log_settings`.
-
----
-
-## 24. Sub-Module Variable Map
+## 23. Sub-Module Variable Map
 
 Sub-modules are not configured directly — their inputs are wired from the root variables and the effective-config locals of [interfaces.tf](interfaces.tf) (`local.apim_cfg`, `local.network_cfg`, `local.features`, `local.usage_cfg`, `local.monitoring_cfg`) in [main.tf](main.tf), [network.tf](network.tf), [apis.tf](apis.tf), [policy-fragments.tf](policy-fragments.tf) and [api-center-registration.tf](api-center-registration.tf). Each module has a generated README with its full input/output tables; only internals that extend root-level behavior are listed here.
 
@@ -571,7 +486,7 @@ Private DNS zones + VNet links (AVM `avm-res-network-privatednszone` 0.5.0). Cre
 Key Vault on AVM `avm-res-keyvault-vault` 0.11.0. Receives Key Vault naming/SKU, soft-delete/purge/RBAC toggles, tenant + deployer + MI object IDs, and Foundry principal IDs for RBAC grants.
 
 ### [modules/foundry](modules/foundry/README.md)
-Foundry accounts on AVM `avm-res-cognitiveservices-account` 0.11.1 (model deployments and projects stay azapi). Receives `ai_foundry_instances` and `ai_foundry_models`, `foundry_outbound_allowed_fqdns` → `outbound_allowed_fqdns`, external-access flag, and APIM-connection parameters. Internally uses `enable_apim_connections`, `apim_connections` (per-API connection definitions), and `disable_key_auth`.
+Foundry accounts and model deployments (`cognitive_deployments`, created one at a time) on AVM `avm-res-cognitiveservices-account` 0.11.1 (projects stay azapi). Receives `ai_foundry_instances` and `ai_foundry_models`, `foundry_outbound_allowed_fqdns` → `outbound_allowed_fqdns`, external-access flag, and APIM-connection parameters. Internally uses `enable_apim_connections`, `apim_connections` (per-API connection definitions), and `disable_key_auth`.
 
 ### [modules/apic](modules/apic/README.md)
 Receives `features.api_center`, `api_center_sku` and `apic_location`.
@@ -580,7 +495,7 @@ Receives `features.api_center`, `api_center_sku` and `apic_location`.
 Log Analytics on AVM `avm-res-operationalinsights-workspace` 0.5.1 and Application Insights on AVM `avm-res-insights-component` 0.4.0. Receives `existing_log_analytics_workspace = { id, workspace_id }` (looked up by the root from `monitoring.log_analytics_workspace_id`, else a new workspace is created), `create_dashboards` (`monitoring.app_insights_dashboards`), and AMPLS settings (`monitoring.private_link_scope`, subnet/dns zone).
 
 ### [modules/cosmosdb](modules/cosmosdb/README.md)
-Account, database and private endpoint on AVM `avm-res-documentdb-databaseaccount` 0.11.0 (the SQL containers stay azurerm). Receives account name, `usage_pipeline.cosmos.public_network_access`, `usage_pipeline.cosmos.local_auth_enabled` → `local_authentication_enabled`, subnet/dns wiring, and MI principal.
+Account, database, SQL containers and private endpoint on AVM `avm-res-documentdb-databaseaccount` 0.11.0. Receives account name, `usage_pipeline.cosmos.public_network_access`, `usage_pipeline.cosmos.local_auth_enabled` → `local_authentication_enabled`, subnet/dns wiring, and MI principal.
 
 ### [modules/eventhub](modules/eventhub/README.md)
 Namespace, event hubs, RBAC and private endpoint on AVM `avm-res-eventhub-namespace` 0.1.1. Receives namespace name, `usage_pipeline.eventhub.capacity`, `usage_pipeline.eventhub.public_network_access`, APIM + Logic App MI principals, and `usage_pipeline.eventhub.disaster_recovery` → `disaster_recovery_config`.
@@ -596,7 +511,7 @@ Mirrors `enable_entra_id_setup`, `entra_app_display_name_prefix`, `entra_client_
 
 ---
 
-## 25. Outputs
+## 24. Outputs
 
 Defined in [outputs.tf](outputs.tf). Read with `terraform output <name>` (add
 `-raw` for a single scalar, `-json` for objects/lists).
@@ -627,7 +542,7 @@ The `location`, `subscription_id`, `key_vault_name`, `ai_foundry_services`, and
 `llm_backend_config` outputs are consumed by the validation notebooks via the
 Terraform-output bridge in [shared/utils.py](shared/utils.py) (azd-var → output
 alias map). See [validation/README.md](validation/README.md) and
-[DEPLOYMENT_GUIDE.md §9.4](DEPLOYMENT_GUIDE.md#94-validation-notebooks-validation--shared).
+[DEPLOYMENT_GUIDE.md §9.3](DEPLOYMENT_GUIDE.md#93-validation-notebooks-validation--shared).
 
 ---
 

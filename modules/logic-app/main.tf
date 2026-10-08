@@ -6,7 +6,7 @@
 
 # -----------------------------------------------------------------------------
 # STORAGE ACCOUNT (required for Logic App Standard runtime) — Azure Verified
-# Module. Existing v1 accounts are adopted by the root (adopt.tf).
+# Module.
 # -----------------------------------------------------------------------------
 
 module "storage" {
@@ -27,10 +27,10 @@ module "storage" {
   # the runtime authenticates with the usage UAMI, so shared keys are disabled.
   shared_access_key_enabled = !local.use_ase
   min_tls_version           = "TLS1_2"
-  # v1 behaviour kept (public endpoint open, private endpoints for the runtime);
-  # tightening is part of the keyless pipeline (Phase 2b).
+  # Public endpoint stays open for the Workflow Standard runtime; the runtime
+  # uses the private endpoints. Lock-down is part of the keyless pipeline (Phase 2b).
   public_network_access_enabled = true
-  local_user_enabled            = true
+  local_user_enabled            = false
   network_rules = {
     default_action = "Allow"
     bypass         = ["AzureServices"]
@@ -298,11 +298,6 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
   depends_on = [module.storage]
 }
 
-moved {
-  from = azurerm_logic_app_standard.usage_ingestion
-  to   = azurerm_logic_app_standard.usage_ingestion[0]
-}
-
 # -----------------------------------------------------------------------------
 # LOGIC APP STANDARD — App Service Environment v3 (opt-in)
 # azapi because azurerm_logic_app_standard requires storage_account_access_key
@@ -509,31 +504,4 @@ resource "azurerm_role_assignment" "logic_app_system_monitor_reader" {
   role_definition_name = "Log Analytics Reader"
   principal_id         = local.logic_app_principal_id
   principal_type       = "ServicePrincipal"
-}
-
-# -----------------------------------------------------------------------------
-# v1 -> AVM (WP-2.3): the azurerm storage account, content share and plan leave
-# the state without being destroyed; the root (adopt.tf) imports the same Azure
-# resources into the AVM modules.
-# -----------------------------------------------------------------------------
-
-removed {
-  from = azurerm_storage_account.logic_app
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_storage_share.logic_app_content
-  lifecycle {
-    destroy = false
-  }
-}
-
-removed {
-  from = azurerm_service_plan.logic_app
-  lifecycle {
-    destroy = false
-  }
 }

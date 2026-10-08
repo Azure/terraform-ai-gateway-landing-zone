@@ -6,9 +6,8 @@
 # =============================================================================
 
 # =============================================================================
-# NAMING — every resource name comes from modules/naming (v1 convention =
-# the names this repository has always generated). Explicit name variables and
-# var.name_overrides win.
+# NAMING — every resource name comes from modules/naming (deterministic, known
+# at plan time). Explicit name variables and var.name_overrides win.
 # =============================================================================
 
 module "naming" {
@@ -17,7 +16,6 @@ module "naming" {
   environment_name       = var.environment_name
   resource_group_name    = var.resource_group_name
   subscription_id        = var.subscription_id
-  legacy_suffix          = random_string.suffix.result
   foundry_instance_names = [for c in var.ai_foundry_instances : c.name]
 
   # Dedicated name inputs win over var.name_overrides only when they are set.
@@ -107,12 +105,6 @@ locals {
 # =============================================================================
 # RANDOM SUFFIX for globally unique names
 # =============================================================================
-
-resource "random_string" "suffix" {
-  length  = 6
-  special = false
-  upper   = false
-}
 
 # =============================================================================
 # USER-ASSIGNED MANAGED IDENTITIES
@@ -364,7 +356,7 @@ module "foundry" {
   agent_subnet_id                   = local.network.agent_subnet_id
 
   # Foundry project -> APIM connections (ApiKey = dedicated foundry-apim-connection subscription)
-  enable_apim_connections = var.enable_foundry_apim_connection
+  enable_apim_connections = local.enable_foundry_apim_connection
   apim_service_name       = local.apim_service_name
   apim_gateway_url        = module.apim.gateway_url
   apim_primary_key        = module.apim.foundry_connection_primary_key
@@ -399,7 +391,7 @@ module "redis" {
 # =============================================================================
 
 module "entra_id" {
-  count  = var.enable_entra_id_setup ? 1 : 0
+  count  = local.enable_entra_id_setup ? 1 : 0
   source = "./modules/entra-id"
 
   environment_name            = var.environment_name
@@ -412,11 +404,11 @@ module "entra_id" {
 locals {
   # When the Entra module is enabled, its outputs override the bare jwt_* vars
   # so APIM JWT-* named values get populated automatically.
-  effective_enable_jwt_auth = var.enable_entra_id_setup ? true : var.enable_jwt_auth
-  effective_jwt_tenant_id = var.enable_entra_id_setup ? (
+  effective_enable_jwt_auth = local.enable_entra_id_setup ? true : local.enable_jwt_auth
+  effective_jwt_tenant_id = local.enable_entra_id_setup ? (
     length(module.entra_id) > 0 ? module.entra_id[0].tenant_id : var.jwt_tenant_id
   ) : var.jwt_tenant_id
-  effective_jwt_app_registration_id = var.enable_entra_id_setup ? (
+  effective_jwt_app_registration_id = local.enable_entra_id_setup ? (
     length(module.entra_id) > 0 ? module.entra_id[0].client_id : var.jwt_app_registration_id
   ) : var.jwt_app_registration_id
 }
@@ -591,7 +583,7 @@ module "apim" {
   azure_login_endpoint    = var.azure_login_endpoint
 
 
-  enable_foundry_apim_connection = var.enable_foundry_apim_connection
+  enable_foundry_apim_connection = local.enable_foundry_apim_connection
 }
 
 # =============================================================================

@@ -14,12 +14,10 @@
 # Optional add-on flags (set feature-flag Terraform variables to true):
 #   --with-entra           Enable Entra ID app registration add-on (§19.13)
 #   --with-foundry-conn    Enable Foundry → APIM connection (§2.3)
-#   --with-access-contracts
-#                          Enable citadel-access-contracts products (§2.3)
-#   --with-mcp-samples     Enable Weather + MS Learn MCP sample APIs
 #   --with-jwt             Populate APIM JWT-* named values (implied by --with-entra)
-#   --with-apic-onboarding Onboard every APIM API into API Center
 #   --all-addons           Shortcut: all --with-* flags above
+#   (MCP samples and API Center onboarding: set features.mcp_sample /
+#    features.api_center_onboarding in the tfvars.)
 #
 # Logic App code publish (on by default):
 #   --skip-logic-app-code  Do not zip+push src/usage-ingestion-logicapp this run
@@ -54,10 +52,7 @@ AUTO_APPROVE=""
 PHASED=""
 WITH_ENTRA=""
 WITH_FOUNDRY_CONN=""
-WITH_ACCESS_CONTRACTS=""
-WITH_MCP_SAMPLES=""
 WITH_JWT=""
-WITH_APIC_ONBOARDING=""
 SKIP_LOGIC_APP_CODE=""
 LOGIC_APP_CODE_ONLY=""
 
@@ -73,15 +68,11 @@ while [[ $# -gt 0 ]]; do
     --phased)                PHASED="1" ;;
     --with-entra)            WITH_ENTRA="1" ;;
     --with-foundry-conn)     WITH_FOUNDRY_CONN="1" ;;
-    --with-access-contracts) WITH_ACCESS_CONTRACTS="1" ;;
-    --with-mcp-samples)      WITH_MCP_SAMPLES="1" ;;
     --with-jwt)              WITH_JWT="1" ;;
-    --with-apic-onboarding)  WITH_APIC_ONBOARDING="1" ;;
     --skip-logic-app-code)   SKIP_LOGIC_APP_CODE="1" ;;
     --logic-app-code-only)   LOGIC_APP_CODE_ONLY="1" ;;
     --all-addons)
-      WITH_ENTRA="1"; WITH_FOUNDRY_CONN="1"; WITH_ACCESS_CONTRACTS="1"
-      WITH_MCP_SAMPLES="1"; WITH_JWT="1"; WITH_APIC_ONBOARDING="1" ;;
+      WITH_ENTRA="1"; WITH_FOUNDRY_CONN="1"; WITH_JWT="1" ;;
     -h|--help)
       sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -99,26 +90,20 @@ TFVARS_FILE="${ROOT_DIR}/environments/${ENVIRONMENT}.tfvars"
 addon_tfargs() {
   local phase="$1"
   if [[ "$phase" == "1" ]]; then
-    # Force all add-ons off for core phase
-    echo "-var=enable_entra_id_setup=false"
-    echo "-var=enable_foundry_apim_connection=false"
-    echo "-var=enable_access_contracts=false"
-    echo "-var=is_mcp_sample_deployed=false"
-    echo "-var=enable_jwt_auth=false"
-    echo "-var=enable_api_center_onboarding=false"
+    # Core phase: the root module forces every add-on off.
+    echo "-var=rollout_phase=core"
   else
-    # Phase 2 or single-shot: set only the ones the user asked for
-    [[ -n "$WITH_ENTRA"            ]] && echo "-var=enable_entra_id_setup=true"
-    [[ -n "$WITH_FOUNDRY_CONN"     ]] && echo "-var=enable_foundry_apim_connection=true"
-    [[ -n "$WITH_ACCESS_CONTRACTS" ]] && echo "-var=enable_access_contracts=true"
-    [[ -n "$WITH_MCP_SAMPLES"      ]] && echo "-var=is_mcp_sample_deployed=true"
-    [[ -n "$WITH_JWT"              ]] && echo "-var=enable_jwt_auth=true"
-    [[ -n "$WITH_APIC_ONBOARDING"  ]] && echo "-var=enable_api_center_onboarding=true"
+    # Add-ons phase or single shot: switch on the ones asked for on the command
+    # line. MCP samples and API Center onboarding are set in the tfvars
+    # (features.mcp_sample / features.api_center_onboarding).
+    [[ -n "$WITH_ENTRA"        ]] && echo "-var=enable_entra_id_setup=true"
+    [[ -n "$WITH_FOUNDRY_CONN" ]] && echo "-var=enable_foundry_apim_connection=true"
+    [[ -n "$WITH_JWT"          ]] && echo "-var=enable_jwt_auth=true"
   fi
 
   # Skip workflow-code publish if requested (applies to all phases).
   if [[ -n "$SKIP_LOGIC_APP_CODE" ]]; then
-    echo "-var=enable_logic_app_code_deploy=false"
+    echo "-var=skip_logic_app_code_deploy=true"
   fi
 }
 
@@ -136,10 +121,7 @@ if [[ -n "$PHASED" ]]; then info "Rollout     : phased (core → add-ons)"; else
 ADDONS_SUMMARY=""
 [[ -n "$WITH_ENTRA"            ]] && ADDONS_SUMMARY+="entra "
 [[ -n "$WITH_FOUNDRY_CONN"     ]] && ADDONS_SUMMARY+="foundry-conn "
-[[ -n "$WITH_ACCESS_CONTRACTS" ]] && ADDONS_SUMMARY+="access-contracts "
-[[ -n "$WITH_MCP_SAMPLES"      ]] && ADDONS_SUMMARY+="mcp-samples "
 [[ -n "$WITH_JWT"              ]] && ADDONS_SUMMARY+="jwt "
-[[ -n "$WITH_APIC_ONBOARDING"  ]] && ADDONS_SUMMARY+="apic-onboarding "
 if [[ -n "$ADDONS_SUMMARY" ]]; then info "Add-ons     : ${ADDONS_SUMMARY}"; else info "Add-ons     : none (core only)"; fi
 echo ""
 
@@ -278,15 +260,6 @@ plan_and_apply() {
   terraform apply -auto-approve "$PLAN_FILE" 2>&1 | tee "$APPLY_LOG"
   local APPLY_EXIT=${PIPESTATUS[0]}
   set -e
-
-  # Objects that already exist in Azure are adopted declaratively: print the
-  # matching import {} blocks to paste into imports.tf, then re-run.
-  if [[ $APPLY_EXIT -ne 0 ]] && grep -q "already exists" "$APPLY_LOG"; then
-    warn "Apply failed because some objects already exist in Azure. Add these import blocks to imports.tf,"
-    warn "re-run the deployment (the plan shows each import) and remove the blocks afterwards:"
-    "$PYTHON_BIN" "${SCRIPT_DIR}/import-blocks-from-log.py" "$APPLY_LOG" || true
-    warn "Runbook: docs/operations/adopting-existing-resources.md"
-  fi
 
   rm -f "$APPLY_LOG"
 

@@ -33,21 +33,15 @@ bash 4 or later (macOS: `brew install bash`).
   CI runs `terraform init -lockfile=readonly`. Update providers with
   `terraform providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64 -platform=windows_amd64`.
 - **Every variable and output has a description**, and every variable has a type.
-- **No unused variables.** If an input must stay for compatibility, add it to the
-  `DEPRECATED INPUTS` section of `variables.tf` (default `null`) and to the
-  `deprecated_inputs` check in `checks.tf`.
+- **No unused variables.** Remove an input when nothing reads it any more.
 - **New root inputs go into the typed objects** in `interfaces.tf` (`apim`,
   `network`, `features`, `usage_pipeline`, `monitoring`) with their defaults in
-  `optional()`. The old flat inputs are shims: they default to `null`, override
-  the typed attribute when set, and are listed in `local.deprecated_flat_inputs`
-  (which drives the `deprecated_flat_inputs` warning).
+  `optional()`.
 - **No module-level `depends_on`.** Express ordering through data flow; when a
   consumer must wait for something it doesn't reference (RBAC propagation, an NSG
   association), add `depends_on` to the producing module's output instead.
 - **No create-or-lookup inside modules.** Modules receive IDs; the root decides
   whether a resource is created or looked up (`network.tf`, BYO Log Analytics).
-- **Moving or renaming a resource needs a `moved {}` block** (`moved.tf`), so an
-  upgrade never destroys and recreates it.
 - **One copy of each policy XML.** Every XML file must be referenced from Terraform.
 - **No secrets in outputs.** Subscription keys are read on demand (Key Vault or
   `listSecrets`), never returned as Terraform outputs.

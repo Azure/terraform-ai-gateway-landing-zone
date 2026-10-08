@@ -67,9 +67,10 @@ Diagnostics: central LAW id for BYO; confirm Deploy-Diag-LogsCat scope
 
 ## Related repository settings
 
-- `nsg_on_all_subnets = true` attaches NSGs to the private-endpoint and Logic App
-  subnets of an existing VNet (ALZ `Deny-Subnet-Without-Nsg`).
+- Every subnet this stack creates (`greenfield` and `alz_spoke`) gets its own NSG
+  (ALZ `Deny-Subnet-Without-Nsg`); in `byo` mode the subnets and their NSGs belong
+  to the platform.
 - `entra_client_secret_rotation_days` must be `<= 90` in an ALZ subscription
-  (`Enforce-GR-KeyVault`); a plan-time check warns otherwise.
+  (`Enforce-GR-KeyVault`).
 - Access-contract secrets expire after `secret_validity_days` (default 90) and are
   renewed every `secret_rotation_days` (default 60).

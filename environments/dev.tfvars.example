@@ -136,7 +136,6 @@ entra_auth_enabled = false
 # entra_tenant_id   = ""
 # entra_client_id   = ""
 # entra_audience    = ""
-# entra_client_secret = ""   # sensitive; prefer TF_VAR_entra_client_secret
 
 # -----------------------------------------------------------------------------
 # 10. AI FOUNDRY
@@ -181,17 +180,6 @@ extra_llm_backends = []
 # -----------------------------------------------------------------------------
 apim_log_verbosity  = "verbose"
 apim_log_body_bytes = 8192
-# azure_monitor_log_settings = {
-#   enabled                 = true
-#   log_request_body_bytes  = 8192
-#   log_response_body_bytes = 8192
-# }
-# app_insights_log_settings = {
-#   enabled                 = true
-#   log_request_body_bytes  = 8192
-#   log_response_body_bytes = 8192
-#   sampling_percentage     = 100
-# }
 
 # -----------------------------------------------------------------------------
 # 13. REDIS (Azure Managed Redis) — only used if features.semantic_cache = true
@@ -204,8 +192,6 @@ redis_minimum_tls_version   = "1.2"
 # -----------------------------------------------------------------------------
 # 14. OPTIONAL APIM EXTRA APIs (off by default in dev)
 # -----------------------------------------------------------------------------
-# DEPRECATED (ignored, see variables.tf): enable_ai_gateway_pii_redaction
-# enable_ai_gateway_pii_redaction = true
 
 # -----------------------------------------------------------------------------
 # 15. API CENTER
@@ -227,8 +213,6 @@ ai_search_instances = []
 # -----------------------------------------------------------------------------
 # 18. FOUNDRY EMBEDDINGS (semantic cache)
 # -----------------------------------------------------------------------------
-# DEPRECATED (ignored, see variables.tf): primary_foundry_embedding_model_name
-# primary_foundry_embedding_model_name = ""
 embeddings_backend_url = ""
 
 # -----------------------------------------------------------------------------

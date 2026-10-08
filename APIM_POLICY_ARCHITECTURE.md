@@ -430,9 +430,8 @@ single use-case. Inputs are `var.apim`, `var.use_case`
   `Microsoft.CognitiveServices/accounts/projects/connections@2026-03-01`
   (auth `ApiKey`, metadata from `var.foundry_config`).
 
-> This replaces the older `enable_access_contracts` + `var.access_contracts`
-> wiring. The unused in-graph `modules/access-contracts/` duplicate was removed;
-> `citadel-access-contracts/` is the single implementation.
+> `citadel-access-contracts/` is the single implementation; the root deployment
+> has no access-contract inputs.
 
 ### 9.2 LLM backend onboarding
 

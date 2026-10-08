@@ -171,7 +171,6 @@ entra_auth_enabled = false # flip to true to enable JWT auth in APIM + app regis
 entra_tenant_id    = "YOUR-ENTRA-TENANT-ID"
 entra_client_id    = "YOUR-ENTRA-CLIENT-ID"
 entra_audience     = "api://ai-citadel-prod"
-# entra_client_secret = ""   # sensitive; prefer TF_VAR_entra_client_secret
 
 # -----------------------------------------------------------------------------
 # 10. AI FOUNDRY (two instances for geo-redundancy)
@@ -242,19 +241,6 @@ ai_foundry_models = [
 # -----------------------------------------------------------------------------
 apim_log_verbosity  = "information"
 apim_log_body_bytes = 4096
-# DEPRECATED (ignored, see variables.tf): azure_monitor_log_settings
-# azure_monitor_log_settings = {
-#   enabled                 = true
-#   log_request_body_bytes  = 4096
-#   log_response_body_bytes = 4096
-# }
-# DEPRECATED (ignored, see variables.tf): app_insights_log_settings
-# app_insights_log_settings = {
-#   enabled                 = true
-#   log_request_body_bytes  = 4096
-#   log_response_body_bytes = 4096
-#   sampling_percentage     = 100
-# }
 
 # -----------------------------------------------------------------------------
 # 13. REDIS (Azure Managed Redis) — only used if features.semantic_cache = true
@@ -267,8 +253,6 @@ redis_minimum_tls_version   = "1.2"
 # -----------------------------------------------------------------------------
 # 14. OPTIONAL APIM EXTRA APIs
 # -----------------------------------------------------------------------------
-# DEPRECATED (ignored, see variables.tf): enable_ai_gateway_pii_redaction
-# enable_ai_gateway_pii_redaction = true
 
 # -----------------------------------------------------------------------------
 # 15. API CENTER
@@ -294,8 +278,6 @@ ai_search_instances = []
 # -----------------------------------------------------------------------------
 # 18. FOUNDRY EMBEDDINGS (semantic cache)
 # -----------------------------------------------------------------------------
-# DEPRECATED (ignored, see variables.tf): primary_foundry_embedding_model_name
-# primary_foundry_embedding_model_name = "text-embedding-3-large"
 embeddings_backend_url = ""
 
 # -----------------------------------------------------------------------------

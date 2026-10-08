@@ -20,31 +20,31 @@ output "database_name" {
 # Container outputs (Bicep parity)
 output "usage_container_name" {
   description = "Name of the AI usage container."
-  value       = azurerm_cosmosdb_sql_container.usage.name
+  value       = local.containers.usage.name
   # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
   depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
 }
 output "config_container_name" {
   description = "Name of the configuration container."
-  value       = azurerm_cosmosdb_sql_container.config.name
+  value       = local.containers.config.name
   # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
   depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
 }
 output "pii_container_name" {
   description = "Name of the PII usage container."
-  value       = azurerm_cosmosdb_sql_container.pii.name
+  value       = local.containers.pii.name
   # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
   depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
 }
 output "llm_usage_container_name" {
   description = "Name of the LLM usage container."
-  value       = azurerm_cosmosdb_sql_container.llm_usage.name
+  value       = local.containers.llm_usage.name
   # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
   depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
 }
 output "model_pricing_container_name" {
   description = "Name of the model pricing container."
-  value       = azurerm_cosmosdb_sql_container.model_pricing.name
+  value       = local.containers.model_pricing.name
   # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
   depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
 }

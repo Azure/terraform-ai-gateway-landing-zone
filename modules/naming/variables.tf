@@ -1,14 +1,3 @@
-variable "convention" {
-  description = "Naming convention. \"v1\" reproduces the names this repository has always generated (resource_token + random suffix), so existing deployments keep their names."
-  type        = string
-  default     = "v1"
-
-  validation {
-    condition     = contains(["v1"], var.convention)
-    error_message = "convention must be \"v1\" (the AVM-based convention arrives with the stacks in Phase 3)."
-  }
-}
-
 variable "environment_name" {
   description = "Environment name used in resource names (e.g. citadel-dev)."
   type        = string
@@ -22,11 +11,6 @@ variable "resource_group_name" {
 
 variable "subscription_id" {
   description = "Subscription ID; part of the resource_token seed."
-  type        = string
-}
-
-variable "legacy_suffix" {
-  description = "The 6-character random suffix (random_string.suffix) that v1 appends to globally unique names."
   type        = string
 }
 

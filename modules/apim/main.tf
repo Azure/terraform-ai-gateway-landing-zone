@@ -5,22 +5,6 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# STATE MIGRATION: `azapi_resource.azure_monitor_logger` → `terraform_data.*`
-# The logger used to be managed with azapi_resource, but that resource aborts
-# with "already exists" whenever the logger is present in Azure but missing
-# from state. We replaced it with a terraform_data + `az rest PUT` (idempotent
-# PUT). The `removed` block below drops the old azapi entry from state on the
-# next plan without deleting the actual Azure logger — a fresh apply then
-# upserts it through the new terraform_data resource.
-# -----------------------------------------------------------------------------
-removed {
-  from = azapi_resource.azure_monitor_logger
-  lifecycle {
-    destroy = false
-  }
-}
-
-# -----------------------------------------------------------------------------
 # API MANAGEMENT SERVICE
 # -----------------------------------------------------------------------------
 
@@ -149,12 +133,9 @@ locals {
   apim_exists = data.azapi_resource.service_state.exists
 }
 
-
 # -----------------------------------------------------------------------------
 # PRIVATE ENDPOINT (for APIM V2 SKUs)
 # -----------------------------------------------------------------------------
-
-
 
 # -----------------------------------------------------------------------------
 # APIM public network access — set AFTER activation.
@@ -163,15 +144,6 @@ locals {
 # This azapi PATCH runs once the service is active and applies the desired
 # setting (V2 SKUs only; classic SKUs always keep public access enabled).
 # -----------------------------------------------------------------------------
-
-# The v1 post-create PATCH is replaced by the module's
-# public_network_access_enabled (see module.service).
-removed {
-  from = azapi_update_resource.apim_public_network_access
-  lifecycle {
-    destroy = false
-  }
-}
 
 # -----------------------------------------------------------------------------
 # NAMED VALUES (configuration pushed into APIM policies)
@@ -205,7 +177,6 @@ resource "azurerm_api_management_named_value" "content_safety_url" {
   value               = var.content_safety_endpoint
   secret              = false
 }
-
 
 # NOTE: APIM validates <validate-jwt> <openid-config url="..."/> at fragment
 # create time even when wrapped in <choose><when>. The URL must resolve to a
@@ -280,7 +251,6 @@ resource "azurerm_api_management_product_api" "openai_default" {
   api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
 }
-
 
 # -----------------------------------------------------------------------------
 # APIM REDIS CACHE (Bicep parity: `service/caches` resource)

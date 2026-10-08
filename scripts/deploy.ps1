@@ -14,10 +14,9 @@
 # Optional add-on flags (set feature-flag Terraform variables to true):
 #   -WithEntra             Enable Entra ID app registration add-on (§19.13)
 #   -WithFoundryConn       Enable Foundry → APIM connection (§2.3)
-#   -WithAccessContracts   Enable citadel-access-contracts products (§2.3)
-#   -WithMcpSamples        Enable Weather + MS Learn MCP sample APIs
 #   -WithJwt               Populate APIM JWT-* named values (implied by -WithEntra)
-#   -WithApicOnboarding    Onboard every APIM API into API Center
+#   (MCP samples and API Center onboarding: set features.mcp_sample /
+#    features.api_center_onboarding in the tfvars.)
 #   -AllAddons             Shortcut: all -With* flags above
 #
 # Logic App code publish (on by default):
@@ -45,10 +44,7 @@ param(
     [switch]$Phased,
     [switch]$WithEntra,
     [switch]$WithFoundryConn,
-    [switch]$WithAccessContracts,
-    [switch]$WithMcpSamples,
     [switch]$WithJwt,
-    [switch]$WithApicOnboarding,
     [switch]$AllAddons,
     [switch]$SkipLogicAppCode,
     [switch]$LogicAppCodeOnly,
@@ -73,10 +69,7 @@ if ($Help) {
 if ($AllAddons) {
     $WithEntra           = $true
     $WithFoundryConn     = $true
-    $WithAccessContracts = $true
-    $WithMcpSamples      = $true
     $WithJwt             = $true
-    $WithApicOnboarding  = $true
 }
 
 $ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -89,27 +82,21 @@ function Get-AddonTfArgs {
     param([int]$Phase)
     $overrides = @()
     if ($Phase -eq 1) {
-        # Force all add-ons off for core phase
-        $overrides += '-var=enable_entra_id_setup=false'
-        $overrides += '-var=enable_foundry_apim_connection=false'
-        $overrides += '-var=enable_access_contracts=false'
-        $overrides += '-var=is_mcp_sample_deployed=false'
-        $overrides += '-var=enable_jwt_auth=false'
-        $overrides += '-var=enable_api_center_onboarding=false'
+        # Core phase: the root module forces every add-on off.
+        $overrides += '-var=rollout_phase=core'
     }
     else {
-        # Phase 2 or single-shot: set only the ones the user asked for
-        if ($WithEntra)           { $overrides += '-var=enable_entra_id_setup=true' }
-        if ($WithFoundryConn)     { $overrides += '-var=enable_foundry_apim_connection=true' }
-        if ($WithAccessContracts) { $overrides += '-var=enable_access_contracts=true' }
-        if ($WithMcpSamples)      { $overrides += '-var=is_mcp_sample_deployed=true' }
-        if ($WithJwt)             { $overrides += '-var=enable_jwt_auth=true' }
-        if ($WithApicOnboarding)  { $overrides += '-var=enable_api_center_onboarding=true' }
+        # Add-ons phase or single shot: switch on the ones asked for on the command
+        # line. MCP samples and API Center onboarding are set in the tfvars
+        # (features.mcp_sample / features.api_center_onboarding).
+        if ($WithEntra)       { $overrides += '-var=enable_entra_id_setup=true' }
+        if ($WithFoundryConn) { $overrides += '-var=enable_foundry_apim_connection=true' }
+        if ($WithJwt)         { $overrides += '-var=enable_jwt_auth=true' }
     }
 
     # Skip workflow-code publish if requested (applies to all phases).
     if ($SkipLogicAppCode) {
-        $overrides += '-var=enable_logic_app_code_deploy=false'
+        $overrides += '-var=skip_logic_app_code_deploy=true'
     }
     return $overrides
 }
@@ -128,10 +115,7 @@ if ($Phased) { Write-Info 'Rollout     : phased (core → add-ons)' } else { Wri
 $AddonsSummary = ''
 if ($WithEntra)           { $AddonsSummary += 'entra ' }
 if ($WithFoundryConn)     { $AddonsSummary += 'foundry-conn ' }
-if ($WithAccessContracts) { $AddonsSummary += 'access-contracts ' }
-if ($WithMcpSamples)      { $AddonsSummary += 'mcp-samples ' }
 if ($WithJwt)             { $AddonsSummary += 'jwt ' }
-if ($WithApicOnboarding)  { $AddonsSummary += 'apic-onboarding ' }
 if ($AddonsSummary) { Write-Info "Add-ons     : $AddonsSummary" } else { Write-Info 'Add-ons     : none (core only)' }
 Write-Host ''
 
@@ -272,16 +256,6 @@ function Invoke-PlanAndApply {
 
     terraform apply -auto-approve $planFile 2>&1 | Tee-Object -FilePath $applyLog.FullName
     $applyExit = $LASTEXITCODE
-
-    # Objects that already exist in Azure are adopted declaratively: print the
-    # matching import {} blocks to paste into imports.tf, then re-run.
-    if ($applyExit -ne 0 -and (Select-String -Path $applyLog.FullName -Pattern 'already exists' -Quiet)) {
-        Write-Warn 'Apply failed because some objects already exist in Azure. Add these import blocks to imports.tf,'
-        Write-Warn 're-run the deployment (the plan shows each import) and remove the blocks afterwards:'
-        $python = if (Get-Command python3 -ErrorAction SilentlyContinue) { 'python3' } else { 'python' }
-        & $python (Join-Path $ScriptDir 'import-blocks-from-log.py') $applyLog.FullName
-        Write-Warn 'Runbook: docs/operations/adopting-existing-resources.md'
-    }
 
     Remove-Item $applyLog.FullName -Force -ErrorAction SilentlyContinue
 

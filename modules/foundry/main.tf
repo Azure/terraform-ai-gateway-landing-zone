@@ -76,6 +76,29 @@ module "account" {
   outbound_network_access_restricted = var.outbound_allowed_fqdns != null
   fqdns                              = var.outbound_allowed_fqdns
 
+  # Model deployments of this account (Bicep: deployments.bicep), created one
+  # at a time: the account rejects concurrent deployment PUTs (409).
+  deployment_serialization_enabled = true
+  cognitive_deployments = {
+    for m in var.foundry_models : m.name => {
+      name            = m.name
+      rai_policy_name = "Microsoft.DefaultV2"
+      model = {
+        format  = m.publisher
+        name    = m.name
+        version = m.version
+      }
+      scale = {
+        type     = m.sku
+        capacity = m.capacity
+      }
+      retry = {
+        error_message_regex = ["RequestConflict", "Another operation is being performed on the parent resource"]
+        interval_seconds    = 15
+      }
+    } if m.ai_service_index == count.index
+  }
+
   # Per-instance opt-in: config.network_injection_enabled (default true) AND
   # the module-level flag AND an available agent subnet.
   network_injections = (
@@ -212,52 +235,6 @@ resource "azapi_resource" "app_insights_connection" {
   }
 }
 
-# -----------------------------------------------------------------------------
-# Model deployments
-# Bicep: modelDeployments (deployments.bicep)
-# -----------------------------------------------------------------------------
-resource "azapi_resource" "model_deployment" {
-  count = length(var.foundry_models)
-
-  type      = "Microsoft.CognitiveServices/accounts/deployments@2026-05-01"
-  name      = var.foundry_models[count.index].name
-  parent_id = local.account_ids[var.foundry_models[count.index].ai_service_index]
-
-  # API version 2026-05-01 is newer than the latest schema validation in azapi.
-  schema_validation_enabled = false
-
-  body = {
-    sku = {
-      name     = var.foundry_models[count.index].sku
-      capacity = var.foundry_models[count.index].capacity
-    }
-    properties = {
-      model = {
-        format  = var.foundry_models[count.index].publisher
-        name    = var.foundry_models[count.index].name
-        version = var.foundry_models[count.index].version
-      }
-      raiPolicyName = "Microsoft.DefaultV2"
-    }
-  }
-
-  # Serialize deployments to the same Cognitive Services account: each deployment
-  # waits for the previous one to finish. The parent does not allow concurrent
-  # PUT /deployments/<name> operations (409 RequestConflict).
-  depends_on = [
-    azapi_resource.app_insights_connection,
-  ]
-
-  # Retry on the well-known transient 409 returned while another deployment is
-  # still being created on the same account.
-  retry = {
-    error_message_regex = [
-      "RequestConflict",
-      "Another operation is being performed on the parent resource",
-    ]
-    interval_seconds = 15
-  }
-}
 
 # -----------------------------------------------------------------------------
 # Private endpoints with all required Foundry DNS zones
@@ -286,5 +263,5 @@ resource "azurerm_private_endpoint" "foundry" {
     }
   }
 
-  depends_on = [azapi_resource.model_deployment]
+  depends_on = [module.account]
 }

@@ -708,7 +708,7 @@ PowerShell (`test.ps1`):
 llm-backend-onboarding/
 ├── main.tf                    # Backends, pools, policy fragments
 ├── variables.tf               # Input variables
-├── imports.tf                 # import {} blocks that adopt existing APIM backends, fragments and named values
+├── imports.tf                 # import {} blocks that take over the backends, fragments and named values the main deployment creates
 ├── outputs.tf                 # Output values
 ├── terraform.tf               # Terraform & provider versions
 ├── tests/unit/                # Mocked unit tests (terraform test -test-directory=tests/unit)
@@ -731,7 +731,7 @@ This module is **independent** from the main Citadel Terraform deployment (`../m
 - Different teams manage infrastructure vs. model routing
 - You want to iterate quickly on backend configuration
 
-The main deployment's `modules/apim` manages the same resources as part of the full stack. If you use both, ensure your `llm_backend_config` in the main deployment's tfvars is kept in sync.
+The main deployment's `modules/apim` manages the same resources as part of the full stack. On the first apply, the `import {}` blocks in `imports.tf` bring every backend, routing fragment and named value that already exists under the APIM service (for example, the ones the main deployment created) into this configuration's state; anything missing is created. If you use both, ensure your `llm_backend_config` in the main deployment's tfvars is kept in sync.
 
 ## Related Guides
 

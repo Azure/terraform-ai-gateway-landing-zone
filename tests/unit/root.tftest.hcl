@@ -163,16 +163,6 @@ run "redis_and_entra_toggle_on" {
   # because the APIM cache count depended on the Redis connection string.
 }
 
-run "deprecated_nsg_flag_is_reported" {
-  command = plan
-
-  variables {
-    nsg_on_all_subnets = true
-  }
-
-  expect_failures = [check.deprecated_inputs]
-}
-
 run "apim_sku_family" {
   command = plan
 
@@ -265,19 +255,6 @@ run "llm_backends_auto_derived_from_foundry" {
     condition     = toset(keys(module.llm_routing.pool_ids)) == toset(["gpt-41-backend-pool"])
     error_message = "A model deployed on both Foundry instances must get a backend pool."
   }
-}
-
-# -----------------------------------------------------------------------------
-# Deprecated inputs are accepted but reported (review finding C2)
-# -----------------------------------------------------------------------------
-run "deprecated_input_is_reported" {
-  command = plan
-
-  variables {
-    cosmos_db_rus = 1000
-  }
-
-  expect_failures = [check.deprecated_inputs]
 }
 
 run "name_overrides_apply_when_dedicated_inputs_unset" {

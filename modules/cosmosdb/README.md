@@ -28,11 +28,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 
 | Name | Type |
 | ---- | ---- |
-| [azurerm_cosmosdb_sql_container.config](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/cosmosdb_sql_container) | resource |
-| [azurerm_cosmosdb_sql_container.llm_usage](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/cosmosdb_sql_container) | resource |
-| [azurerm_cosmosdb_sql_container.model_pricing](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/cosmosdb_sql_container) | resource |
-| [azurerm_cosmosdb_sql_container.pii](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/cosmosdb_sql_container) | resource |
-| [azurerm_cosmosdb_sql_container.usage](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/cosmosdb_sql_container) | resource |
 | [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/cosmosdb_sql_role_assignment) | resource |
 | [azurerm_monitor_diagnostic_setting.cosmos](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_diagnostic_setting) | resource |
 

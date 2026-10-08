@@ -58,8 +58,25 @@ variable "use_existing_resource_group" {
   default     = false
 }
 
-variable "adopt_existing_resources" {
-  description = "Set true for the run that upgrades an environment deployed before Phase 2: resources that moved to azapi-based Azure Verified Modules are imported (adopt.tf) instead of created. Leave false for new environments. See docs/operations/adopting-existing-resources.md."
+variable "rollout_phase" {
+  description = <<-EOT
+    full = deploy everything configured. core = first phase of a phased rollout
+    (scripts/deploy.sh --phased): forces the add-ons off (Entra ID setup, JWT,
+    Foundry -> APIM connections, MCP samples, API Center onboarding) so the core
+    platform converges first; the next run with "full" adds them.
+  EOT
+  type        = string
+  default     = "full"
+  nullable    = false
+
+  validation {
+    condition     = contains(["full", "core"], var.rollout_phase)
+    error_message = "rollout_phase must be full or core."
+  }
+}
+
+variable "skip_logic_app_code_deploy" {
+  description = "Skip publishing the Logic App workflow code on this run (scripts/deploy.sh --skip-logic-app-code), e.g. when the SCM endpoint is only reachable from inside the VNet."
   type        = bool
   default     = false
   nullable    = false
@@ -76,12 +93,6 @@ variable "name_overrides" {
   description = "Logical role => explicit resource name (keys: the names output of modules/naming, e.g. apim, key_vault, redis, logic_app). Empty values are ignored; the dedicated *_name variables take precedence."
   type        = map(string)
   default     = {}
-}
-
-variable "apim_service_name" {
-  description = "DEPRECATED: use apim.name. API Management service name. Leave empty for auto-generated."
-  type        = string
-  default     = null
 }
 
 variable "cosmos_db_account_name" {
@@ -224,278 +235,9 @@ variable "create_apim_gateway_key_secret" {
 # NETWORKING
 # -----------------------------------------------------------------------------
 
-variable "use_existing_vnet" {
-  description = "DEPRECATED: use network.mode. Use an existing VNet instead of creating a new one"
-  type        = bool
-  default     = null
-}
-
-variable "existing_vnet_rg" {
-  description = "DEPRECATED: use network.resource_group_name. Resource group of the existing VNet (required if use_existing_vnet = true)"
-  type        = string
-  default     = null
-}
-
-variable "vnet_name" {
-  description = "DEPRECATED: use network.vnet_name. VNet name (existing or new)"
-  type        = string
-  default     = null
-}
-
-variable "vnet_address_prefix" {
-  description = "DEPRECATED: use network.address_space. Address prefix for new VNet"
-  type        = string
-  default     = null
-}
-
-variable "apim_subnet_name" {
-  description = "DEPRECATED: use network.subnets.apim.name. APIM subnet name"
-  type        = string
-  default     = null
-}
-
-variable "apim_subnet_prefix" {
-  description = "DEPRECATED: use network.subnets.apim.prefix. APIM subnet address prefix (for new VNet)"
-  type        = string
-  default     = null
-}
-
-variable "private_endpoint_subnet_name" {
-  description = "DEPRECATED: use network.subnets.private_endpoint.name. Private endpoint subnet name"
-  type        = string
-  default     = null
-}
-
-variable "private_endpoint_subnet_prefix" {
-  description = "DEPRECATED: use network.subnets.private_endpoint.prefix. Private endpoint subnet address prefix (for new VNet)"
-  type        = string
-  default     = null
-}
-
-variable "logic_app_subnet_name" {
-  description = "DEPRECATED: use network.subnets.logic_app.name. Logic App / Function App subnet name"
-  type        = string
-  default     = null
-}
-
-variable "logic_app_subnet_prefix" {
-  description = "DEPRECATED: use network.subnets.logic_app.prefix. Logic App subnet address prefix (for new VNet)"
-  type        = string
-  default     = null
-}
-
-variable "enable_agent_subnet" {
-  description = "DEPRECATED: use network.subnets.agent.enabled. Create a dedicated subnet for Foundry Agent Service network injection."
-  type        = bool
-  default     = null
-}
-variable "agent_subnet_name" {
-  description = "DEPRECATED: use network.subnets.agent.name. Name of the Foundry agent subnet."
-  type        = string
-  default     = null
-}
-variable "agent_subnet_prefix" {
-  description = "DEPRECATED: use network.subnets.agent.prefix. Address prefix (CIDR) of the Foundry agent subnet."
-  type        = string
-  default     = null
-}
-
-variable "apim_network_type" {
-  description = "DEPRECATED: use apim.vnet_mode. APIM network type: 'External', 'Internal', or 'None'"
-  type        = string
-  default     = null
-
-  validation {
-    condition     = contains(["External", "Internal", "None"], coalesce(var.apim_network_type, "External"))
-    error_message = "Must be External, Internal, or None."
-  }
-}
-
-variable "apim_v2_use_private_endpoint" {
-  description = "DEPRECATED: use apim.private_endpoint. Enable private endpoint for APIM V2 SKUs"
-  type        = bool
-  default     = null
-}
-
-variable "apim_v2_public_network_access" {
-  description = "DEPRECATED: use apim.public_network_access. Allow public access for APIM V2 SKUs"
-  type        = bool
-  default     = null
-}
-
-# DNS Configuration
-variable "dns_zone_rg" {
-  description = "DEPRECATED: use network.private_dns.resource_group_name. Resource group containing existing Private DNS Zones"
-  type        = string
-  default     = null
-}
-
-variable "existing_private_dns_zones" {
-  description = "DEPRECATED: use network.private_dns.zone_ids. Map of existing private DNS zone resource IDs"
-  type        = map(string)
-  default     = null
-}
-
 # -----------------------------------------------------------------------------
 # COMPUTE SKU & SIZING
 # -----------------------------------------------------------------------------
-
-variable "apim_sku" {
-  description = <<-EOT
-    DEPRECATED: use apim.sku.
-    APIM SKU: Developer, StandardV2, Premium, PremiumV2.
-
-    REGION AVAILABILITY (important — v2 SKUs are NOT globally available):
-
-      - Developer / Premium (classic):
-          Globally available in virtually all Azure public regions.
-
-      - StandardV2 / PremiumV2 (stv2 platform):
-          Available in a limited subset of regions. 
-          Authoritative list (check before deploy):
-          https://learn.microsoft.com/azure/api-management/api-management-region-availability
-          az apim list-skus --location <region>
-
-    If you hit `SkuNotSupportedInRegion` at apply time, either:
-      (a) pick a supported region for `location`, or
-      (b) fall back to `Premium` (classic)
-  EOT
-  type        = string
-  default     = null
-
-  validation {
-    condition     = contains(["Developer", "StandardV2", "Premium", "PremiumV2"], coalesce(var.apim_sku, "StandardV2"))
-    error_message = "Must be Developer, StandardV2, Premium, or PremiumV2."
-  }
-}
-
-variable "apim_sku_units" {
-  description = "DEPRECATED: use apim.capacity. Number of APIM scale units"
-  type        = number
-  default     = null
-}
-
-variable "apim_publisher_email" {
-  description = "DEPRECATED: use apim.publisher_email. APIM publisher email"
-  type        = string
-  default     = null
-}
-
-variable "apim_publisher_name" {
-  description = "DEPRECATED: use apim.publisher_name. APIM publisher name"
-  type        = string
-  default     = null
-}
-
-variable "eventhub_capacity_units" {
-  description = "DEPRECATED: use usage_pipeline.eventhub.capacity. Event Hub capacity units"
-  type        = number
-  default     = null
-}
-
-variable "eventhub_disaster_recovery_config" {
-  description = <<-EOT
-    DEPRECATED: use usage_pipeline.eventhub.disaster_recovery.
-    Optional disaster recovery pairing for the Event Hub namespace (Bicep
-    parity: `disasterRecoveryConfig`). Set to `null` to skip. When provided,
-    pairs this namespace with a partner namespace under the given alias.
-    The partner namespace must already exist and match SKU tier.
-  EOT
-  type = object({
-    partner_namespace_id = string
-    alias                = optional(string, "default")
-  })
-  default = null
-}
-
-variable "logic_app_sku_size" {
-  description = "DEPRECATED: use usage_pipeline.logic_app.sku. Logic App (Standard) SKU size. Used only when logic_app_hosting_model = \"WorkflowStandard\"."
-  type        = string
-  default     = null
-}
-
-variable "logic_app_hosting_model" {
-  description = <<-EOT
-    DEPRECATED: use usage_pipeline.logic_app.hosting.
-    Hosting option for the usage-ingestion Logic App (Standard):
-
-      - "WorkflowStandard"        (default) Workflow Service Plan (WS1/WS2/WS3) with
-                                  regional VNet integration. The runtime needs an
-                                  Azure Files content share, so the storage account
-                                  MUST keep shared-key access enabled.
-      - "AppServiceEnvironmentV3" Isolated v2 plan inside a dedicated App Service
-                                  Environment v3. Runtime storage uses the usage UAMI
-                                  (AzureWebJobsStorage__* settings), no content share
-                                  is needed, and shared-key access on the storage
-                                  account is disabled.
-
-    See https://learn.microsoft.com/azure/logic-apps/create-single-tenant-workflows-azure-portal#set-up-managed-identity-access-to-your-storage-account
-  EOT
-  type        = string
-  default     = null
-
-  validation {
-    condition     = contains(["WorkflowStandard", "AppServiceEnvironmentV3"], coalesce(var.logic_app_hosting_model, "WorkflowStandard"))
-    error_message = "logic_app_hosting_model must be WorkflowStandard or AppServiceEnvironmentV3."
-  }
-}
-
-variable "logic_app_ase_sku_size" {
-  description = "DEPRECATED: use usage_pipeline.logic_app.sku. Isolated v2 App Service plan SKU for the Logic App when logic_app_hosting_model = \"AppServiceEnvironmentV3\"."
-  type        = string
-  default     = null
-
-  validation {
-    condition     = can(regex("^I[1-6]m?v2$", coalesce(var.logic_app_ase_sku_size, "I1v2")))
-    error_message = "logic_app_ase_sku_size must be an Isolated v2 SKU (I1v2..I6v2 or I1mv2..I5mv2)."
-  }
-}
-
-variable "logic_app_ase_worker_count" {
-  description = "DEPRECATED: use usage_pipeline.logic_app.worker_count. Number of Isolated v2 instances for the Logic App plan inside the ASE v3."
-  type        = number
-  default     = null
-}
-
-variable "ase_subnet_name" {
-  description = "DEPRECATED: use network.subnets.ase.name. Subnet for the App Service Environment v3 (only used when logic_app_hosting_model = \"AppServiceEnvironmentV3\"). Must be empty and delegated to Microsoft.Web/hostingEnvironments when using an existing VNet."
-  type        = string
-  default     = null
-}
-
-variable "ase_subnet_prefix" {
-  description = <<-EOT
-    DEPRECATED: use network.subnets.ase.prefix.
-    Address prefix for the ASE v3 subnet (new VNet only). Minimum /27; Microsoft
-    recommends /24 for production scale. If this range is not inside
-    vnet_address_prefix it is added to the VNet as an extra address space.
-  EOT
-  type        = string
-  default     = null
-}
-
-variable "ase_internal_load_balancing_mode" {
-  description = "DEPRECATED: use usage_pipeline.ase.internal_load_balancing_mode. ASE v3 ingress: \"Web, Publishing\" (internal/ILB — app and SCM endpoints reachable only from the VNet) or \"None\" (external, public VIP)."
-  type        = string
-  default     = null
-
-  validation {
-    condition     = contains(["None", "Web, Publishing"], coalesce(var.ase_internal_load_balancing_mode, "Web, Publishing"))
-    error_message = "ase_internal_load_balancing_mode must be \"None\" or \"Web, Publishing\"."
-  }
-}
-
-variable "ase_zone_redundant" {
-  description = "DEPRECATED: use usage_pipeline.ase.zone_redundant. Deploy the ASE v3 as zone redundant (region must support availability zones; increases minimum billed instances)."
-  type        = bool
-  default     = null
-}
-
-variable "ase_create_private_dns_zone" {
-  description = "DEPRECATED: use usage_pipeline.ase.create_private_dns_zone. For an internal (ILB) ASE v3, create the <ase>.appserviceenvironment.net private DNS zone (*, *.scm, @ records) and link it to the VNet. Set false when DNS is managed centrally (hub)."
-  type        = bool
-  default     = null
-}
 
 variable "api_center_sku" {
   description = "SKU for API Center service. Free tier is 'Free', paid tier is 'Standard'."
@@ -518,86 +260,13 @@ variable "key_vault_sku" {
 # FEATURE FLAGS
 # -----------------------------------------------------------------------------
 
-variable "enable_api_center" {
-  description = "DEPRECATED: use features.api_center. Deploy API Center as AI Registry"
-  type        = bool
-  default     = null
-}
-
-variable "enable_pii_redaction" {
-  description = "DEPRECATED: use features.pii_redaction. Enable PII detection and masking via Language Service"
-  type        = bool
-  default     = null
-}
-
-variable "enable_content_safety" {
-  description = "DEPRECATED: use features.content_safety. Enable Azure AI Content Safety"
-  type        = bool
-  default     = null
-}
-
-variable "enable_redis_cache" {
-  description = "DEPRECATED: use features.semantic_cache. Deploy Azure Managed Redis for semantic caching"
-  type        = bool
-  default     = null
-}
-
-variable "create_app_insights_dashboards" {
-  description = "DEPRECATED: use monitoring.app_insights_dashboards. Create Application Insights dashboards"
-  type        = bool
-  default     = null
-}
-
 # -----------------------------------------------------------------------------
 # LOG ANALYTICS STRATEGY
 # -----------------------------------------------------------------------------
 
-variable "use_existing_log_analytics" {
-  description = "DEPRECATED: use monitoring.log_analytics_workspace_id. Use an existing Log Analytics workspace"
-  type        = bool
-  default     = null
-}
-
-variable "existing_log_analytics_id" {
-  description = "DEPRECATED: use monitoring.log_analytics_workspace_id. Resource ID of existing Log Analytics workspace"
-  type        = string
-  default     = null
-}
-
-variable "existing_log_analytics_subscription_id" {
-  description = "DEPRECATED: use monitoring.log_analytics_subscription_id. Subscription ID of the BYO Log Analytics workspace when it lives in a different subscription than the deployment. Leave blank to default to var.subscription_id. Bicep parity: existingLogAnalyticsSubscriptionId."
-  type        = string
-  default     = null
-}
-
 # -----------------------------------------------------------------------------
 # NETWORK ACCESS SETTINGS
 # -----------------------------------------------------------------------------
-
-variable "cosmos_db_public_access" {
-  description = "DEPRECATED: use usage_pipeline.cosmos.public_network_access. Cosmos DB public network access: Enabled or Disabled"
-  type        = string
-  default     = null
-}
-
-variable "cosmos_db_local_auth_enabled" {
-  description = <<-EOT
-    DEPRECATED: use usage_pipeline.cosmos.local_auth_enabled.
-    Allow key / connection-string authentication on Cosmos DB. Default false:
-    the Logic App connects with its managed identity (Cosmos Built-in Data
-    Contributor), so no account key is needed. Set true only if an external
-    client (e.g. a Power BI report refreshed with the account key) still
-    depends on keys.
-  EOT
-  type        = bool
-  default     = null
-}
-
-variable "eventhub_network_access" {
-  description = "DEPRECATED: use usage_pipeline.eventhub.public_network_access. Event Hub public network access: Enabled or Disabled"
-  type        = string
-  default     = null
-}
 
 variable "ai_foundry_external_access" {
   description = "AI Foundry external network access"
@@ -831,18 +500,6 @@ variable "redis_minimum_tls_version" {
 # OPTIONAL APIM EXTRA APIs — Bicep parity (main.bicep feature flags)
 # -----------------------------------------------------------------------------
 
-variable "enable_ai_model_inference" {
-  description = "DEPRECATED: use features.ai_model_inference. Enable Azure AI Model Inference API in APIM."
-  type        = bool
-  default     = null
-}
-
-variable "enable_document_intelligence" {
-  description = "DEPRECATED: use features.document_intelligence. Enable Document Intelligence APIs (legacy + v4) in APIM."
-  type        = bool
-  default     = null
-}
-
 variable "enable_extra_api_diagnostics" {
   description = "Attach Application Insights and Azure Monitor diagnostics to the service APIs (AI Search, Document Intelligence). The LLM APIs always have diagnostics."
   type        = bool
@@ -869,30 +526,6 @@ variable "inference_api_type" {
     condition     = contains(["AzureOpenAI", "AzureAI", "OpenAI", "OpenAIV1"], var.inference_api_type)
     error_message = "inference_api_type must be one of AzureOpenAI, AzureAI, OpenAI, OpenAIV1."
   }
-}
-
-variable "enable_azure_ai_search" {
-  description = "DEPRECATED: use features.azure_ai_search. Enable Azure AI Search Index API in APIM."
-  type        = bool
-  default     = null
-}
-
-variable "enable_openai_realtime" {
-  description = "DEPRECATED: use features.openai_realtime. Enable OpenAI Realtime WebSocket API in APIM."
-  type        = bool
-  default     = null
-}
-
-variable "enable_unified_ai_api" {
-  description = "DEPRECATED: use features.unified_ai_api. Enable wildcard Unified AI API in APIM."
-  type        = bool
-  default     = null
-}
-
-variable "is_mcp_sample_deployed" {
-  description = "DEPRECATED: use features.mcp_sample. Deploy the sample MCP server (weather-api / weather-mcp / ms-learn-mcp)."
-  type        = bool
-  default     = null
 }
 
 # -----------------------------------------------------------------------------
@@ -922,12 +555,6 @@ variable "ai_search_instances" {
 # AZURE MONITOR PRIVATE LINK SCOPE (Bicep parity: useAzureMonitorPrivateLinkScope)
 # -----------------------------------------------------------------------------
 
-variable "use_azure_monitor_private_link_scope" {
-  description = "DEPRECATED: use monitoring.private_link_scope. Create an Azure Monitor Private Link Scope (AMPLS) for private ingestion."
-  type        = bool
-  default     = null
-}
-
 # -----------------------------------------------------------------------------
 # DIAGNOSTIC BODY-BYTE OVERRIDES (Bicep parity: azureMonitorLogSettings / appInsightsLogSettings)
 # -----------------------------------------------------------------------------
@@ -944,24 +571,6 @@ variable "use_azure_monitor_private_link_scope" {
 # LOGIC APP CONTENT SHARE (Bicep parity: logicContentShareName)
 # -----------------------------------------------------------------------------
 
-variable "logic_content_share_name" {
-  description = "DEPRECATED: use usage_pipeline.logic_app.content_share_name. Content share name used by the Logic App (WEBSITE_CONTENTSHARE). Ignored when logic_app_hosting_model = \"AppServiceEnvironmentV3\"."
-  type        = string
-  default     = null
-}
-
-variable "enable_logic_app_code_deploy" {
-  description = "DEPRECATED: use usage_pipeline.logic_app.code_deploy. Publish Logic App workflow code (src/usage-ingestion-logicapp) during `terraform apply`. Requires az CLI with the `functionapp` extension."
-  type        = bool
-  default     = null
-}
-
-variable "logic_app_code_source_path" {
-  description = "DEPRECATED: use usage_pipeline.logic_app.code_source_path. Absolute path to the Logic App Standard project folder. Defaults to the vendored accelerator under ai-hub-gateway-solution-accelerator-citadel-v1/src/usage-ingestion-logicapp."
-  type        = string
-  default     = null
-}
-
 # -----------------------------------------------------------------------------
 # APIM LOGIC PLANE — Bicep parity (§19.12)
 # -----------------------------------------------------------------------------
@@ -970,18 +579,6 @@ variable "configure_circuit_breaker" {
   description = "Enable per-backend circuit breaker rules."
   type        = bool
   default     = true
-}
-
-variable "enable_embeddings_backend" {
-  description = "DEPRECATED: use features.embeddings_backend. Register a Foundry embeddings backend for semantic caching."
-  type        = bool
-  default     = null
-}
-
-variable "enable_pii_anonymization" {
-  description = "DEPRECATED: use features.pii_anonymization. Create policy fragments for PII anonymization/deanonymization."
-  type        = bool
-  default     = null
 }
 
 variable "ms_learn_mcp_backend_url" {
@@ -1041,12 +638,6 @@ variable "entra_client_secret_rotation_days" {
   default     = 730
 }
 
-variable "enable_api_center_onboarding" {
-  description = "DEPRECATED: use features.api_center_onboarding. Register each gateway API in the API Center (requires enable_api_center=true)."
-  type        = bool
-  default     = null
-}
-
 variable "enable_foundry_apim_connection" {
   description = "Create a dedicated APIM subscription (foundry-apim-connection) and, for every Foundry project, one ApiManagement connection per entry in foundry_apim_connections that authenticates with that subscription's key."
   type        = bool
@@ -1089,96 +680,4 @@ variable "embeddings_backend_url" {
   description = "Foundry embeddings deployment endpoint (consumed only when enable_embeddings_backend = true)."
   type        = string
   default     = ""
-}
-
-
-# =============================================================================
-# DEPRECATED INPUTS
-#
-# These variables were accepted but never reached a resource (review finding C2:
-# "user input is silently dropped"). They stay declared so existing tfvars files
-# keep working, default to null, and the check below warns when one is set.
-# They will be removed in the next major release.
-# =============================================================================
-
-variable "cosmos_db_rus" {
-  description = "DEPRECATED, ignored. Cosmos DB is deployed serverless (EnableServerless); provisioned RU/s don't apply."
-  type        = number
-  default     = null
-}
-
-variable "eventhub_partition_count" {
-  description = "DEPRECATED, ignored. Partition counts are fixed (ai-usage 4, pii-usage 2); changing them recreates the hubs. Becomes configurable through the typed usage_pipeline input."
-  type        = number
-  default     = null
-}
-
-variable "logic_app_sku_tier" {
-  description = "DEPRECATED, ignored. The plan tier is derived from logic_app_sku_size / logic_app_hosting_option."
-  type        = string
-  default     = null
-}
-
-variable "dns_subscription_id" {
-  description = "DEPRECATED, ignored. Cross-subscription private DNS lookup isn't implemented; pass zone IDs through existing_private_dns_zones instead."
-  type        = string
-  default     = null
-}
-
-variable "primary_foundry_embedding_model_name" {
-  description = "DEPRECATED, ignored. Use embeddings_backend_url / enable_embeddings_backend."
-  type        = string
-  default     = null
-}
-
-variable "language_service_sku" {
-  description = "DEPRECATED, ignored. No Language resource is deployed; PII uses the Foundry endpoint."
-  type        = string
-  default     = null
-}
-
-variable "content_safety_sku" {
-  description = "DEPRECATED, ignored. No Content Safety resource is deployed; content safety uses the Foundry endpoint."
-  type        = string
-  default     = null
-}
-
-variable "enable_ai_gateway_pii_redaction" {
-  description = "DEPRECATED, ignored. PII redaction is controlled by enable_pii_redaction."
-  type        = bool
-  default     = null
-}
-
-variable "entra_client_secret" {
-  description = "DEPRECATED, ignored. No client secret is persisted from input; the Entra module manages its own secret rotation."
-  type        = string
-  default     = null
-  sensitive   = true
-}
-
-variable "azure_monitor_log_settings" {
-  description = "DEPRECATED, ignored. API diagnostics use extra_api_log_settings."
-  type = object({
-    enabled                 = optional(bool, true)
-    log_request_body_bytes  = optional(number, 8192)
-    log_response_body_bytes = optional(number, 8192)
-  })
-  default = null
-}
-
-variable "app_insights_log_settings" {
-  description = "DEPRECATED, ignored. API diagnostics use extra_api_log_settings."
-  type = object({
-    enabled                 = optional(bool, true)
-    log_request_body_bytes  = optional(number, 8192)
-    log_response_body_bytes = optional(number, 8192)
-    sampling_percentage     = optional(number, 100)
-  })
-  default = null
-}
-
-variable "nsg_on_all_subnets" {
-  description = "DEPRECATED, ignored. Every greenfield subnet now has an NSG (WP-2.6, ALZ Deny-Subnet-Without-Nsg)."
-  type        = bool
-  default     = null
 }

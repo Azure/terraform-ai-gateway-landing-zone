@@ -1,5 +1,5 @@
 # =============================================================================
-# Typed inputs (WP-1.3): defaults, deprecated flat shims and validations.
+# Typed inputs: defaults, effective configuration and validations.
 #   terraform init -backend=false && terraform test -test-directory=tests/unit
 # =============================================================================
 
@@ -76,32 +76,28 @@ variables {
 
 # -----------------------------------------------------------------------------
 # Naming
-run "typed_defaults_match_v1_defaults" {
+run "typed_defaults" {
   command = plan
 
   assert {
     condition     = local.apim_cfg.sku == "StandardV2" && local.apim_cfg.capacity == 1 && local.apim_cfg.vnet_mode == "integration" && local.apim_cfg.private_endpoint
-    error_message = "APIM defaults must match v1 (StandardV2, 1 unit, outbound integration, PE on)."
+    error_message = "APIM defaults must be (StandardV2, 1 unit, outbound integration, PE on)."
   }
   assert {
     condition     = !local.network_cfg.byo && local.network_cfg.address_space == "10.170.0.0/24" && local.network_cfg.subnets.apim.name == "snet-citadel-apim" && local.network_cfg.subnets.agent.enabled
-    error_message = "Network defaults must match v1."
+    error_message = "Network defaults."
   }
   assert {
     condition     = local.features.api_center && local.features.pii_redaction && !local.features.semantic_cache && !local.features.mcp_sample
-    error_message = "Feature defaults must match v1."
+    error_message = "Feature defaults."
   }
   assert {
     condition     = local.usage_cfg.logic_app.hosting_model == "WorkflowStandard" && local.usage_cfg.logic_app.ws_sku == "WS1" && local.usage_cfg.logic_app.ase_sku == "I1v2"
-    error_message = "Usage pipeline defaults must match v1."
+    error_message = "Usage pipeline defaults."
   }
   assert {
     condition     = !local.monitoring_cfg.byo_workspace && local.monitoring_cfg.workspace_id == "" && local.monitoring_cfg.app_insights_dashboards
-    error_message = "Monitoring defaults must match v1."
-  }
-  assert {
-    condition     = length([for k, set in local.deprecated_flat_inputs : k if set]) == 0
-    error_message = "No deprecated flat input is set by default."
+    error_message = "Monitoring defaults."
   }
 }
 
@@ -114,7 +110,7 @@ run "classic_sku_defaults_to_external_injection" {
 
   assert {
     condition     = local.apim_cfg.vnet_mode == "external" && local.apim_network_type == "External"
-    error_message = "Classic SKUs keep v1's External default."
+    error_message = "Classic SKUs default to external VNet injection."
   }
 }
 
@@ -151,29 +147,6 @@ run "typed_inputs_drive_effective_config" {
     condition     = local.monitoring_cfg.byo_workspace
     error_message = "A workspace ID means BYO Log Analytics."
   }
-}
-
-run "flat_shims_win_and_warn" {
-  command = plan
-
-  variables {
-    apim                    = { sku = "StandardV2" }
-    apim_sku                = "Premium"
-    apim_network_type       = "Internal"
-    enable_redis_cache      = true
-    logic_app_hosting_model = "AppServiceEnvironmentV3"
-  }
-
-  assert {
-    condition     = local.apim_cfg.sku == "Premium" && local.apim_network_type == "Internal" && local.features.semantic_cache && local.usage_cfg.logic_app.hosting == "ase_v3"
-    error_message = "A non-null flat input must override the typed attribute."
-  }
-  assert {
-    condition     = toset([for k, set in local.deprecated_flat_inputs : k if set]) == toset(["apim_sku -> apim.sku", "apim_network_type -> apim.vnet_mode", "enable_redis_cache -> features.semantic_cache", "logic_app_hosting_model -> usage_pipeline.logic_app.hosting"])
-    error_message = "Every flat input that is set must be reported with its replacement."
-  }
-
-  expect_failures = [check.deprecated_flat_inputs]
 }
 
 run "rejects_vnet_mode_not_supported_by_sku" {
@@ -291,16 +264,6 @@ run "byo_workspace_id_must_be_a_resource_id" {
   }
 
   expect_failures = [var.monitoring]
-}
-
-# adopt.tf (Phase 2): greenfield deployments never probe for existing resources.
-run "greenfield_does_not_probe_for_v1_resources" {
-  command = plan
-
-  assert {
-    condition     = length(data.azapi_resource.adopt) == 0 && length(data.azapi_resource.adopt_content_share) == 0
-    error_message = "Without adopt_existing_resources no adoption probe (and no import) may run."
-  }
 }
 
 run "alz_spoke_creates_subnets_in_the_vended_vnet" {

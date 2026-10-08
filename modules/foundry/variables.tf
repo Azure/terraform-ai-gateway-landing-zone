@@ -181,7 +181,7 @@ variable "account_names" {
 }
 
 variable "outbound_allowed_fqdns" {
-  description = "Restrict the Foundry accounts' outbound network access to these FQDNs. null = unrestricted (v1 behaviour)."
+  description = "Restrict the Foundry accounts' outbound network access to these FQDNs. null = unrestricted."
   type        = list(string)
   default     = null
 }

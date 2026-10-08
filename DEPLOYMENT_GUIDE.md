@@ -31,13 +31,17 @@ The Bicep accelerator deploys its stack in **two tiers**:
 graph and resolves ordering through resource references + `depends_on`. As a
 result:
 
-- A single `terraform apply` can deploy the entire stack, including Entra ID,
-  Foundry→APIM connection, and access contracts.
+- A single `terraform apply` can deploy the entire stack, including Entra ID
+  and the Foundry→APIM connection: every resource name is derived
+  deterministically, so all names are known at plan time. Per-use-case access
+  contracts are a separate root module,
+  [citadel-access-contracts/](citadel-access-contracts/README.md).
 - All follow-ons are gated by **feature-flag variables** (`enable_*` and the
   typed `features` object) so you still choose what to roll out.
 - If you prefer the Bicep workflow (stage core, validate, then enable
   add-ons), the `--phased` deploy-script mode gives you two sequential
-  `plan`/`apply` passes against the same state.
+  `plan`/`apply` passes against the same state: phase 1 with
+  `rollout_phase = "core"` (add-ons forced off), phase 2 with the add-ons.
 
 ---
 
@@ -77,10 +81,7 @@ difference is flag syntax: Bash uses `--kebab-case` flags, PowerShell uses
 | `--phased` | `-Phased` |
 | `--with-entra` | `-WithEntra` |
 | `--with-foundry-conn` | `-WithFoundryConn` |
-| `--with-access-contracts` | `-WithAccessContracts` |
-| `--with-mcp-samples` | `-WithMcpSamples` |
 | `--with-jwt` | `-WithJwt` |
-| `--with-apic-onboarding` | `-WithApicOnboarding` |
 | `--all-addons` | `-AllAddons` |
 | `--skip-logic-app-code` | `-SkipLogicAppCode` |
 | `--logic-app-code-only` | `-LogicAppCodeOnly` |
@@ -109,7 +110,7 @@ Terraform builds a DAG from every explicit reference + `depends_on` clause.
 The effective order for a full deployment is:
 
 ```text
-0. Random suffix + Resource Group
+0. Naming (deterministic, known at plan time) + Resource Group
 1. networking         ── VNet, subnets, NSGs, route table (greenfield); subnets + NSGs + UDR to
                          the hub firewall in the vended VNet (alz_spoke); BYO = data lookups in network.tf
    private_dns        ── private DNS zones + VNet links (created or supplied IDs; none in alz_spoke)
@@ -141,8 +142,10 @@ The effective order for a full deployment is:
                          tfvars; gated by `usage_pipeline.logic_app.code_deploy`.
 8. foundry.connection_apim
                       ── (optional) Foundry project → APIM connection
-9. access_contracts   ── (optional) per-use-case APIM products + policies
 ```
+
+Per-use-case access contracts (APIM products + policies) are applied
+separately, from [citadel-access-contracts/](citadel-access-contracts/README.md).
 
 Anything upstream is mandatory; anything marked `(optional)` is gated by a
 feature flag.
@@ -156,19 +159,19 @@ Every add-on defaults to **off** unless listed otherwise. You can set them in
 the `--with-*` shortcuts in [scripts/deploy.sh](scripts/deploy.sh).
 
 Gateway capabilities live in the typed `features` object (see
-[VARIABLES.md §6](VARIABLES.md#6-feature-flags-features)); the deploy-script
-shortcuts still pass the equivalent **deprecated flat inputs** (e.g.
-`-var=is_mcp_sample_deployed=true`), which override the typed attribute and
-raise the `deprecated_flat_inputs` plan warning. Both names are listed below.
+[VARIABLES.md §6](VARIABLES.md#6-feature-flags-features)) and are set in the
+tfvars only — the deploy-script shortcuts cover the identity / connection
+add-ons. `rollout_phase = "core"` (what `--phased` passes for phase 1) forces
+every add-on below that has a shortcut flag, plus `features.mcp_sample` and
+`features.api_center_onboarding`, off.
 
 | Variable | Default | Shortcut flag | Effect |
 |---|---|---|---|
 | `enable_entra_id_setup` | `false` | `--with-entra` | Creates Entra ID app registration, service principal, client secret → KV; auto-populates APIM JWT-* named values. |
 | `enable_foundry_apim_connection` | `false` | `--with-foundry-conn` | Creates Foundry project → APIM connection (ApiKey) + dedicated APIM subscription. |
-| `enable_access_contracts` | `false` | `--with-access-contracts` | Reads the `access_contracts` map and creates per-use-case APIM products, policies, subscriptions, and optional KV secrets + Foundry connections. |
-| `features.mcp_sample` (flat: `is_mcp_sample_deployed`) | `false` | `--with-mcp-samples` | Enables Weather API + Weather MCP + MS Learn MCP APIs. |
+| `features.mcp_sample` | `false` | — | Enables Weather API + Weather MCP + MS Learn MCP APIs. |
 | `enable_jwt_auth` | `false` | `--with-jwt` | Populates JWT-* named values from `jwt_tenant_id` / `jwt_app_registration_id`. Auto-overridden by `enable_entra_id_setup`. |
-| `features.api_center_onboarding` (flat: `enable_api_center_onboarding`) | `false` | `--with-apic-onboarding` | Registers each APIM API in API Center with version + definition + deployment records. |
+| `features.api_center_onboarding` | `false` | — | Registers each APIM API in API Center with version + definition + deployment records. |
 | `features.unified_ai_api` | depends on tfvars | — | Wildcard unified AI API. |
 | `features.azure_ai_search` | depends on tfvars | — | AI Search Index API + backends from `ai_search_instances`. |
 | `features.document_intelligence` | depends on tfvars | — | Legacy `/formrecognizer` + current `/documentintelligence` APIs. |
@@ -179,7 +182,7 @@ raise the `deprecated_flat_inputs` plan warning. Both names are listed below.
 | `features.api_center` | `true` | — | Provisions the API Center service (workspace, environments, metadata schemas). |
 | `usage_pipeline.eventhub.disaster_recovery` | empty | — | Optional EH DR namespace pairing. |
 | `configure_circuit_breaker` | `false` | — | Adds circuit-breaker rules to LLM backends. |
-| `usage_pipeline.logic_app.code_deploy` (flat: `enable_logic_app_code_deploy`) | `false` (`true` in the example tfvars) | `--skip-logic-app-code` (inverse) | Zips and publishes `logicapp-src/usage-ingestion-logicapp` to the Logic App Standard site after infra is ready. See §7.8. |
+| `usage_pipeline.logic_app.code_deploy` | `false` (`true` in the example tfvars) | `--skip-logic-app-code` (sets `skip_logic_app_code_deploy = true` for that run) | Zips and publishes `logicapp-src/usage-ingestion-logicapp` to the Logic App Standard site after infra is ready. See §7.8. |
 
 ---
 
@@ -244,7 +247,7 @@ approved private endpoint first. The first apply therefore creates the service
 **public** together with its private endpoint; the requested setting is applied
 on the **next apply**, once the service and its private endpoint exist
 (`modules/apim` probes for the existing service at plan time). Run the deploy
-twice for a private gateway. This replaces the v1 post-create `azapi` PATCH.
+twice for a private gateway.
 `public_network_access = false` requires `apim.private_endpoint = true`
 (precondition); classic SKUs always keep public access.
 
@@ -332,10 +335,11 @@ configs):**
 
 ### 6.1 Single-apply mode (Terraform-native)
 
-Deploy everything in one pass:
+Deploy everything in one pass (with `features.mcp_sample` and
+`features.api_center_onboarding` set in the tfvars if you want them):
 
 ```bash
-./scripts/deploy.sh dev --with-entra --with-foundry-conn --with-access-contracts --with-mcp-samples --with-apic-onboarding
+./scripts/deploy.sh dev --with-entra --with-foundry-conn
 ```
 
 Or the shorthand:
@@ -345,7 +349,7 @@ Or the shorthand:
 ```
 
 Terraform computes the full graph and creates dependencies correctly in one
-`apply`. This is the **recommended path** for most environments — it's
+`apply` — every resource name is known at plan time. This is the **recommended path** for most environments — it's
 faster, atomic, and gives you a single state snapshot.
 
 ### 6.2 Phased mode (Bicep-style follow-ons)
@@ -360,11 +364,12 @@ The script performs:
 
 | Phase | What runs | What's forced off |
 |---|---|---|
-| Phase 1 — `core` | networking, monitoring, data, APIM service + backends + fragments + APIs | `enable_entra_id_setup=false`, `enable_foundry_apim_connection=false`, `enable_access_contracts=false`, `is_mcp_sample_deployed=false`, `enable_jwt_auth=false`, `enable_api_center_onboarding=false` |
-| Phase 2 — `add-ons` | Re-applies with the selected `--with-*` flags enabled; only the add-on resources change | nothing forced — uses your flag selection |
+| Phase 1 — `core` | networking, monitoring, data, APIM service + backends + fragments + APIs | `-var=rollout_phase=core` forces off Entra ID setup, JWT auth, the Foundry → APIM connections, `features.mcp_sample` and `features.api_center_onboarding` |
+| Phase 2 — `add-ons` | Re-applies with `rollout_phase = "full"` (default) and the selected `--with-*` flags enabled; only the add-on resources change | nothing forced — uses your flag selection and tfvars |
 
 This mirrors the Bicep "deploy + follow-on" workflow without splitting the
-state. If you pass `--phased` without any `--with-*` flags, phase 2 is a
+state. If you pass `--phased` without any `--with-*` flags (and with
+`features.mcp_sample` / `features.api_center_onboarding` off), phase 2 is a
 no-op (plan reports "no changes").
 
 ### 6.3 Single add-on later
@@ -376,7 +381,7 @@ After a successful core deployment, enable just one add-on:
 ```
 
 Terraform plan shows exactly the new resources (≈6 for Entra, ≈2–5 for
-Foundry connection, N×6 for access contracts). You can keep re-running with
+Foundry connection). You can keep re-running with
 different flags without touching anything else.
 
 ---
@@ -446,13 +451,15 @@ the subscription resource directly.
 ./scripts/deploy.sh dev --with-foundry-conn
 ```
 
-### 7.3 Access contracts (`--with-access-contracts`)
+### 7.3 Access contracts (separate root module)
 
 **Bicep parity:** `citadel-access-contracts/main.bicep` + its 3 sub-modules.
 
-**What gets created** ([citadel-access-contracts/](citadel-access-contracts/)):
+Access contracts are not part of the root deployment and have no deploy-script
+flag: they are applied from [citadel-access-contracts/](citadel-access-contracts/README.md),
+an independent root module with its own state, against an already-deployed hub.
 
-Per entry in `var.access_contracts`:
+**What gets created** — for the `use_case` in its tfvars, per entry in `services`:
 
 - `azurerm_api_management_product` + display name, description, terms.
 - `azurerm_api_management_product_api` (per allowed API).
@@ -465,27 +472,13 @@ Per entry in `var.access_contracts`:
 
 **Example:**
 
-```hcl
-# environments/dev.tfvars
-access_contracts = [
-  {
-    name          = "marketing-team"
-    display_name  = "Marketing team"
-    apis          = ["universal-llm-api", "unified-ai-api"]
-    models        = ["gpt-4o", "gpt-4o-mini"]
-    jwt_required  = true
-    write_kv_key  = true
-    foundry_project = "marketing-proj"
-  },
-  # …
-]
-```
-
 ```bash
-./scripts/deploy.sh dev --with-access-contracts
+cd citadel-access-contracts
+cp terraform.tfvars.example terraform.tfvars   # fill in apim, use_case, services
+./scripts/deploy.sh
 ```
 
-### 7.4 MCP samples (`--with-mcp-samples`)
+### 7.4 MCP samples (`features.mcp_sample`)
 
 **Bicep parity:** `mcp-from-api.bicep` + `mcp-existing.bicep`.
 
@@ -497,11 +490,19 @@ Enables two APIM MCP resources:
 
 **Example:**
 
-```bash
-./scripts/deploy.sh dev --with-mcp-samples
+```hcl
+# environments/dev.tfvars
+features = {
+  # …
+  mcp_sample = true
+}
 ```
 
-### 7.5 API Center onboarding (`--with-apic-onboarding`)
+```bash
+./scripts/deploy.sh dev
+```
+
+### 7.5 API Center onboarding (`features.api_center_onboarding`)
 
 **Bicep parity:** `apim/api-center-onboarding.bicep`.
 
@@ -521,8 +522,16 @@ only controls the per-API record creation.
 
 **Example:**
 
+```hcl
+# environments/dev.tfvars
+features = {
+  # …
+  api_center_onboarding = true
+}
+```
+
 ```bash
-./scripts/deploy.sh dev --with-apic-onboarding
+./scripts/deploy.sh dev
 ```
 
 ### 7.6 JWT auth without Entra (`--with-jwt`)
@@ -608,10 +617,9 @@ accelerator's `azure.yaml`.
 # `module.logic_app.null_resource.publish_workflows[0]`
 ./scripts/deploy.sh dev --logic-app-code-only
 
-# Point at a fork or a locally-modified project tree
-# (TF_VAR_logic_app_code_source_path is a deprecated flat input; it overrides
-#  usage_pipeline.logic_app.code_source_path and raises a plan warning)
-export TF_VAR_logic_app_code_source_path=/path/to/my/workflows
+# Point at a fork or a locally-modified project tree: set
+# usage_pipeline.logic_app.code_source_path = "/path/to/my/workflows"
+# in environments/dev.tfvars, then
 ./scripts/deploy.sh dev --logic-app-code-only
 ```
 
@@ -643,12 +651,14 @@ Approx. 40 resources beyond core. Good for local demos.
 # Phase 2: identity
 ./scripts/deploy.sh prod --with-entra
 
-# Verify Entra secret landed in KV, then enable JWT
-./scripts/deploy.sh prod --with-entra --with-apic-onboarding
+# Verify Entra secret landed in KV, then set features.api_center_onboarding = true
+# in environments/prod.tfvars
+./scripts/deploy.sh prod --with-entra
 
 # Phase 3: downstream consumers
-./scripts/deploy.sh prod --with-entra --with-apic-onboarding \
-  --with-foundry-conn --with-access-contracts
+./scripts/deploy.sh prod --with-entra --with-foundry-conn
+
+# Per-use-case access contracts: citadel-access-contracts/ (separate state)
 ```
 
 Each run is idempotent; re-running with the same flags is a no-op.
@@ -661,8 +671,8 @@ Each run is idempotent; re-running with the same flags is a no-op.
 
 The script executes:
 
-1. `terraform plan -var=enable_entra_id_setup=false … -out=plan-core` → apply
-2. `terraform plan -var=enable_entra_id_setup=true  … -out=plan-addons` → apply
+1. `terraform plan -var=rollout_phase=core … -out=plan-core` → apply
+2. `terraform plan -var=enable_entra_id_setup=true … -out=plan-addons` → apply
 
 Same end state as `--all-addons` without `--phased`, but with an
 intermediate checkpoint.
@@ -672,8 +682,8 @@ intermediate checkpoint.
 Run without the flag. Terraform plans a destroy of just that module:
 
 ```bash
-# Was: ./scripts/deploy.sh dev --with-access-contracts
-./scripts/deploy.sh dev            # plan shows destroy of access-contracts
+# Was: ./scripts/deploy.sh dev --with-foundry-conn
+./scripts/deploy.sh dev            # plan shows destroy of the Foundry connections
 ```
 
 Destroys are limited to the feature-flagged resources; core stays.
@@ -695,39 +705,7 @@ The Bicep `apim-gateway-upgrade/` sub-deployment isn't needed. Change
 `apim.sku` + `apim.capacity` in your tfvars and re-run — Terraform
 applies the SKU change in place on the existing APIM resource.
 
-### 9.3 Adopting resources that already exist
-
-If a resource exists in Azure but not in the Terraform state (e.g. after a
-previous partial run or a state loss), apply fails with `already exists`.
-`deploy.sh` / `deploy.ps1` then print the matching `import {}` blocks (via
-[scripts/import-blocks-from-log.py](scripts/import-blocks-from-log.py)). Paste
-them into an `imports.tf`, re-run (the plan lists each import), and remove the
-blocks afterwards. Nothing is imported behind your back. See
-[docs/operations/adopting-existing-resources.md](docs/operations/adopting-existing-resources.md).
-
-#### Upgrading an existing (v1) environment
-
-Phase 2 moved most resources onto Azure Verified Modules (AVM). Where an AVM
-module manages its resource with `azapi` instead of `azurerm` (usage-pipeline
-storage account + content share + App Service plan; greenfield VNet, subnets,
-NSGs + APIM NSG rules, private DNS zones + VNet links), a `moved {}` block
-can't carry the state across, so the v1 resource is dropped from state and
-re-imported by [adopt.tf](adopt.tf). For the run that upgrades an environment
-deployed before Phase 2, set:
-
-```hcl
-adopt_existing_resources = true
-```
-
-Each import runs only when the Azure resource exists (probed at plan time);
-check that the plan shows `will be imported` and that nothing is replaced or
-destroyed, apply, then set it back to `false` (or leave it — the imports are
-no-ops once the resources are in state). New environments leave it `false`.
-Without the flag, the upgrade apply fails with `already exists` for the adopted
-resources; re-run with it set. Full runbook:
-[docs/operations/adopting-existing-resources.md](docs/operations/adopting-existing-resources.md).
-
-### 9.4 Validation notebooks (`validation/` + `shared/`)
+### 9.3 Validation notebooks (`validation/` + `shared/`)
 
 The Jupyter test suite ported from the upstream accelerator lives in
 [validation/](validation/) with its Python helpers in [shared/](shared/). The
@@ -791,7 +769,7 @@ variable map.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `terraform init` downloads `azuread` even with `enable_entra_id_setup = false` | Provider is declared globally | Expected; the provider is harmless until a resource is created. |
-| `A resource with the ID "…applications/…" already exists` | Azure AD app with same display name exists from a prior run | `terraform import module.entra_id[0].azuread_application.gateway /applications/<object-id>` |
+| `A resource with the ID "…applications/…" already exists` | Azure AD app with same display name exists from a prior run | Delete the leftover app registration (`az ad app delete --id <app-id>`) or change `entra_app_display_name_prefix`, then re-run. |
 | `Unauthorized: The client does not have authorization to perform action 'Microsoft.KeyVault/vaults/secrets/write'` | Current user lacks KV Secrets Officer role | Use the printed `az role assignment create` command from the Key Vault module outputs. |
 | APIM deployment stuck ~30 min | First-time APIM provisioning is slow | Normal; don't cancel. Use `az apim list -g <rg>` to check `provisioningState`. |
 | `enable_jwt_auth=true` but JWT fails at runtime | `jwt_tenant_id`/`jwt_app_registration_id` placeholders | Enable Entra add-on (`--with-entra`) or set the variables explicitly. |
@@ -834,10 +812,9 @@ For a hard reset set the var to `true` in your tfvars and re-run destroy.
 # Individual add-ons
 ./scripts/deploy.sh dev --with-entra
 ./scripts/deploy.sh dev --with-foundry-conn
-./scripts/deploy.sh dev --with-access-contracts
-./scripts/deploy.sh dev --with-mcp-samples
-./scripts/deploy.sh dev --with-apic-onboarding
 ./scripts/deploy.sh dev --with-jwt
+# (MCP samples / API Center onboarding: features.mcp_sample /
+#  features.api_center_onboarding in the tfvars)
 
 # Combinations
 ./scripts/deploy.sh dev --with-entra --with-foundry-conn
@@ -875,9 +852,6 @@ Every command above has a PowerShell twin (see §2.1 for the full flag map):
 # Individual add-ons
 ./scripts/deploy.ps1 dev -WithEntra
 ./scripts/deploy.ps1 dev -WithFoundryConn
-./scripts/deploy.ps1 dev -WithAccessContracts
-./scripts/deploy.ps1 dev -WithMcpSamples
-./scripts/deploy.ps1 dev -WithApicOnboarding
 ./scripts/deploy.ps1 dev -WithJwt
 
 # Combinations
