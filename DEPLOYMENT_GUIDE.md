@@ -1,938 +1,332 @@
-# AI Citadel Governance Hub — Terraform Deployment Guide
+# AI Gateway Landing Zone — Deployment Guide
 
-> **Scope:** This document covers the full deployment lifecycle for the Terraform
-> port of the AI Hub Gateway Citadel accelerator: prerequisites, ordering,
-> rollout strategies, every optional add-on, and the exact commands for each
-> scenario.
->
-> **Related files:**
-> [scripts/deploy.sh](scripts/deploy.sh) / [scripts/deploy.ps1](scripts/deploy.ps1) ·
-> [environments/dev.tfvars.example](environments/dev.tfvars.example) ·
-> [environments/prod.tfvars.example](environments/prod.tfvars.example)
+How to deploy and run the gateway: the stack layout, the commands (Task or
+plain Terraform), CI/CD, day-2 operations and troubleshooting. The scenario
+templates are in [examples/](examples/) and described in
+[docs/deployment-scenarios.md](docs/deployment-scenarios.md).
 
 ---
 
-## 1. Mental model: how this differs from Bicep
+## 1. Mental model
 
-The Bicep accelerator deploys its stack in **two tiers**:
+The deployment is split into **stacks**: small root configurations, each with
+its own state, applied in order. A change in a lower layer never requires
+planning a higher one, and a policy edit doesn't refresh Cosmos DB.
 
-1. **`main.bicep`** — core resource plane + APIM + APIC.
-2. **Follow-on sub-deployments** (separate `az deployment sub create`
-   invocations) for pieces that `main.bicep` cannot express inline:
-   - `entra-id-setup/setup.ps1` — needs MS Graph (not ARM).
-   - `foundry-integration/connection-apim.bicep` — needs the APIM subscription
-     key as a **runtime input**.
-   - `citadel-access-contracts/main.bicep` — per-use-case products that change
-     often post-deploy.
-   - `llm-backend-onboarding/` — adding/removing models.
-   - `apim-gateway-upgrade/` — changing APIM SKU.
+| # | Stack | Owns | Typical duration (new env) | Runs when |
+|---|---|---|---|---|
+| 0 | [bootstrap](stacks/bootstrap/) | State account (one container per stack), workload resource group, plan + apply pipeline identities, their RBAC | 2–3 min | once, by an Owner (`task bootstrap`) |
+| 1 | [identity](stacks/identity/) | Entra app APIM validates JWTs against (no client secret) | < 1 min | `identity.tfvars` exists |
+| 2 | [network](stacks/network/) | `greenfield`: VNet, subnets, NSGs, private DNS zones. `alz_spoke`: subnets + NSGs + UDR in the vended VNet | 2–5 min | `network.tfvars` exists (not in `byo`) |
+| 2b | [app-hosting](stacks/app-hosting/) | ILB App Service Environment v3 + its private DNS zone | **2–4 h** | `app-hosting.tfvars` exists (keyless usage pipeline) |
+| 3 | [platform](stacks/platform/) | Identities, monitoring, Key Vault, Cosmos DB, Event Hub, Foundry, Redis, API Center, APIM service + telemetry, usage-ingestion Logic App | 45–90 min (APIM) | always |
+| 4 | [gateway-config](stacks/gateway-config/) | Named values, shared policy fragments, non-LLM backends, service APIs, API Center registrations | 5–10 min | always |
+| 5 | [llm-backend-onboarding](stacks/llm-backend-onboarding/) | LLM backends and pools (derived from the Foundry deployments), routing and model-aware fragments, LLM APIs, backend credentials | 2–5 min | always |
+| 6 | [access-contracts](stacks/access-contracts/) | Per use case: products, subscriptions, Key Vault secrets, Foundry connection — **one state per use case** | ~1 min each | one file per use case |
 
-**Terraform has no such split.** The port folds every follow-on into the root
-graph and resolves ordering through resource references + `depends_on`. As a
-result:
+**How stacks find each other.** Every stack computes the same names from
+`workload`, `environment` and `subscription_id` ([modules/naming](modules/naming/)),
+and looks up what other stacks own with data sources. There's no
+`terraform_remote_state` and nothing to copy between stacks. Only things that
+can't be found by name come from tfvars: hub-provided IDs in an ALZ, or the
+Entra app values when Graph permissions are kept off the pipeline.
 
-- A single `terraform apply` can deploy the entire stack, including Entra ID
-  and the Foundry→APIM connection: every resource name is derived
-  deterministically, so all names are known at plan time. Per-use-case access
-  contracts are a separate root module,
-  [citadel-access-contracts/](citadel-access-contracts/README.md).
-- All follow-ons are gated by **feature-flag variables** (`enable_*` and the
-  typed `features` object) so you still choose what to roll out.
-- If you prefer the Bicep workflow (stage core, validate, then enable
-  add-ons), the `--phased` deploy-script mode gives you two sequential
-  `plan`/`apply` passes against the same state: phase 1 with
-  `rollout_phase = "core"` (add-ons forced off), phase 2 with the add-ons.
+**Two resource groups per environment:** `rg-<workload>-<env>-tfstate` (state
+and pipeline identities) and `rg-<workload>-<env>` (everything else). Both are
+created by `bootstrap`, so the apply identity's rights stop at the workload
+group.
 
 ---
 
 ## 2. Prerequisites
 
-| Requirement | Version | Notes |
+| Tool | Version | Why |
 |---|---|---|
-| Terraform | ≥ 1.11 (CI uses the version in `.terraform-version`) | Declared in [terraform.tf](terraform.tf) |
-| Azure CLI (`az`) | ≥ 2.57 | Used for auth + RP registration + Logic App code publish (uses core `az functionapp` commands; no extensions needed) |
-| `azurerm` provider | `~> 4.0` | Auto-installed by `terraform init` |
-| `azapi` provider | `~> 2.0` | Used for APIM v2 backends, MCP, APIC |
-| `azuread` provider | `~> 3.0` | Only installed/used when `enable_entra_id_setup = true` |
-| `archive` / `null` providers | `~> 2.5` / `~> 3.2` | Used by the Logic App workflow-code publish step |
-| Azure subscription | Owner or equivalent | Creates RBAC role assignments |
-| Tenant permissions (Entra add-on only) | `Application.ReadWrite.All` | Required to create app registrations |
-
-Sign in before anything else:
+| Terraform | `.terraform-version` (1.16.x) | Stacks pin `~> 1.11`; `tenv`/`tfenv` read the file |
+| [Task](https://taskfile.dev) | ≥ 3.40 | `Taskfile.yml`. Install: `brew install go-task` · `winget install Task.Task` · `npm i -g @go-task/cli` |
+| Azure CLI | current | Sign-in; `zip_deploy` workflow publishing; `scripts/validate.sh` |
+| `gh` (optional) | current | GitHub environments and variables (§7) |
 
 ```bash
-az login
-az account set --subscription "<your-subscription-id>"
+az login --tenant <tenant-id>
+az account set --subscription <workload-subscription-id>
 ```
 
-### 2.1 Script flavors: Bash & PowerShell
+Providers use the CLI token locally and OIDC in CI. The state backend uses
+Entra ID (`use_azuread_auth = true`), never storage keys.
 
-Every helper in [scripts/](scripts/) ships in **two interchangeable flavors** —
-Bash (`*.sh`) and PowerShell 7+ (`*.ps1`). Both drive the same Terraform graph;
-pick whichever suits your shell. This guide's examples use the Bash form, but
-every `./scripts/*.sh` command has a `./scripts/*.ps1` equivalent. The only
-difference is flag syntax: Bash uses `--kebab-case` flags, PowerShell uses
-`-PascalCase` switches.
-
-| Bash (`deploy.sh`) | PowerShell (`deploy.ps1`) |
-|---|---|
-| `dev` / `prod` (positional) | `dev` / `prod` (positional) |
-| `--auto-approve` | `-AutoApprove` |
-| `--phased` | `-Phased` |
-| `--with-entra` | `-WithEntra` |
-| `--with-foundry-conn` | `-WithFoundryConn` |
-| `--with-jwt` | `-WithJwt` |
-| `--all-addons` | `-AllAddons` |
-| `--skip-logic-app-code` | `-SkipLogicAppCode` |
-| `--logic-app-code-only` | `-LogicAppCodeOnly` |
-| `--help` | `-Help` |
-
-**Example (identical result):**
-
-```bash
-./scripts/deploy.sh prod --all-addons --phased --auto-approve
-```
-
-```powershell
-./scripts/deploy.ps1 prod -AllAddons -Phased -AutoApprove
-```
-
-The same mapping applies to the other helpers:
-[bootstrap-state](scripts/bootstrap-state.ps1),
-[validate](scripts/validate.ps1) and [destroy](scripts/destroy.ps1) all expose `.ps1` equivalents
-with positional `dev`/`prod` arguments.
+**Rights.** `task bootstrap` needs **Owner** on the subscription once (it also
+registers the resource providers and, with `graph_permissions = true`, grants
+Graph app roles — that part needs a Privileged Role Administrator). Afterwards
+you act as the **apply identity**: Contributor + RBAC Administrator
+(conditioned: no Owner / User Access Administrator / RBAC Administrator) on the
+workload group, Storage Blob Data Contributor on the state account, and for
+`stacks/identity` Graph `Application.ReadWrite.OwnedBy`.
 
 ---
 
-## 3. Execution ordering (what runs and when)
+## 3. Environment folder
 
-Terraform builds a DAG from every explicit reference + `depends_on` clause.
-The effective order for a full deployment is:
+`environments/<env>/` is the only place where environments differ. Start from a
+scenario:
+
+```bash
+cp -r examples/dev-greenfield-private environments/dev
+# edit environments/dev/*.tfvars: replace every <...> placeholder
+```
 
 ```text
-0. Naming (deterministic, known at plan time) + Resource Group
-1. networking         ── VNet, subnets, NSGs, route table (greenfield); subnets + NSGs + UDR to
-                         the hub firewall in the vended VNet (alz_spoke); BYO = data lookups in network.tf
-   private_dns        ── private DNS zones + VNet links (created or supplied IDs; none in alz_spoke)
-2. eventhub           ── namespace + ai-usage/pii-usage hubs + consumer groups
-   cosmosdb           ── account + usage-db + 4 containers
-   monitoring         ── LAW + 3 App Insights + 3 dashboards + AMPLS
-   foundry / apic     ── Foundry account + project, API Center scaffold
-                       (all run in parallel — no cross-dependencies)
-3. security           ── Key Vault + Foundry KV RBAC
-4. redis              ── Azure Managed Redis + PE + APIM caches link
-5. entra_id           ── (optional) azuread_application + SP + KV secret
-6. apim               ── APIM service + identity + PE + named values (JWT-*, AWS placeholders);
-                         v2 private access applied on the next apply (§5.3)
-   ├─ backends        ── content safety + AI search + embeddings + MS Learn MCP
-   └─ foundry-sub     ── (optional) dedicated APIM subscription for Foundry
-   apim_telemetry     ── loggers + global diagnostics
-   llm_routing        ── per-model LLM backends + pools + 4 generated routing fragments
-   policy_fragments   ── static (+ unified-AI / PII) policy fragments (policy-fragments.tf)
-   api / api_dependent── one modules/gateway-api instance per API (apis.tf):
-                         Universal LLM, Azure OpenAI, Unified AI, AI Search,
-                         DocIntel×2, Inference, Realtime, Weather, Weather MCP,
-                         MS Learn MCP — with their API + operation policies
-   api_center_registration ── (optional) register each API in APIC
-7. app_hosting        ── (ase_v3, no shared ASE) App Service Environment v3 +
-                         <ase>.appserviceenvironment.net private DNS zone (1–4 h)
-   logic_app          ── Logic App Standard + runtime storage PEs + MI RBAC
-                         workflow_standard: WS plan, shared-key content share, 4 PEs
-                         ase_v3: Isolated v2 plan + CPU autoscale, keyless storage
-                         (blob/queue/table PEs), azapi site
-   └─ workflow code   ── zip of logicapp-src/usage-ingestion-logicapp (4 workflows +
-                         host.json + connections.json); on in the example tfvars,
-                         gated by `usage_pipeline.logic_app.code_deploy`:
-                         zip_deploy: `az functionapp deployment source config-zip`
-                         run_from_package (ase_v3 default): blob upload → site
-                         restart → syncfunctiontriggers
-   deny_storage_shared_key
-                      ── (optional, ase_v3) Deny shared-key policy on the RG,
-                         assigned after the keyless storage account exists
-8. foundry.connection_apim
-                      ── (optional) Foundry project → APIM connection
+environments/dev/
+├── backend.hcl                    # written by task bootstrap
+├── common.tfvars                  # every stack: workload, environment, location, subscription_id, network_mode, naming, tags
+├── bootstrap.tfvars               # task bootstrap only
+├── identity.tfvars                # present => identity stack runs
+├── network.tfvars                 # present => network stack runs (absent for byo)
+├── app-hosting.tfvars             # present => ASE v3 (absent for Workflow Standard or a shared ASE)
+├── platform.tfvars
+├── gateway-config.tfvars
+├── llm-backend-onboarding.tfvars
+└── access-contracts/
+    └── team-a-chatbot.tfvars      # one file = one use case = one state
 ```
 
-Per-use-case access contracts (APIM products + policies) are applied
-separately, from [citadel-access-contracts/](citadel-access-contracts/README.md).
-
-Anything upstream is mandatory; anything marked `(optional)` is gated by a
-feature flag.
-
----
-
-## 4. Feature flags (what's optional)
-
-Every add-on defaults to **off** unless listed otherwise. You can set them in
-`environments/<env>.tfvars`, via `-var=…=true` on the command line, or via
-the `--with-*` shortcuts in [scripts/deploy.sh](scripts/deploy.sh).
-
-Gateway capabilities live in the typed `features` object (see
-[VARIABLES.md §6](VARIABLES.md#6-feature-flags-features)) and are set in the
-tfvars only — the deploy-script shortcuts cover the identity / connection
-add-ons. `rollout_phase = "core"` (what `--phased` passes for phase 1) forces
-every add-on below that has a shortcut flag, plus `features.mcp_sample` and
-`features.api_center_onboarding`, off.
-
-| Variable | Default | Shortcut flag | Effect |
-|---|---|---|---|
-| `enable_entra_id_setup` | `false` | `--with-entra` | Creates Entra ID app registration, service principal, client secret → KV; auto-populates APIM JWT-* named values. |
-| `enable_foundry_apim_connection` | `false` | `--with-foundry-conn` | Creates Foundry project → APIM connection (ApiKey) + dedicated APIM subscription. |
-| `features.mcp_sample` | `false` | — | Enables Weather API + Weather MCP + MS Learn MCP APIs. |
-| `enable_jwt_auth` | `false` | `--with-jwt` | Populates JWT-* named values from `jwt_tenant_id` / `jwt_app_registration_id`. Auto-overridden by `enable_entra_id_setup`. |
-| `features.api_center_onboarding` | `false` | — | Registers each APIM API in API Center with version + definition + deployment records. |
-| `features.unified_ai_api` | depends on tfvars | — | Wildcard unified AI API. |
-| `features.azure_ai_search` | depends on tfvars | — | AI Search Index API + backends from `ai_search_instances`. |
-| `features.document_intelligence` | depends on tfvars | — | Legacy `/formrecognizer` + current `/documentintelligence` APIs. |
-| `features.ai_model_inference` | depends on tfvars | — | Model Inference API. |
-| `features.openai_realtime` | depends on tfvars | — | WebSocket Realtime API. |
-| `features.embeddings_backend` | `false` | — | Dedicated embeddings backend for semantic cache. |
-| `features.pii_anonymization` | `true` | — | PII anonymization policy fragments (authenticates to the Language service with the APIM managed identity). |
-| `features.api_center` | `true` | — | Provisions the API Center service (workspace, environments, metadata schemas). |
-| `usage_pipeline.eventhub.disaster_recovery` | empty | — | Optional EH DR namespace pairing. |
-| `configure_circuit_breaker` | `false` | — | Adds circuit-breaker rules to LLM backends. |
-| `usage_pipeline.logic_app.code_deploy` | `false` (`true` in the example tfvars) | `--skip-logic-app-code` (sets `skip_logic_app_code_deploy = true` for that run) | Zips and publishes `logicapp-src/usage-ingestion-logicapp` to the Logic App Standard site after infra is ready (zip deploy, or run-from-package on ASE v3). See §7.8. |
-| `deny_storage_shared_key` | `false` (`true` in prod.tfvars.example) | — | Assigns the built-in *Storage accounts should prevent shared key access* policy (Deny) on the RG. Requires `usage_pipeline.logic_app.hosting = "ase_v3"`; skip when the platform assigns ALZ `Deny-Storage-Shared-Key`. |
-
----
-
-## 5. First deployment: step by step
-
-### 5.1 Configure your environment
-
-The `environments/*.tfvars` files are git-ignored — only the `.example`
-templates are committed. Copy the template for your target environment and fill
-in the values:
-
-```bash
-cp environments/dev.tfvars.example environments/dev.tfvars
-# (prod) cp environments/prod.tfvars.example environments/prod.tfvars
-```
-
-Then edit `environments/dev.tfvars` (see
-[environments/dev.tfvars.example](environments/dev.tfvars.example) for every
-attribute):
+**A stack runs only if its `<stack>.tfvars` exists**, so the folder defines the
+topology. The tfvars hold names and IDs only — no secrets — and are committed
+(`.gitignore` allows `environments/*/*.tfvars`).
 
 ```hcl
-subscription_id        = "YOUR-SUBSCRIPTION-ID"   # auto-rewritten by deploy.sh
-location               = "swedencentral"
-environment_name       = "citadel-dev"
-resource_group_name    = "rg-citadel-dev"
-
-# Feature flags (start conservative, enable more over time)
-features = {
-  azure_ai_search       = false
-  document_intelligence = false
-  unified_ai_api        = true
-  api_center            = true
-  api_center_onboarding = false
-}
-enable_jwt_auth = false
+# environments/dev/common.tfvars
+workload        = "aigw"          # 2-8 lowercase letters/digits
+environment     = "dev"
+location        = "swedencentral"
+subscription_id = "<workload-subscription-id>"
+network_mode    = "greenfield"    # greenfield | alz_spoke | byo
+# naming = { unique_seed = "k3x9p", name_overrides = { apim = "apim-contoso-dev" } }
+tags            = { workload = "ai-gateway", environment = "dev" }
 ```
 
-### 5.2 Bootstrap (first time only)
-
-```bash
-# Verify Azure login
-az account show
-
-# Register required resource providers (deploy.sh does this too)
-./scripts/bootstrap-state.sh     # (optional) set up remote state
-```
-
-### 5.3 Core-only deployment
-
-```bash
-./scripts/deploy.sh dev
-```
-
-This is equivalent to `main.bicep` with everything but APIC onboarding
-disabled. Adds ~35 resources. Expect 25–35 minutes for the first run
-(APIM + Redis dominate).
-
-**APIM private access on v2 SKUs (`apim.public_network_access = false`).**
-Azure rejects creating an API Management service with public network access
-disabled (`ActivateServiceWithPrivateEndpointAccessNotAllowed`); it needs an
-approved private endpoint first. The first apply therefore creates the service
-**public** together with its private endpoint; the requested setting is applied
-on the **next apply**, once the service and its private endpoint exist
-(`modules/apim` probes for the existing service at plan time). Run the deploy
-twice for a private gateway.
-`public_network_access = false` requires `apim.private_endpoint = true`
-(precondition); classic SKUs always keep public access.
-
-### 5.4 Verify
-
-```bash
-./scripts/validate.sh dev
-terraform output
-```
-
-### 5.5 LLM backend routing (auto-derived, single apply)
-
-As of this revision, the §5.3 core apply produces a **fully-routed gateway
-in one shot**. `llm_backend_config` is auto-derived in
-[main.tf](main.tf) from `enable_ai_foundry` + `ai_foundry_instances` +
-`ai_foundry_models`, with endpoints sourced from
-`module.foundry.foundry_endpoints` (late-bound — known after apply, which
-Terraform handles transparently because `for_each` keys are deterministic
-`foundry-${location}-${index}` strings).
-
-**What you get automatically:**
-
-- One APIM backend (`azapi_resource.llm_backend`) per Foundry instance,
-  priority `1` for index `0`, priority `2` for subsequent instances.
-- Models grouped into pools by `ai_service_index` — every model you list
-  under `ai_foundry_models` targeting instance `i` is attached to that
-  instance's backend.
-- The three dynamic policy fragments (`set-backend-pools`,
-  `get-available-models`, `metadata-config`) are populated with real
-  routing tables.
-- Named values for the backend IDs / pool IDs are created automatically
-  (they're gated on `length(llm_backend_config) > 0` internally — the
-  auto-derived list lights them up).
-
-**When to override (optional).** Populate either of these variables in your
-tfvars:
-
-- `llm_backend_config` — **full override.** Non-empty value replaces the
-  auto-derived list entirely. Use when you need non-Foundry backends
-  exclusively (external Azure OpenAI, third-party LLM gateway, on-prem
-  model server).
-- `extra_llm_backends` — **append.** Added on top of the auto-derived
-  Foundry list. Use to mix Foundry (auto) with external backends in the
-  same gateway. Same object shape as `llm_backend_config`.
-
-```hcl
-# Example: keep Foundry auto-derive + add an external Azure OpenAI backend
-llm_backend_config = []  # or omit entirely — default is []
-extra_llm_backends = [
-  {
-    backend_id   = "external-aoai-0"
-    backend_type = "azure-openai"
-    endpoint     = "https://my-aoai-resource.openai.azure.com/"
-    auth_scheme  = "apiKey"
-    priority     = 2
-    weight       = 100
-    supported_models = [
-      { name = "gpt-4.1", sku = "GlobalStandard", capacity = 100, modelFormat = "OpenAI", modelVersion = "2025-04-14" },
-    ]
-  },
-]
-```
-
-**Discover the auto-derived endpoints** (for verification / external
-scripts):
-
-```bash
-terraform output -json ai_foundry_endpoints | jq -r '.[]'
-```
-
-**Rules to keep in mind (apply to both auto-derived and overridden
-configs):**
-
-- `backend_type` is one of `ai-foundry`, `azure-openai`, or `external`.
-- `auth_scheme = "managedIdentity"` works out of the box for Foundry — the
-  APIM UAMI already has `Cognitive Services OpenAI User` on every Foundry
-  account deployed by the stack. Use `apiKey` for external backends.
-- Multiple backends advertising the same `supported_models[*].name` at the
-  same `priority` form a load-balanced pool with automatic failover. Use
-  different `priority` values for active/standby routing.
+Names follow `<prefix>-<workload>-<env>[-<seed>]`, e.g. `apim-aigw-dev-k3x9p`;
+the seed is derived from the subscription, workload and environment unless
+`naming.unique_seed` is set. See [modules/naming](modules/naming/README.md).
 
 ---
 
-## 6. Add-on deployments
+## 4. Deploy
 
-### 6.1 Single-apply mode (Terraform-native)
-
-Deploy everything in one pass (with `features.mcp_sample` and
-`features.api_center_onboarding` set in the tfvars if you want them):
+### 4.1 Bootstrap (once per environment)
 
 ```bash
-./scripts/deploy.sh dev --with-entra --with-foundry-conn
+task bootstrap ENV=dev
 ```
 
-Or the shorthand:
+Applies `stacks/bootstrap` with local state, writes
+`environments/dev/backend.hcl`, migrates the state into the account it just
+created, and prints the outputs: `apply_client_id` / `plan_client_id` (for the
+GitHub environments, §7) and `apply_principal_id` / `plan_principal_id` (for
+`secret_writer_principal_ids` / `secret_reader_principal_ids` in
+`platform.tfvars`).
+
+In an ALZ where subscription vending provides the identities and the resource
+group, set `create_pipeline_identities = false`,
+`create_workload_resource_group = false` and `existing_pipeline_identities` —
+bootstrap then only adds the state account and the role assignments.
+
+### 4.2 Whole environment
 
 ```bash
-./scripts/deploy.sh dev --all-addons
+task up ENV=dev
 ```
 
-Terraform computes the full graph and creates dependencies correctly in one
-`apply` — every resource name is known at plan time. This is the **recommended path** for most environments — it's
-faster, atomic, and gives you a single state snapshot.
-
-### 6.2 Phased mode (Bicep-style follow-ons)
-
-When you want to deploy core first, validate, then layer add-ons on top:
+Applies every configured stack in order, then every access contract. Each step
+runs `init` → `plan -out=tfplan` → `apply tfplan`. Check the result:
 
 ```bash
-./scripts/deploy.sh prod --all-addons --phased
+task output STACK=platform ENV=dev NAME=apim_gateway_url
+task validate ENV=dev          # post-deploy smoke tests (scripts/validate.sh)
+task plan-all ENV=dev          # every stack and contract should report "No changes"
 ```
 
-The script performs:
+### 4.3 One stack at a time
 
-| Phase | What runs | What's forced off |
+Useful the first time, or to stop between layers:
+
+```bash
+task apply STACK=identity               ENV=dev
+task apply STACK=network                ENV=dev
+task apply STACK=app-hosting            ENV=dev   # 2-4 h: run in tmux/screen or CI
+task apply STACK=platform               ENV=dev
+task apply STACK=gateway-config         ENV=dev
+task apply STACK=llm-backend-onboarding ENV=dev
+task contract ENV=dev USE_CASE=team-a-chatbot      # or: task contracts ENV=dev
+```
+
+`task plan STACK=<stack> ENV=<env>` plans only (`LOCK=-lock=false` for the
+read-only plan identity).
+
+### 4.4 Without Task (plain Terraform)
+
+```bash
+E=environments/dev
+terraform -chdir=stacks/platform init -reconfigure -backend-config=../../$E/backend.hcl
+terraform -chdir=stacks/platform plan -out=tfplan -var-file=../../$E/common.tfvars -var-file=../../$E/platform.tfvars
+terraform -chdir=stacks/platform apply tfplan
+
+# an access contract: its own state key
+terraform -chdir=stacks/access-contracts init -reconfigure -backend-config=../../$E/backend.hcl -backend-config=key=team-a-chatbot.tfstate
+terraform -chdir=stacks/access-contracts apply -var-file=../../$E/common.tfvars -var-file=../../$E/access-contracts/team-a-chatbot.tfvars
+```
+
+Bootstrap without Task: add a `backend_override.tf` with `backend "local" {}`
+to `stacks/bootstrap`, apply, write `backend.hcl` from `terraform output -raw
+backend_hcl`, delete the override and run `terraform init -migrate-state
+-backend-config=…`.
+
+### 4.5 Reaching private data planes
+
+Some steps talk to private endpoints: the state account (when private), Key
+Vault secrets in access contracts, and the workflow package on the keyless
+storage account (every plan reads it). Options:
+
+| Option | How | When |
 |---|---|---|
-| Phase 1 — `core` | networking, monitoring, data, APIM service + backends + fragments + APIs | `-var=rollout_phase=core` forces off Entra ID setup, JWT auth, the Foundry → APIM connections, `features.mcp_sample` and `features.api_center_onboarding` |
-| Phase 2 — `add-ons` | Re-applies with `rollout_phase = "full"` (default) and the selected `--with-*` flags enabled; only the add-on resources change | nothing forced — uses your flag selection and tfvars |
+| Runner in `snet-cicd` (default) | GitHub-hosted runner with Azure private networking (subnet delegated to `GitHub.Network/networkSettings`), or a self-hosted runner VM (`cicd_subnet_delegation = "none"`) | CI, and every Corp environment |
+| `dev_access` (greenfield, non-prod) | `platform.tfvars`: `dev_access = { allowed_cidrs = ["<your-ip>/32"] }` — Key Vault and storage allow those CIDRs (default action stays Deny). A `check` fails for prod or non-greenfield. | Laptop runs |
 
-This mirrors the Bicep "deploy + follow-on" workflow without splitting the
-state. If you pass `--phased` without any `--with-*` flags (and with
-`features.mcp_sample` / `features.api_center_onboarding` off), phase 2 is a
-no-op (plan reports "no changes").
-
-### 6.3 Single add-on later
-
-After a successful core deployment, enable just one add-on:
-
-```bash
-./scripts/deploy.sh dev --with-entra
-```
-
-Terraform plan shows exactly the new resources (≈6 for Entra, ≈2–5 for
-Foundry connection). You can keep re-running with
-different flags without touching anything else.
+Behind proxied egress (secure web gateway / SASE) the services see the proxy's
+address, which can differ per process — IP allow-listing is unreliable there;
+use a runner.
 
 ---
 
-## 7. Add-on reference
+## 5. Network modes
 
-### 7.1 Entra ID (`--with-entra`)
+The commands are the same in every mode; only the environment folder differs.
 
-**Bicep parity:** `entra-id-setup/setup.ps1` (uses MS Graph, runs outside
-`main.bicep` in Bicep).
-
-**What gets created** ([modules/entra-id/](modules/entra-id/)):
-
-- `azuread_application` — display name `ai-citadel-gateway-<env>`, OAuth2
-  `access_as_user` scope, 4 app roles (`Task.ReadWrite`, `Models.Read`,
-  `MCP.Read`, `Agent.Read`) with the same canonical GUIDs as the PowerShell
-  script (idempotent re-runs), + MS Graph `User.Read`.
-- `azuread_application_identifier_uri` — `api://<client_id>` (split to avoid
-  self-reference).
-- `azuread_service_principal`.
-- `azuread_application_password` — rotated every
-  `entra_client_secret_rotation_days` (default 730 = 2 years).
-- `azurerm_key_vault_secret` — writes the secret to KV as
-  `ENTRA-APP-CLIENT-SECRET`.
-
-**Side effect:** When enabled, `local.effective_{enable_jwt_auth,
-jwt_tenant_id, jwt_app_registration_id}` override the bare `jwt_*` variables
-on the APIM module, so the `JWT-TenantId` and `JWT-AppRegistrationId` named
-values auto-populate from the live app registration + tenant.
-
-**Variables:**
-
-| Variable | Default |
-|---|---|
-| `enable_entra_id_setup` | `false` |
-| `entra_app_display_name_prefix` | `"ai-citadel-gateway"` |
-| `entra_client_secret_name` | `"ENTRA-APP-CLIENT-SECRET"` |
-| `entra_client_secret_rotation_days` | `730` |
-
-**Example:**
-
-```bash
-./scripts/deploy.sh dev --with-entra
-```
-
-### 7.2 Foundry → APIM connection (`--with-foundry-conn`)
-
-**Bicep parity:** `foundry-integration/connection-apim.bicep`.
-
-**What gets created:**
-
-- [modules/apim/foundry-subscription.tf](modules/apim/foundry-subscription.tf) — dedicated APIM subscription that
-  exposes a primary key as an output.
-- `modules/foundry/connection-apim.tf` —
-  `Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview`
-  per (foundry project × selected API) with Custom Keys auth, plus metadata
-  (`deploymentInPath`, `inferenceAPIVersion`, `deploymentAPIVersion`,
-  `modelDiscovery`, `models`, `customHeaders`).
-
-**Why it was a follow-on in Bicep:** Bicep couldn't wire the APIM subscription
-key into the Foundry connection at plan time. Terraform uses the output of
-the subscription resource directly.
-
-**Example:**
-
-```bash
-./scripts/deploy.sh dev --with-foundry-conn
-```
-
-### 7.3 Access contracts (separate root module)
-
-**Bicep parity:** `citadel-access-contracts/main.bicep` + its 3 sub-modules.
-
-Access contracts are not part of the root deployment and have no deploy-script
-flag: they are applied from [citadel-access-contracts/](citadel-access-contracts/README.md),
-an independent root module with its own state, against an already-deployed hub.
-
-**What gets created** — for the `use_case` in its tfvars, per entry in `services`:
-
-- `azurerm_api_management_product` + display name, description, terms.
-- `azurerm_api_management_product_api` (per allowed API).
-- `azurerm_api_management_product_policy` — with allow-list of permitted
-  deployments rendered from the contract's `models` list; can also enforce
-  JWT.
-- `azurerm_api_management_subscription`.
-- (optional) `azurerm_key_vault_secret` for the primary key.
-- (optional) Foundry project connection created against this product.
-
-**Example:**
-
-```bash
-cd citadel-access-contracts
-cp terraform.tfvars.example terraform.tfvars   # fill in apim, use_case, services
-./scripts/deploy.sh
-```
-
-### 7.4 MCP samples (`features.mcp_sample`)
-
-**Bicep parity:** `mcp-from-api.bicep` + `mcp-existing.bicep`.
-
-Enables two APIM MCP resources:
-
-- **Weather API + Weather MCP** — demo API converted into an MCP server.
-- **MS Learn MCP** — external MCP endpoint registered via
-  `azapi_resource.ms_learn_mcp_backend` + `azapi_resource.ms_learn_mcp`.
-
-**Example:**
-
-```hcl
-# environments/dev.tfvars
-features = {
-  # …
-  mcp_sample = true
-}
-```
-
-```bash
-./scripts/deploy.sh dev
-```
-
-### 7.5 API Center onboarding (`features.api_center_onboarding`)
-
-**Bicep parity:** `apim/api-center-onboarding.bicep`.
-
-Registers each enabled APIM API in API Center with:
-
-- `Microsoft.ApiCenter/services/workspaces/apis@2024-03-01`
-- `…/versions`
-- `…/definitions` (with the OpenAPI spec or import link)
-- `…/deployments` (pointing at the running APIM gateway URL +
-  `api-dev` / `mcp-dev` / `api-prod` / `mcp-prod` environment)
-
-The APIC service itself is created unconditionally when `features.api_center =
-true` (default); this flag (`features.api_center_onboarding`, wired through
-[api-center-registration.tf](api-center-registration.tf) →
-[modules/api-center-registration](modules/api-center-registration/README.md))
-only controls the per-API record creation.
-
-**Example:**
-
-```hcl
-# environments/dev.tfvars
-features = {
-  # …
-  api_center_onboarding = true
-}
-```
-
-```bash
-./scripts/deploy.sh dev
-```
-
-### 7.6 JWT auth without Entra (`--with-jwt`)
-
-Use this when you already have an app registration and just want APIM to
-enforce JWT against its tenant/app-reg IDs.
-
-```bash
-./scripts/deploy.sh dev \
-  --with-jwt \
-  -- -var=jwt_tenant_id=<tid> -var=jwt_app_registration_id=<aid>
-```
-
-(Or set them in `dev.tfvars`.)
-
-> ⚠️ The `--` isn't parsed by the script; pass extra Terraform vars via
-> `TF_VAR_*` environment variables or tfvars instead:
-> ```bash
-> export TF_VAR_jwt_tenant_id=<tid>
-> export TF_VAR_jwt_app_registration_id=<aid>
-> ./scripts/deploy.sh dev --with-jwt
-> ```
-
-### 7.7 Enabling `--with-entra` implies JWT
-
-`enable_entra_id_setup = true` derives `effective_enable_jwt_auth = true`
-automatically, populating all four JWT-* named values from the live app
-registration. You don't need to pass `--with-jwt` alongside `--with-entra`.
-
-### 7.8 Logic App workflow code (off by default)
-
-**Bicep parity:** `azd deploy usageProcessingLogicApp` in the upstream
-accelerator's `azure.yaml`.
-
-**What gets created** ([modules/logic-app/code-deploy.tf](modules/logic-app/code-deploy.tf)):
-
-- `data.archive_file.workflow_code` — zips the Logic App Standard project
-  folder (`host.json`, `connections.json`, and the 4 `workflow.json` files
-  under `ai-usage-ingestion/`, `ai-usage-streaming-ingestion/`,
-  `llm-usage-ingestion/`, `pii-usage-ingestion/`). Excludes
-  `workflow-designtime/`, `.funcignore`, and `local.settings.json`.
-- Then one of two publish methods (`usage_pipeline.logic_app.deployment`;
-  Workflow Standard always uses `zip_deploy`):
-
-| Method | Used by | What runs | Network access needed by `apply` |
+| | `greenfield` | `alz_spoke` | `byo` |
 |---|---|---|---|
-| `zip_deploy` | `workflow_standard`; `ase_v3` opt-in | `null_resource.publish_workflows` runs `az functionapp deployment source config-zip` (Logic App Standard is built on the Functions runtime; ships in core Azure CLI, no extension) | The site's SCM endpoint: `<sitename>.scm.azurewebsites.net`, or on an internal ASE `<sitename>.scm.<ase>.appserviceenvironment.net`, which only resolves and is only reachable inside the VNet |
-| `run_from_package` | `ase_v3` default | `azurerm_storage_blob.package` uploads the zip as `usage-ingestion-<sha>.zip` to the keyless storage account's `deployments` container (the apply identity gets *Storage Blob Data Contributor* on that container); the site gets `WEBSITE_RUN_FROM_PACKAGE` = blob URL and `WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID` = usage UAMI; `azapi_resource_action` restarts the site and calls `syncfunctiontriggers` for each new package | The storage **blob private endpoint** (the account has no public endpoint). No SCM access, no `az` CLI |
+| `network.tfvars` | `address_space` (/22), `apim_vnet_mode`, `subnets_enabled` | `alz_spoke = { vended_vnet_id, hub_firewall_ip }`, `address_space` or `subnet_prefixes` from the vending allocation, `apim_vnet_mode` | absent |
+| Private DNS | created by `network` (13 `privatelink.*` zones), looked up by `platform` | hub-owned; DINE binds most zone groups | hub/customer-owned |
+| `app-hosting.tfvars` | `ase = {…}` (subnet and VNet looked up) | `ase.subnet_id`, `dns.vnet_link_ids` (spoke + hub/resolver) | `ase.subnet_id`, `dns.vnet_link_ids` |
+| `platform.tfvars` `network` | omit (looked up) | `task output STACK=network NAME=platform_network` + hub zone IDs Terraform still binds (openai, ai_services, apim_gateway, redis) | every ID |
 
-> **To confirm:** that Logic Apps Standard loads its workflows from a package
-> fetched with a managed identity still needs a live spike. If it doesn't, set
-> `usage_pipeline.logic_app.deployment = "zip_deploy"` (and run `apply` from a
-> runner inside the VNet).
-
-**Runtime prerequisites:**
-
-- `zip_deploy`: `az` CLI ≥ 2.57 (no extra extensions) and a signed-in principal
-  with **Logic App Contributor** (or higher) on the RG — the same identity
-  that runs `terraform apply`. Network reachability to `management.azure.com`
-  and the SCM endpoint above. For public-network Workflow Standard sites
-  (`apim.public_network_access = true`) SCM is reachable from anywhere;
-  behind a private endpoint or an internal ASE the deployer must run from
-  inside the VNet.
-- `run_from_package`: the apply identity must be able to create role
-  assignments (it grants itself the container-scoped blob role) and must
-  reach the storage private endpoint — run `apply` from a VPN-connected
-  machine or a private runner (see
-  [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md)),
-  or skip the publish with `--skip-logic-app-code` / `-SkipLogicAppCode`.
-  Every later **plan** also reads the package blob, so this access is needed
-  for every run, not just the first. `usage_pipeline.logic_app.package_upload_ip_rules`
-  can open the storage firewall to fixed deployer IPs instead, but behind a
-  proxied egress (secure web gateway / SASE) the storage service sees the
-  proxy's address, which can differ per process (observed in the live
-  validation). Prefer a private runner.
-- Verified live (fresh install, ASE v3, `run_from_package`): the four
-  workflows load from the managed-identity-fetched package and an Event Hub
-  usage event is written to Cosmos with key auth disabled.
-
-**Trigger behaviour:**
-
-| Change | Effect on next apply |
-|---|---|
-| Edit any file under `logicapp-src/usage-ingestion-logicapp/` | `zip_deploy`: `code_sha256` trigger changes → re-publish. `run_from_package`: new content hash → new blob and URL → app setting update, restart and trigger sync. |
-| Logic App site is recreated | `zip_deploy`: `logic_app_id` trigger changes → re-publish. `run_from_package`: the new site gets the package URL in its app settings. |
-| Infrastructure-only edits elsewhere | No re-publish. |
-
-**Variables:**
-
-| Variable | Default |
-|---|---|
-| `usage_pipeline.logic_app.code_deploy` | `false` (`true` in the example tfvars) |
-| `usage_pipeline.logic_app.code_source_path` | `""` = the vendored `logicapp-src/usage-ingestion-logicapp` (the root falls back to it); set a path to publish another project tree |
-| `usage_pipeline.logic_app.deployment` | `run_from_package` (ASE v3 only) |
-| `skip_logic_app_code_deploy` | `false` (`--skip-logic-app-code` / `-SkipLogicAppCode` set it for one run) |
-
-**Examples:**
-
-```bash
-# Default — publish as part of the normal apply
-./scripts/deploy.sh dev
-
-# Iterate on IaC without re-publishing the workflows
-./scripts/deploy.sh dev --skip-logic-app-code
-
-# Iterate on workflow JSON only (zip_deploy) — skips full plan/apply and retargets
-# `module.logic_app.null_resource.publish_workflows[0]`
-./scripts/deploy.sh dev --logic-app-code-only
-
-# Point at a fork or a locally-modified project tree: set
-# usage_pipeline.logic_app.code_source_path = "/path/to/my/workflows"
-# in environments/dev.tfvars, then
-./scripts/deploy.sh dev --logic-app-code-only
-
-# run_from_package (ASE v3): publish with a normal apply from a runner that
-# reaches the storage private endpoint
-./scripts/deploy.sh prod
-```
-
-`--logic-app-code-only` / `-LogicAppCodeOnly` covers both methods: with
-`zip_deploy` it re-runs the `az` push; with `run_from_package` it uploads the new
-package blob, points the site at it and re-syncs the triggers (run it from a
-machine that reaches the storage private endpoint).
-
-**Rollback:** there is no native slot history on Logic App Standard. To roll
-back, check out an earlier commit of `logicapp-src/usage-ingestion-logicapp/`
-and re-publish (`./scripts/deploy.sh <env> --logic-app-code-only` for
-`zip_deploy`, a normal apply for `run_from_package`).
-
----
-
-## 8. Full rollout scenarios
-
-### 8.1 Developer sandbox (one-shot, everything)
-
-```bash
-./scripts/deploy.sh dev --all-addons --auto-approve
-```
-
-Approx. 40 resources beyond core. Good for local demos.
-
-### 8.2 Production (staged, reviewed)
-
-```bash
-# Phase 1: core only — validate gateway endpoints, logs, dashboards
-./scripts/deploy.sh prod
-
-# Smoke-test APIM gateway
-./scripts/validate.sh prod
-
-# Phase 2: identity
-./scripts/deploy.sh prod --with-entra
-
-# Verify Entra secret landed in KV, then set features.api_center_onboarding = true
-# in environments/prod.tfvars
-./scripts/deploy.sh prod --with-entra
-
-# Phase 3: downstream consumers
-./scripts/deploy.sh prod --with-entra --with-foundry-conn
-
-# Per-use-case access contracts: citadel-access-contracts/ (separate state)
-```
-
-Each run is idempotent; re-running with the same flags is a no-op.
-
-[prod.tfvars.example](environments/prod.tfvars.example) uses the keyless usage
-pipeline (`usage_pipeline.logic_app.hosting = "ase_v3"`, run-from-package,
-`deny_storage_shared_key = true`): the first apply creates an App Service
-Environment v3 (roughly 1–4 hours), and the workflow package upload needs a
-runner that reaches the storage private endpoint — see §7.8 and
+`apim_vnet_mode` in `network.tfvars` must equal `apim.vnet_mode` in
+`platform.tfvars` (APIM network matrix:
+[docs/operations/apim-network-modes.md](docs/operations/apim-network-modes.md)).
+There's no in-place move from `greenfield` to `alz_spoke`: deploy a new
+`alz_spoke` environment from the same code and move traffic and use cases.
+Platform-team requests for an ALZ:
 [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md).
 
-### 8.3 Bicep-style single-command phased
+---
 
-```bash
-./scripts/deploy.sh prod --all-addons --phased
-```
+## 6. Day-2 operations
 
-The script executes:
+| Change | Edit | Command (CI does it on merge) |
+|---|---|---|
+| Add or change an LLM backend, model alias or credential | `llm-backend-onboarding.tfvars` (`extra_llm_backends`, `model_aliases`, `aws`) | `task apply STACK=llm-backend-onboarding ENV=<env>` |
+| New Foundry model deployment | `platform.tfvars` `foundry.models` | `task apply STACK=platform …`, then `STACK=llm-backend-onboarding` (backends are derived from the deployments) |
+| Onboard a use case | new `access-contracts/<use-case>.tfvars` | `task contract ENV=<env> USE_CASE=<use-case>` |
+| Change a shared fragment or service API | `stacks/gateway-config/fragments/` or `apis/` | `task apply STACK=gateway-config …` |
+| Change an LLM API, routing or model-aware fragment | `stacks/llm-backend-onboarding/apis/` or `fragments/` | `task apply STACK=llm-backend-onboarding …` |
+| Scale APIM, Foundry capacity, Logic App workers | `platform.tfvars` | `task apply STACK=platform …` |
+| Republish only the usage-ingestion workflows | `logicapp-src/usage-ingestion-logicapp/` | `task logic-app-code ENV=<env>` |
+| Add a subnet / DNS zone link (greenfield) | `network.tfvars` | `task apply STACK=network …` |
 
-1. `terraform plan -var=rollout_phase=core … -out=plan-core` → apply
-2. `terraform plan -var=enable_entra_id_setup=true … -out=plan-addons` → apply
+**Entra JWT auth.** `stacks/identity` creates the gateway app;
+`gateway-config.tfvars` `entra_auth = { enabled = true }` looks it up by name
+and fills the `tenant-id`, `client-id`, `audience`, `entra-auth` and `JWT-*`
+named values. `llm-backend-onboarding` reads `entra-auth` and drops the
+subscription-key requirement on the LLM APIs. Without Graph permissions on the
+pipeline, set `entra_auth.tenant_id` / `client_id` / `audience` explicitly.
 
-Same end state as `--all-addons` without `--phased`, but with an
-intermediate checkpoint.
+**Access contracts and keys.** Subscriptions are created through azapi (APIM
+returns no keys on GET); the key is read with an ephemeral `listSecrets` action
+and written only to write-only arguments — the Key Vault secret's `value_wo`
+and the Foundry connection's `sensitive_body`. Keys are never in state or
+outputs; read one from Key Vault, or
+`az rest --method post --url "https://management.azure.com<subscription id>/listSecrets?api-version=2024-05-01"`.
+They are rewritten every `secret_rotation_days`.
 
-### 8.4 Disabling an add-on
+### 6.1 Usage-ingestion workflow code
 
-Run without the flag. Terraform plans a destroy of just that module:
+`usage_pipeline.logic_app.code_deploy = true` publishes
+`logicapp-src/usage-ingestion-logicapp` (or `code_source_path`) with the
+infrastructure ([modules/logic-app/code-deploy.tf](modules/logic-app/code-deploy.tf)):
 
-```bash
-# Was: ./scripts/deploy.sh dev --with-foundry-conn
-./scripts/deploy.sh dev            # plan shows destroy of the Foundry connections
-```
+| Method | Used by | What runs | Network access the runner needs |
+|---|---|---|---|
+| `run_from_package` | `ase_v3` default | the zip is uploaded as a content-addressed blob to the keyless account's `deployments` container; the site gets `WEBSITE_RUN_FROM_PACKAGE` + `WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID` (usage identity); restart + `syncfunctiontriggers` per new package | the storage blob private endpoint, on **every plan** (the blob is read on refresh) |
+| `zip_deploy` | `workflow_standard`; `ase_v3` opt-in | `az functionapp deployment source config-zip` | the site's SCM endpoint (inside the VNet for an ILB ASE) |
 
-Destroys are limited to the feature-flagged resources; core stays.
+Verified live (ASE v3, `run_from_package`): the four workflows load from the
+managed-identity-fetched package and a usage event lands in Cosmos DB with key
+auth disabled.
 
 ---
 
-## 9. Interactions with existing tooling
+## 7. CI/CD (GitHub Actions)
 
-### 9.1 LLM backend onboarding
+| Workflow | Trigger | What it does |
+|---|---|---|
+| [ci.yml](.github/workflows/ci.yml) | PR, main | fmt, tflint, terraform-docs, repository rules (`scripts/ci/check-*.sh`), checkov, gitleaks, validate + mocked unit tests per module/stack, examples plan against their stacks. No Azure access. |
+| [plan.yml](.github/workflows/plan.yml) | PR touching stacks/modules/environments | plans the affected stacks and contracts (`scripts/ci/changed-stacks.sh`) per environment with the **plan** identity; summary in the run; deletes of protected types fail |
+| [apply.yml](.github/workflows/apply.yml) | push to main, dispatch | applies the affected stacks in order, dev → test → prod (approvals on the GitHub environments) |
+| [drift.yml](.github/workflows/drift.yml) | nightly | `plan -detailed-exitcode` for every stack; opens an issue per drifted environment |
+| [e2e.yml](.github/workflows/e2e.yml) | weekly, dispatch | `examples/quickstart` → bootstrap, `task up`, `task validate`, teardown in a sandbox subscription |
+| [release.yml](.github/workflows/release.yml) | main | release-please (changelog, tags) |
 
-The Bicep accelerator ships a separate `llm-backend-onboarding/` sub-deployment.
-Terraform handles this inline — edit `llm_backend_config` in your tfvars and
-re-run `./scripts/deploy.sh <env>`. Changes are diff'd; only the affected
-backends + pools + the 3 dynamic policy fragments get re-applied.
+All of them run Task through [_stack.yml](.github/workflows/_stack.yml).
 
-### 9.2 APIM SKU upgrade
-
-The Bicep `apim-gateway-upgrade/` sub-deployment isn't needed. Change
-`apim.sku` + `apim.capacity` in your tfvars and re-run — Terraform
-applies the SKU change in place on the existing APIM resource.
-
-### 9.3 Validation notebooks (`validation/` + `shared/`)
-
-The Jupyter test suite ported from the upstream accelerator lives in
-[validation/](validation/) with its Python helpers in [shared/](shared/). The
-suite is four notebooks that exercise a **live** deployment: LLM backend
-onboarding, the Universal LLM API across every model, access contracts, and
-model-alias routing.
-
-Each notebook is configured **manually**: open the first (config) cell and
-replace the `"REPLACE"` sentinel values — plus any inline config blocks such as
-`llm_backends_config` / `model_aliases` — with values that match your
-deployment, then run the cell. Any value left as `"REPLACE"` is flagged with a
-warning so you can see what still needs filling in.
-
-If you deployed with this repo's Terraform flow, pull the values you need
-straight from state and paste them into the config cell:
+**Setup per environment** (after `task bootstrap`):
 
 ```bash
-terraform output -raw resource_group_name
-terraform output -raw location
-terraform output -json llm_backend_config
-terraform output -raw key_vault_name
+ENV=dev
+gh api -X PUT repos/<owner>/<repo>/environments/$ENV-plan
+gh api -X PUT repos/<owner>/<repo>/environments/$ENV
+gh variable set AZURE_CLIENT_ID       --env $ENV-plan --body "<plan_client_id>"
+gh variable set AZURE_CLIENT_ID       --env $ENV      --body "<apply_client_id>"
+for e in $ENV-plan $ENV; do
+  gh variable set AZURE_TENANT_ID       --env $e --body "<tenant-id>"
+  gh variable set AZURE_SUBSCRIPTION_ID --env $e --body "<workload-subscription-id>"
+done
+# runner that reaches the private data planes (JSON), e.g. a GitHub-hosted runner with private networking:
+gh variable set RUNNER_$ENV --body '"aigw-dev-private"'
+# prod: add required reviewers and a deployment-branch policy (main) to the "prod" environment
 ```
 
-[shared/utils.py](shared/utils.py) also provides a Terraform-output bridge:
-`azd_env_get()` resolves a requested key from `terraform output -json`, with an
-internal alias map translating each azd-style variable name into the matching
-Terraform output:
-
-| Notebook variable / azd name | Terraform output |
-|---|---|
-| `AZURE_RESOURCE_GROUP`, `GOVERNANCE_HUB_RESOURCE_GROUP` | `resource_group_name` |
-| `AZURE_LOCATION`, `LOCATION` | `location` |
-| `AZURE_SUBSCRIPTION_ID` | `subscription_id` |
-| `KEY_VAULT_NAME` | `key_vault_name` |
-| `AI_FOUNDRY_SERVICES` | `ai_foundry_services` |
-| `LLM_BACKEND_CONFIG`, `LLM_BACKENDS_CONFIG` | `llm_backend_config` |
-| `APIM_NAME` | `apim_name` |
-| `APIM_GATEWAY_URL` | `apim_gateway_url` |
-
-The `location`, `subscription_id`, `key_vault_name`, `ai_foundry_services`, and
-`llm_backend_config` outputs were added to [outputs.tf](outputs.tf) for this
-purpose; they only appear in state after a `terraform apply`. The bridge
-resolves the Terraform root as the parent of `shared/` (the repo root);
-override with the `CITADEL_TF_DIR` environment variable to point at another
-state directory (e.g. `llm-backend-onboarding/`). `apimtools.py` is
-deployment-tool-agnostic — it uses `az` + the Azure SDK with the resource group
-/ APIM name passed as parameters.
-
-```bash
-pip install -r shared/requirements.txt
-# then open any notebook in validation/ and run the first (config) cell
-```
-
-See [validation/README.md](validation/README.md) for the full per-notebook
-variable map.
+The federated credentials trust `repo:<owner>/<repo>:environment:<env>` (apply)
+and `…:environment:<env>-plan` (plan). With `pipeline_identity_mode = "single"`
+(sandbox/dev only) one identity trusts both.
 
 ---
 
-## 10. Troubleshooting
+## 8. Tear down
+
+```bash
+task down ENV=dev            # contracts, then stacks in reverse order; keeps bootstrap
+task destroy STACK=bootstrap ENV=dev   # only when the environment is gone for good
+```
+
+Soft-deleted Key Vaults, APIM services and Foundry accounts are purged only
+with `purge_soft_delete_on_destroy = true` in `platform.tfvars`, which needs
+subscription-level purge rights the pipeline identities don't have — purge as
+a human, or keep the names and let `recover_soft_deleted_key_vaults` recover.
+
+---
+
+## 9. Troubleshooting
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `terraform init` downloads `azuread` even with `enable_entra_id_setup = false` | Provider is declared globally | Expected; the provider is harmless until a resource is created. |
-| `A resource with the ID "…applications/…" already exists` | Azure AD app with same display name exists from a prior run | Delete the leftover app registration (`az ad app delete --id <app-id>`) or change `entra_app_display_name_prefix`, then re-run. |
-| `Unauthorized: The client does not have authorization to perform action 'Microsoft.KeyVault/vaults/secrets/write'` | Current user lacks KV Secrets Officer role | Use the printed `az role assignment create` command from the Key Vault module outputs. |
-| APIM deployment stuck ~30 min | First-time APIM provisioning is slow | Normal; don't cancel. Use `az apim list -g <rg>` to check `provisioningState`. |
-| `enable_jwt_auth=true` but JWT fails at runtime | `jwt_tenant_id`/`jwt_app_registration_id` placeholders | Enable Entra add-on (`--with-entra`) or set the variables explicitly. |
-| Foundry connection fails with "missing subscription key" | APIM subscription hasn't finished provisioning | Re-run `./scripts/deploy.sh <env> --with-foundry-conn`. |
-| `az: command not found` during `publish_workflows` | Deployer doesn't have Azure CLI installed | Install `az` CLI or run with `--skip-logic-app-code` and publish manually. |
-| Workflow publish fails with `AuthorizationFailed` | Signed-in principal lacks **Website Contributor** / **Logic App Contributor** on the RG | Grant the role or run the zip-deploy as a different principal. |
-| Workflow publish hangs / `403 Ip Forbidden` on SCM | Logic App is behind a private endpoint and the deployer isn't on the VNet | Run `--logic-app-code-only` from a jumpbox inside the VNet, or temporarily flip `apim.public_network_access = true`. |
-| Logic App runs trigger but workflows are empty | Code-publish skipped or first apply crashed before the publish | Run `./scripts/deploy.sh <env> --logic-app-code-only` (for `run_from_package`, from a runner that reaches the storage private endpoint); if the package is in place but the workflows still don't load, switch to `usage_pipeline.logic_app.deployment = "zip_deploy"`. |
-| `run_from_package`: `azurerm_storage_blob.package` fails with `403 AuthorizationFailure` / a timeout | The keyless storage account has no public endpoint and the machine running `apply` can't reach its blob private endpoint (or the new blob role assignment hasn't propagated yet) | Run `apply` from a VPN-connected machine or a private runner, or once with `--skip-logic-app-code`; re-run after a few minutes if the role was just granted. |
-| `RequestDisallowedByPolicy` on the Logic App storage account | A platform policy such as ALZ `Deny-Storage-Shared-Key` blocks the shared-key storage that Workflow Standard needs | Use `usage_pipeline.logic_app.hosting = "ase_v3"`, or get a time-boxed exemption for dev (decision D3). |
-| `deny_storage_shared_key needs usage_pipeline.logic_app.hosting = "ase_v3"` | Precondition in [policy.tf](policy.tf) | Set `hosting = "ase_v3"` or `deny_storage_shared_key = false`. |
-| Apply sits on the App Service Environment for hours | First-time ASE v3 creation takes roughly 1–4 hours | Normal; don't cancel. |
-
----
-
-## 11. Tearing down
-
-```bash
-./scripts/destroy.sh dev
-```
-
-This performs `terraform destroy` with the dev tfvars. Some resources may
-linger in Azure for purge-protection reasons:
-
-- **Key Vault** — soft-deleted; purged on destroy when
-  `purge_soft_delete_on_destroy = true` (see [providers.tf](providers.tf)).
-- **APIM** — soft-deleted; same purge behaviour.
-- **Cognitive Services** — soft-deleted; same purge behaviour.
-
-For a hard reset set the var to `true` in your tfvars and re-run destroy.
-
----
-
-## 12. Reference: command cheatsheet
-
-```bash
-# Help
-./scripts/deploy.sh --help
-
-# Core only
-./scripts/deploy.sh dev
-./scripts/deploy.sh prod --auto-approve
-
-# Individual add-ons
-./scripts/deploy.sh dev --with-entra
-./scripts/deploy.sh dev --with-foundry-conn
-./scripts/deploy.sh dev --with-jwt
-# (MCP samples / API Center onboarding: features.mcp_sample /
-#  features.api_center_onboarding in the tfvars)
-
-# Combinations
-./scripts/deploy.sh dev --with-entra --with-foundry-conn
-./scripts/deploy.sh prod --all-addons
-
-# Phased rollout
-./scripts/deploy.sh prod --phased
-./scripts/deploy.sh prod --all-addons --phased
-./scripts/deploy.sh prod --with-entra --with-foundry-conn --phased
-
-# Logic App workflow code
-./scripts/deploy.sh dev --skip-logic-app-code     # infra only
-./scripts/deploy.sh dev --logic-app-code-only     # republish workflows only
-
-# Validation + teardown
-./scripts/validate.sh dev
-./scripts/destroy.sh dev
-
-# Notebook test suite (against a live deployment)
-pip install -r shared/requirements.txt   # then run validation/*.ipynb
-```
-
-### PowerShell equivalents
-
-Every command above has a PowerShell twin (see §2.1 for the full flag map):
-
-```powershell
-# Help
-./scripts/deploy.ps1 -Help
-
-# Core only
-./scripts/deploy.ps1 dev
-./scripts/deploy.ps1 prod -AutoApprove
-
-# Individual add-ons
-./scripts/deploy.ps1 dev -WithEntra
-./scripts/deploy.ps1 dev -WithFoundryConn
-./scripts/deploy.ps1 dev -WithJwt
-
-# Combinations
-./scripts/deploy.ps1 dev -WithEntra -WithFoundryConn
-./scripts/deploy.ps1 prod -AllAddons
-
-# Phased rollout
-./scripts/deploy.ps1 prod -Phased
-./scripts/deploy.ps1 prod -AllAddons -Phased
-./scripts/deploy.ps1 prod -WithEntra -WithFoundryConn -Phased
-
-# Logic App workflow code
-./scripts/deploy.ps1 dev -SkipLogicAppCode     # infra only
-./scripts/deploy.ps1 dev -LogicAppCodeOnly     # republish workflows only
-
-# Validation + teardown
-./scripts/validate.ps1 dev
-./scripts/destroy.ps1 dev
-```
-
----
-
-## 13. See also
-
-- [README.md](README.md) — project overview.
-- [VARIABLES.md](VARIABLES.md) — detailed reference for every variable, including the feature flags.
-- [validation/README.md](validation/README.md) — notebook test suite + per-notebook variable map.
-- [full-deployment-guide.md (upstream Bicep)](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/full-deployment-guide.md)
-  — the original Bicep deployment guide, for comparison.
+| `platform`: `Error: … subnet "snet-pe" … not found` | greenfield, but `stacks/network` hasn't been applied (or the subnet isn't enabled) | apply `network` first; check `subnets_enabled` / `apim_vnet_mode` |
+| `platform`: `network_mode alz_spoke / byo: set network …` | the `network` object is missing | `task output STACK=network NAME=platform_network` |
+| `gateway-config`: `entra_auth.enabled: the gateway app wasn't found` | `stacks/identity` not applied, or no Graph `Application.Read.All` | apply `identity`, grant the permission, or set the Entra values explicitly |
+| `llm-backend-onboarding`: `Missing shared fragments (apply stacks/gateway-config first)` | stacks applied out of order | apply `gateway-config` |
+| `llm-backend-onboarding` plans no backends | no Foundry deployments yet, or accounts named outside the naming contract | apply `platform` first, or set `foundry_backends.account_names` |
+| `AuthorizationFailure` / `ForbiddenByFirewall` on Key Vault or the package blob | the machine running Terraform can't reach the private data plane | run from a runner in `snet-cicd`, or `dev_access` (greenfield non-prod); behind a proxy use a runner |
+| `RequestDisallowedByPolicy` on the Logic App storage account | ALZ `Deny-Storage-Shared-Key` vs Workflow Standard | `usage_pipeline.logic_app.hosting = "ase_v3"` (decision D3) |
+| `deny_storage_shared_key needs … "ase_v3"` | precondition in [stacks/platform/policy.tf](stacks/platform/policy.tf) | `hosting = "ase_v3"` or `deny_storage_shared_key = false` |
+| APIM v2 with `public_network_access = false` is still public after the first apply | Azure rejects creating a service with public access off | expected: the second apply closes it |
+| APIM create sits for 30–60 min; `app-hosting` for 2–4 h | first-time provisioning | normal; don't cancel |
+| Logic App runs but the workflows are empty | code publish skipped or failed | `task logic-app-code ENV=<env>` from a runner that reaches the storage PE; fall back to `deployment = "zip_deploy"` |
+| `Error acquiring the state lock` in a PR plan | the plan identity can only read state | plans run with `-lock=false` (`LOCK=-lock=false`) |

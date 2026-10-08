@@ -9,11 +9,12 @@ The same checks run in CI (`.github/workflows/ci.yml`) on every pull request.
 | Formatting | `terraform fmt -check -recursive` | — |
 | Lint (incl. unused / undocumented variables) | `tflint --init && for d in $(scripts/ci/tf-dirs.sh); do tflint --chdir=$d --config=$PWD/.tflint.hcl; done` | `.tflint.hcl` |
 | Validate | `terraform -chdir=<dir> init -backend=false && terraform -chdir=<dir> validate` | — |
-| Unit tests (mocked, no Azure access) | Roots (`.`, `citadel-access-contracts`, `llm-backend-onboarding`): `terraform -chdir=<dir> init -backend=false -test-directory=tests/unit && terraform -chdir=<dir> test -test-directory=tests/unit`. Modules with tests (e.g. `modules/naming`): `terraform -chdir=<dir> init -backend=false && terraform -chdir=<dir> test` | Roots: `tests/unit/*.tftest.hcl`; modules: `tests/*.tftest.hcl` |
-| Module READMEs | `terraform-docs -c .terraform-docs.yml modules/<name>` | `.terraform-docs.yml` |
+| Unit tests (mocked, no Azure access) | `task test`, or `terraform -chdir=<dir> init -backend=false && terraform -chdir=<dir> test -filter=tests/unit.tftest.hcl` for one module or stack | `tests/unit.tftest.hcl` |
+| Examples plan against their stacks | `scripts/ci/check-examples.sh [scenario]` (after `init` in every stack) | `stacks/*/tests/examples.tftest.hcl` |
+| Module and stack READMEs | `terraform-docs -c .terraform-docs.yml <modules/name or stacks/name>` | `.terraform-docs.yml` |
 | Security scan (new findings only) | `checkov --config-file .checkov.yaml` | `.checkov.yaml`, `.checkov.baseline` |
 | Secrets | `gitleaks git --config .gitleaks.toml --redact .` | `.gitleaks.toml` |
-| Policy XML assets | `scripts/ci/check-policy-assets.sh` | — |
+| Repository rules | `task lint` runs fmt, tflint and `scripts/ci/check-{common-vars,module-depth,avm-versions,no-remote-state,policy-assets}.sh` | — |
 
 Or run everything at once with [pre-commit](https://pre-commit.com):
 
@@ -29,22 +30,29 @@ bash 4 or later (macOS: `brew install bash`).
 
 ## Rules that CI enforces
 
-- **Lock files are committed** for root configurations (`.terraform.lock.hcl`), and
-  CI runs `terraform init -lockfile=readonly`. Update providers with
-  `terraform providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64 -platform=windows_amd64`.
+- **Lock files are committed** for every stack (`stacks/*/.terraform.lock.hcl`), and
+  CI runs `terraform init -lockfile=readonly`. Refresh them with `task lock`.
+- **Three tiers only:** stack → custom module → AVM module. A custom module never
+  calls another custom module; one version per AVM module across the repo.
+- **Stacks find each other by name** (modules/naming + data sources), never with
+  `terraform_remote_state`. `variables.common.tf` and `naming.tf` are identical
+  in every stack.
 - **Every variable and output has a description**, and every variable has a type.
 - **No unused variables.** Remove an input when nothing reads it any more.
-- **New root inputs go into the typed objects** in `interfaces.tf` (`apim`,
-  `network`, `features`, `usage_pipeline`, `monitoring`) with their defaults in
-  `optional()`.
+- **New inputs go into typed objects** of the owning stack, with their defaults in
+  `optional()`, and into the matching `examples/*/<stack>.tfvars` when relevant.
 - **No module-level `depends_on`.** Express ordering through data flow; when a
   consumer must wait for something it doesn't reference (RBAC propagation, an NSG
   association), add `depends_on` to the producing module's output instead.
-- **No create-or-lookup inside modules.** Modules receive IDs; the root decides
-  whether a resource is created or looked up (`network.tf`, BYO Log Analytics).
-- **One copy of each policy XML.** Every XML file must be referenced from Terraform.
-- **No secrets in outputs.** Subscription keys are read on demand (Key Vault or
-  `listSecrets`), never returned as Terraform outputs.
+- **No create-or-lookup inside modules.** Modules receive IDs; the stack decides
+  whether a resource is created or looked up (`network-lookup.tf`, BYO Log Analytics).
+- **One owner per policy asset.** Shared fragments live in
+  `stacks/gateway-config/fragments/`, model-aware ones in
+  `stacks/llm-backend-onboarding/fragments/`; a fragment file must be wired up
+  in its stack's `fragments.tf`.
+- **No secrets in outputs or state.** Subscription keys are read with an
+  ephemeral action and written to write-only arguments; credentials are Key
+  Vault references.
 - **Key Vault secrets** set `content_type` and an `expiration_date` of at most 90
   days (Azure Landing Zone `Enforce-GR-KeyVault`).
 - **New checkov findings fail CI.** Fix them, or, if accepted, add a skip with a

@@ -42,22 +42,24 @@ Track each request here. Update the status when the ticket is acknowledged or do
 
 ## Keyless usage pipeline (ASE v3)
 
-Environments with `usage_pipeline.logic_app.hosting = "ase_v3"` (the default in
-`prod.tfvars.example`) run the usage-ingestion Logic App keyless in an App
-Service Environment v3. Unless a shared ASE is used
+Environments with `usage_pipeline.logic_app.hosting = "ase_v3"` in
+`platform.tfvars` (used by the production-shaped examples, e.g.
+[examples/alz-corp](../../examples/alz-corp/platform.tfvars)) run the
+usage-ingestion Logic App keyless in an App Service Environment v3, created by
+[stacks/app-hosting](../../stacks/app-hosting/). Unless a shared ASE is used
 (`usage_pipeline.ase.app_service_environment_id`), ask for:
 
 | Need | Detail | Request |
 |---|---|---|
-| ASE subnet | `/24` recommended (`/27` minimum), delegated to `Microsoft.Web/hostingEnvironments`, with an NSG. In `greenfield` / `alz_spoke` this stack creates it (with its NSG) — reserve the range in the spoke; in `byo` the platform creates it, empty | P2 |
-| DNS | Resolution of `<ase>.appserviceenvironment.net` (`*`, `*.scm`, `@` → the ASE internal inbound IP) from the hub/resolver if DNS is central. The stack creates the zone and links it to the gateway VNet (`usage_pipeline.ase.create_private_dns_zone = false` if the hub owns it) | P3 |
+| ASE subnet | `/24` recommended (`/27` minimum), delegated to `Microsoft.Web/hostingEnvironments`, with an NSG. In `greenfield` / `alz_spoke` the network stack creates it (with its NSG) — reserve the range in the spoke; in `byo` the platform creates it, empty, and passes it as `ase.subnet_id` in `app-hosting.tfvars` | P2 |
+| DNS | Resolution of `<ase>.appserviceenvironment.net` (`*`, `*.scm`, `@` → the ASE internal inbound IP) from the hub/resolver if DNS is central. The app-hosting stack creates the zone and links it to the gateway VNet (`dns.create = false` in `app-hosting.tfvars` if the hub owns it) | P3 |
 | Firewall | ASE v3 outbound dependencies, when egress goes through the hub firewall | P5 |
 | Deployment runner | Private access to the storage private endpoint (workflow package upload); for `zip_deploy`, also the ASE SCM endpoint | P8 |
 | Cost | ASE v3 + Isolated v2 instances (autoscale between `worker_count` and `max_worker_count`) | P10 |
 
 No `Deny-Storage-Shared-Key` exemption is needed for these environments; if
 the platform doesn't assign that policy, set `deny_storage_shared_key = true`
-to assign it on the resource group.
+in `platform.tfvars` to assign it on the resource group.
 
 ## Ticket template
 
@@ -87,10 +89,9 @@ Diagnostics: central LAW id for BYO; confirm Deploy-Diag-LogsCat scope
 
 ## Related repository settings
 
-- Every subnet this stack creates (`greenfield` and `alz_spoke`) gets its own NSG
-  (ALZ `Deny-Subnet-Without-Nsg`); in `byo` mode the subnets and their NSGs belong
-  to the platform.
-- `entra_client_secret_rotation_days` must be `<= 90` in an ALZ subscription
-  (`Enforce-GR-KeyVault`).
-- Access-contract secrets expire after `secret_validity_days` (default 90) and are
-  renewed every `secret_rotation_days` (default 60).
+- Every subnet the network stack creates (`greenfield` and `alz_spoke`) gets its
+  own NSG (ALZ `Deny-Subnet-Without-Nsg`); in `byo` mode the subnets and their
+  NSGs belong to the platform.
+- Access-contract secrets (`environments/<env>/access-contracts/<use-case>.tfvars`)
+  expire after `secret_validity_days` (default 90, the most `Enforce-GR-KeyVault`
+  allows) and are renewed every `secret_rotation_days` (default 60).

@@ -83,11 +83,11 @@ tasks:
       - terraform -chdir=stacks/{{.STACK}} apply -input=false tfplan
 
   output:
-    desc: "Stack outputs: task output STACK=identity ENV=dev [NAME=client_id]"
+    desc: 'Stack outputs: task output STACK=identity ENV=dev [NAME=client_id | NAME="-raw client_id"] (stdout is only the output)'
     requires: { vars: [STACK] }
+    silent: true
     cmds:
-      - task: init
-        vars: { STACK: "{{.STACK}}", ENV: "{{.ENV}}", STATE_KEY: "{{.STATE_KEY}}" }
+      - terraform -chdir=stacks/{{.STACK}} init -reconfigure -input=false -lockfile=readonly -backend-config={{.ENV_DIR}}/backend.hcl -backend-config=key={{.STATE_KEY | default "terraform.tfstate"}} >/dev/null
       - terraform -chdir=stacks/{{.STACK}} output {{.NAME}}
 
   logic-app-code:

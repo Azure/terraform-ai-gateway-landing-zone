@@ -1,258 +1,66 @@
-# AI Citadel — Terraform Simple Deployment Steps
+# AI Gateway Landing Zone — Quick Start
 
-Concise, copy-paste guide for deploying the AI Citadel Governance Hub to **dev** or **prod**.
-For full detail, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) and [VARIABLES.md](VARIABLES.md).
-
----
+The shortest path to a working gateway: the [quickstart](examples/quickstart/)
+scenario (greenfield network, public APIM StandardV2, usage pipeline on
+Workflow Standard, one Foundry model, one access contract). For anything else,
+see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) and
+[docs/deployment-scenarios.md](docs/deployment-scenarios.md).
 
 ## Prerequisites
 
-- **Terraform** ≥ 1.11
-- **Azure CLI** ≥ 2.57 (`az --version`)
-- **Bash shell** — required to run the `scripts/*.sh` helpers (macOS/Linux: built-in; Windows: use [Git Bash](https://git-scm.com) or [WSL](https://learn.microsoft.com/windows/wsl/install))
-- **Azure subscription** with Owner (or equivalent) role
-- (Optional, validation notebooks only) **Python** ≥ 3.10
-- (Optional, Entra add-on only) Tenant permission `Application.ReadWrite.All`
+- Terraform (version in `.terraform-version`), [Task](https://taskfile.dev) ≥ 3.40, Azure CLI
+- **Owner** on the target subscription (bootstrap assigns roles and registers resource providers)
+- A region with quota for APIM StandardV2 and your Foundry model (examples use `swedencentral`)
 
----
-
-## Step 1 — Sign in to Azure
+## 1 — Sign in
 
 ```bash
-az login
-az account set --subscription "<your-subscription-id>"
-az account show   # verify
+az login --tenant <tenant-id>
+az account set --subscription <subscription-id>
 ```
 
----
-
-## Step 2 — Pick your environment file
-
-Copy the example template for your target environment, then edit the copy:
+## 2 — Create the environment folder
 
 ```bash
-# Dev
-cp environments/dev.tfvars.example environments/dev.tfvars
-
-# Prod
-cp environments/prod.tfvars.example environments/prod.tfvars
+cp -r examples/quickstart environments/dev
 ```
 
-- Dev → [environments/dev.tfvars.example](environments/dev.tfvars.example) → `environments/dev.tfvars`
-- Prod → [environments/prod.tfvars.example](environments/prod.tfvars.example) → `environments/prod.tfvars`
+Replace the placeholders:
 
-Set at minimum:
+| File | Placeholder | Value |
+|---|---|---|
+| `common.tfvars` | `<workload-subscription-id>` | the subscription ID |
+| `bootstrap.tfvars` | `<owner>/<repo>` | your GitHub repository, or `github = null` for laptop-only runs |
+| `platform.tfvars` | `<your-public-ip>` | `curl -s https://api.ipify.org` (Key Vault / storage firewalls) |
+| `platform.tfvars` | `<your-object-id>` | `az ad signed-in-user show --query id -o tsv` |
 
-```hcl
-subscription_id     = "<your-subscription-id>"
-location            = "swedencentral"     # or your region
-environment_name    = "citadel-dev"       # or citadel-prod
-resource_group_name = "rg-citadel-dev"    # or rg-citadel-prod
-```
+Change `workload` / `location` in `common.tfvars` if you like; the model list is
+in `platform.tfvars` (`foundry.models`).
 
-Leave `llm_backend_config = []` (the default). APIM backends and pools are
-auto-derived from your Foundry instances + models — no second apply required.
-Only populate `llm_backend_config` if you want to override with external
-(non-Foundry) endpoints.
-
-### 2a — Region vs. APIM SKU (important for prod)
-
-APIM **StandardV2 / PremiumV2** (stv2 platform) are only available in a subset
-of regions. Classic **Developer / Premium** are globally available. If your
-target region doesn't support v2, either pick a v2-supported region
-(e.g. `swedencentral`, `francecentral`, `germanywestcentral`, `eastus`,
-`eastus2`, `westus3`, `uksouth`) or set `apim = { sku = "Premium" }`.
-
-Verify before deploying:
+## 3 — Deploy
 
 ```bash
-az apim list-skus --location "<your-region>" -o table
+task bootstrap ENV=dev     # ~3 min: state account, rg-aigw-dev, pipeline identity; writes backend.hcl
+task up ENV=dev            # ~60 min: network → platform → gateway-config → llm-backend-onboarding → contract
 ```
 
-See [VARIABLES.md](VARIABLES.md#5-api-management-apim--other-skus) → `apim.sku` for the full region list and the
-authoritative Microsoft doc link.
+`task up` skips stacks without a tfvars file (the quickstart has no
+`identity.tfvars` or `app-hosting.tfvars`).
 
-### 2b — Key Vault bootstrap allowlist (prod only)
-
-Prod defaults to `network_acl_default_action = "Deny"` and
-`kv_public_network_access_enabled = false` — the deny-by-default posture.
-However, the **first** `terraform apply` writes an `apim-gateway-key`
-placeholder secret to the Key Vault **data plane** from the machine running
-Terraform. If that machine is outside the VNet, the call will 403 with
-`ForbiddenByFirewall` / `ForbiddenByConnection`.
-
-Two options (pick one):
-
-**A) Temporary IP allowlist (recommended for non-VNet runners)**
-
-In `environments/prod.tfvars` (copied from [environments/prod.tfvars.example](environments/prod.tfvars.example)):
-
-```hcl
-kv_deployer_ip_rules       = ["<your.public.ip>/32"]  # IP Azure sees for this runner
-kv_auto_detect_deployer_ip = false
-```
-
-To find the IP Azure actually sees (may differ from `curl ifconfig.me` behind
-corporate proxies / VPN), either run `terraform apply` once and read the
-`Client address: x.x.x.x` line from the 403 error, or check the Key Vault
-**Networking** blade in the portal after the first failed apply.
-
-When `kv_deployer_ip_rules` is non-empty, the module automatically flips the
-KV to "Allow from selected networks" mode (required — Azure ignores `ip_rules`
-when public access is fully disabled). Default-action `Deny` still restricts
-traffic to the allowlist + private endpoints.
-
-**B) Run Terraform from inside the VNet**
-
-Skip the allowlist entirely and use a self-hosted CI runner / jumpbox / Azure
-DevOps agent on a subnet that can reach the KV private endpoint. Nothing to
-set in tfvars.
-
-### 2c — Lock down after bootstrap (second run)
-
-Once the first apply succeeds and all secrets are seeded, re-apply with the
-allowlist removed to return the Key Vault to private-endpoint-only access:
-
-```hcl
-# environments/prod.tfvars (second apply onward)
-kv_deployer_ip_rules       = []
-kv_auto_detect_deployer_ip = false
-# kv_public_network_access_enabled stays false (default)
-```
-
-Then:
+## 4 — Verify
 
 ```bash
-./scripts/deploy.sh prod
+task validate ENV=dev                                     # smoke tests (scripts/validate.sh)
+KV=$(task output STACK=platform ENV=dev NAME="-raw key_vault_name")
+URL=$(task output STACK=llm-backend-onboarding ENV=dev NAME="-raw universal_llm_api_url")
+KEY=$(az keyvault secret show --vault-name "$KV" -n teama-llm-key --query value -o tsv)   # written by the access contract
+curl -s -X POST "$URL/chat/completions" -H "Content-Type: application/json" -H "api-key: $KEY" \
+  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-This second run will flip the KV back to "Disable public access". After this
-point, any future secret writes must come from inside the VNet.
-
-**Other variables that follow the same "loose on first run, tighten later"
-pattern:**
-
-| Variable | Bootstrap value | Hardened value | Why |
-|---|---|---|---|
-| `kv_deployer_ip_rules` | `["<ip>/32"]` | `[]` | KV data-plane write for `apim-gateway-key` placeholder |
-| `kv_auto_detect_deployer_ip` | `false` (prefer explicit IP) | `false` | Unreliable behind proxies/VPN |
-| `apim.public_network_access` | `true` | `false` | APIM v2 can't be *created* with public access disabled; module handles the flip automatically on subsequent applies via `azapi_update_resource.apim_public_network_access` |
-| `usage_pipeline.eventhub.public_network_access` | `"Enabled"` | `"Disabled"` | Must be Enabled on first deploy so Terraform can seed consumer groups; tighten post-apply |
-| `apim.vnet_mode` (Developer/Premium only) | `"external"` | `"internal"` | Flip to internal only after you have custom domain + DNS wired up |
-
----
-
-## Step 3 — Deploy core infrastructure
-
-### Dev
+## 5 — Tear down
 
 ```bash
-./scripts/deploy.sh dev
+task down ENV=dev                      # contracts and stacks, reverse order
+task destroy STACK=bootstrap ENV=dev   # state account and identities (last)
 ```
-
-### Prod
-
-```bash
-./scripts/deploy.sh prod
-```
-
-Takes ~25–35 min on first run. Creates ~35 resources (VNet, APIM, Foundry, Cosmos, Event Hub, Key Vault, Logic App, etc.).
-
-> **Prod uses the keyless usage pipeline.** [prod.tfvars.example](environments/prod.tfvars.example)
-> hosts the Logic App on an App Service Environment v3 (`usage_pipeline.logic_app.hosting = "ase_v3"`,
-> run-from-package, `deny_storage_shared_key = true`). The first prod apply also creates the ASE
-> (roughly 1–4 hours), and the workflow package upload needs network access to the storage private
-> endpoint — run it from a VPN-connected machine or private runner, or add `--skip-logic-app-code`.
-> Dev keeps `workflow_standard` (shared-key content share). See
-> [VARIABLES.md — Logic App hosting on ASE v3](VARIABLES.md#logic-app-hosting-on-ase-v3).
-
----
-
-## Step 4 — Validate
-
-```bash
-./scripts/validate.sh dev       # or: prod
-terraform output
-```
-
-Check the output for any errors and verify key resources in the portal (APIM, Foundry, Cosmos DB, Key Vault, Event Hub, Logic App).
-
-### Optional — Run the validation notebooks
-
-The [validation/](validation/) folder has Jupyter notebooks that test a live
-deployment: backend onboarding, universal LLM API (all models), access
-contracts, and model aliases. Each notebook is configured **manually** in its
-first code cell — fill in the `"REPLACE"` values (resource group, location,
-etc.). You can pull these straight from your Terraform state, e.g.
-`terraform output -raw resource_group_name` and `terraform output -raw location`.
-
-```bash
-pip install -r shared/requirements.txt
-# open any notebook in validation/ and fill in the first (config) cell
-```
-
-See [validation/README.md](validation/README.md) for the per-notebook variable map.
-
----
-
-## Step 5 (optional) — Enable add-ons
-
-Add one or more flags to enable add-ons. Re-run whenever you want to layer one on.
-
-| Flag | What it does |
-|---|---|
-| `--with-entra` | Creates Entra app registration + SP + secret, enables JWT auth |
-| `--with-foundry-conn` | Creates Foundry → APIM connection + dedicated subscription |
-| `--with-jwt` | Enable JWT auth with existing app reg (set `jwt_tenant_id` + `jwt_app_registration_id`) |
-| `--all-addons` | Shortcut for all of the above |
-
-The MCP samples (Weather API + Weather MCP + MS Learn MCP) and API Center
-onboarding are not flags: set `features.mcp_sample = true` and
-`features.api_center_onboarding = true` in the tfvars. Per-use-case access
-contracts are applied separately from [citadel-access-contracts/](citadel-access-contracts/README.md).
-
-`--phased` runs phase 1 with `-var=rollout_phase=core` (every add-on forced off),
-then phase 2 with the selected add-ons. Resource names are known at plan time, so
-a single apply works too.
-
-Examples:
-
-```bash
-# Dev — enable everything in one pass
-./scripts/deploy.sh dev --all-addons
-
-# Prod — staged, add identity only
-./scripts/deploy.sh prod --with-entra
-
-# Prod — phased rollout (core first, add-ons second)
-./scripts/deploy.sh prod --all-addons --phased
-```
-
----
-
-## Common operations
-
-```bash
-# Plan only (no changes)
-terraform plan -var-file=environments/dev.tfvars
-
-# Re-publish Logic App workflow code only (zip_deploy or run_from_package)
-./scripts/deploy.sh dev --logic-app-code-only
-
-# Skip workflow code publish
-./scripts/deploy.sh dev --skip-logic-app-code
-
-# Tear down (dev)
-./scripts/destroy.sh dev
-```
-
----
-
-## Troubleshooting quick hits
-
-- **`az login` expired** → re-run `az login`.
-- **Quota / region errors** → change `location` or request quota.
-- **APIM gateway returns 404 on model calls** → check `terraform output ai_foundry_endpoints` is populated and `enable_ai_foundry = true`. If you overrode with `llm_backend_config`, verify endpoints + auth scheme.
-- **Full error logs** → `terraform apply -var-file=environments/dev.tfvars` directly for full Terraform output.
-
-For deeper guidance see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md).

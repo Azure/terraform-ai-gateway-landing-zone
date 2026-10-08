@@ -72,81 +72,215 @@ class Output(object):
 
 
 # =============================================================================
-# Terraform output bridge
+# Terraform stacks bridge
 # -----------------------------------------------------------------------------
+# The deployment is split into stacks under stacks/<stack>, driven by the
+# Taskfile and per-environment folders environments/<env>/ (common.tfvars,
+# backend.hcl, <stack>.tfvars, access-contracts/<use-case>.tfvars). The helpers
+# below let notebooks generate var files there, run a stack (`task` when it is
+# installed, plain `terraform -chdir=stacks/<stack>` otherwise) and read stack
+# outputs with `terraform -chdir=stacks/<stack> output -json`.
+#
 # The validation notebooks were originally written for an `azd`-deployed
-# environment and read config via `azd env get-value VAR`. This Terraform port
-# does not use azd, so we transparently fall back to `terraform output -json`
-# when no azd value is available. The alias map below translates the azd-style
-# env var names the notebooks ask for into the Terraform output names emitted by
-# the root configuration (see ../outputs.tf). Existing `load_azd_env(...)` calls
-# in the notebooks therefore keep working unchanged against Terraform.
+# environment and read config via `azd env get-value VAR`. When no azd value is
+# available, `azd_env_get` falls back to the stack outputs (or common.tfvars)
+# listed in `_TF_OUTPUT_ALIASES`, so existing `load_azd_env(...)` calls keep
+# working. Set CITADEL_ENV (default "dev") / CITADEL_REPO_ROOT to point them at
+# another environment or checkout.
 # =============================================================================
 
-# Root Terraform directory (where outputs.tf lives). `shared/` is a sibling of
-# the root *.tf files. Override with the CITADEL_TF_DIR env var if your layout
-# differs (e.g. pointing at ../llm-backend-onboarding).
-_TF_DEFAULT_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+# Repository root (Taskfile.yml, stacks/, environments/). `shared/` sits at the root.
+REPO_ROOT = os.path.abspath(os.environ.get("CITADEL_REPO_ROOT", os.path.join(os.path.dirname(__file__), "..")))
+DEFAULT_ENV = os.environ.get("CITADEL_ENV", "dev")
 
-# azd env var name -> terraform output name
+# azd env var name -> (stack, terraform output name); stack "common" = environments/<env>/common.tfvars
 _TF_OUTPUT_ALIASES = {
-    "AZURE_RESOURCE_GROUP":          "resource_group_name",
-    "GOVERNANCE_HUB_RESOURCE_GROUP": "resource_group_name",
-    "AZURE_LOCATION":                "location",
-    "LOCATION":                      "location",
-    "AZURE_SUBSCRIPTION_ID":         "subscription_id",
-    "KEY_VAULT_NAME":                "key_vault_name",
-    "AI_FOUNDRY_SERVICES":           "ai_foundry_services",
-    "LLM_BACKEND_CONFIG":            "llm_backend_config",
-    "LLM_BACKENDS_CONFIG":           "llm_backend_config",
-    "APIM_NAME":                     "apim_name",
-    "APIM_GATEWAY_URL":              "apim_gateway_url",
+    "AZURE_RESOURCE_GROUP":          ("platform", "resource_group_name"),
+    "GOVERNANCE_HUB_RESOURCE_GROUP": ("platform", "resource_group_name"),
+    "AZURE_LOCATION":                ("common", "location"),
+    "LOCATION":                      ("common", "location"),
+    "AZURE_SUBSCRIPTION_ID":         ("common", "subscription_id"),
+    "KEY_VAULT_NAME":                ("platform", "key_vault_name"),
+    "AI_FOUNDRY_ENDPOINTS":          ("platform", "foundry_endpoints"),
+    "APIM_NAME":                     ("platform", "apim_name"),
+    "APIM_GATEWAY_URL":              ("platform", "apim_gateway_url"),
+    "UNIVERSAL_LLM_API_URL":         ("llm-backend-onboarding", "universal_llm_api_url"),
 }
 
-# Cache of `terraform output -json` keyed by resolved directory.
+# Cache of `terraform output -json` keyed by (repo_root, env, stack, state_key).
 _tf_outputs_cache = {}
 
 
-def _terraform_root_dir(tf_dir=None):
-    return tf_dir or os.environ.get("CITADEL_TF_DIR", _TF_DEFAULT_ROOT_DIR)
+def _exe(name):
+    import shutil
+    return shutil.which(name) or name
 
 
-def _load_terraform_outputs(tf_dir=None):
-    """Run `terraform output -json` once per directory and cache the result.
+def env_dir(env=None, repo_root=None):
+    """environments/<env> (absolute)."""
+    return os.path.join(repo_root or REPO_ROOT, "environments", env or DEFAULT_ENV)
 
-    Returns an empty dict when Terraform is not installed, the directory has no
-    state, or the command fails — callers then fall through to their defaults.
+
+def stack_dir(stack, repo_root=None):
+    """stacks/<stack> (absolute)."""
+    return os.path.join(repo_root or REPO_ROOT, "stacks", stack)
+
+
+def hcl_str(value):
+    """Render a Python value as a double-quoted HCL string literal."""
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def read_common_tfvars(env=None, repo_root=None):
+    """Top-level `name = "value"` string assignments of environments/<env>/common.tfvars."""
+    import re
+    path = os.path.join(env_dir(env, repo_root), "common.tfvars")
+    values = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r'^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]*)"', line)
+                if m:
+                    values[m.group(1)] = m.group(2)
+    except OSError:
+        pass
+    return values
+
+
+def write_tfvars(path, content, backup=True):
+    """Write a generated var file (creating its folder). An existing file that was not
+    generated by a notebook is first copied to <file>.bak (git-ignored)."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if backup and os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            existing = f.read()
+        if "Generated:" not in existing and not os.path.exists(path + ".bak"):
+            with open(path + ".bak", "w", encoding="utf-8") as f:
+                f.write(existing)
+            print_warning(f"Existing {path} backed up to {path}.bak")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    return path
+
+
+def _exec(args, cwd=None, quiet=False):
+    """Run an argument list without a shell (az.cmd / task.cmd via cmd /c on Windows)."""
+    run_args = args
+    if os.name == "nt" and str(args[0]).lower().endswith((".cmd", ".bat")):
+        run_args = ["cmd", "/c", *args]
+    if not quiet:
+        print_command(" ".join(str(a) for a in args))
+    return subprocess.run(run_args, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def _stack_init(stack, env, state_key, repo_root, quiet=False):
+    backend = os.path.join(env_dir(env, repo_root), "backend.hcl")
+    args = [_exe("terraform"), f"-chdir={stack_dir(stack, repo_root)}", "init", "-reconfigure", "-input=false",
+            f"-backend-config={backend}"]
+    if state_key:
+        args.append(f"-backend-config=key={state_key}")
+    return _exec(args, quiet=quiet)
+
+
+def run_stack(stack, env=None, var_file=None, state_key=None, auto_approve=True, destroy=False,
+              repo_root=None, use_task=None, print_output=True):
+    """Plan and apply (or destroy) one stack for an environment.
+
+    Same as `task apply|destroy STACK=<stack> ENV=<env> [STATE_KEY=..] [VAR_FILE=..]`:
+      terraform -chdir=stacks/<stack> init -reconfigure -backend-config=environments/<env>/backend.hcl [-backend-config=key=<state_key>]
+      terraform -chdir=stacks/<stack> plan -out=tfplan [-destroy] -var-file=common.tfvars -var-file=<var_file>
+      terraform -chdir=stacks/<stack> apply tfplan          (only when auto_approve)
+
+    var_file defaults to environments/<env>/<stack>.tfvars; state_key defaults to the
+    backend.hcl key (access contracts use <use-case>.tfstate). use_task=None uses `task`
+    when it is on PATH (and auto_approve is set). Returns an Output.
     """
-    resolved = _terraform_root_dir(tf_dir)
-    if resolved in _tf_outputs_cache:
-        return _tf_outputs_cache[resolved]
+    import shutil
+    env = env or DEFAULT_ENV
+    root = repo_root or REPO_ROOT
+    edir = env_dir(env, root)
+    var_file = os.path.abspath(var_file) if var_file else os.path.join(edir, f"{stack}.tfvars")
+    common = os.path.join(edir, "common.tfvars")
+    for required in (common, os.path.join(edir, "backend.hcl"), var_file):
+        if not os.path.isfile(required):
+            print_error(f"Missing {required} (see examples/ and `task bootstrap ENV={env}`)")
+            return Output(False, "")
+    if use_task is None:
+        use_task = bool(shutil.which("task")) and auto_approve
+
+    start_time = time.time()
+    label = f"{'destroy' if destroy else 'apply'} {stack} ({env}{', ' + state_key if state_key else ''})"
+    steps = []
+    if use_task:
+        args = [_exe("task"), "-d", root, "destroy" if destroy else "apply", f"STACK={stack}", f"ENV={env}", f"VAR_FILE={var_file}"]
+        if state_key:
+            args.append(f"STATE_KEY={state_key}")
+        steps.append(args)
+    else:
+        sdir = stack_dir(stack, root)
+        plan = [_exe("terraform"), f"-chdir={sdir}", "plan", "-input=false", "-out=tfplan",
+                f"-var-file={common}", f"-var-file={var_file}"]
+        if destroy:
+            plan.insert(3, "-destroy")
+        steps.append(None)  # init
+        steps.append(plan)
+        if auto_approve:
+            steps.append([_exe("terraform"), f"-chdir={sdir}", "apply", "-input=false", "tfplan"])
+
+    text, success = "", True
+    for args in steps:
+        proc = _stack_init(stack, env, state_key, root) if args is None else _exec(args)
+        text += (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+        if proc.returncode != 0:
+            success = False
+            break
+
+    for key in [k for k in _tf_outputs_cache if k[1] == env and k[2] == stack]:
+        _tf_outputs_cache.pop(key, None)
+
+    if print_output:
+        print(text)
+    minutes, seconds = divmod(time.time() - start_time, 60)
+    (print_ok if success else print_error)(f"{label} {'succeeded' if success else 'failed'}", "", f"[{int(minutes)}m:{int(seconds)}s]")
+    return Output(success, text)
+
+
+def stack_outputs(stack, env=None, state_key=None, repo_root=None, refresh=False):
+    """`terraform -chdir=stacks/<stack> output -json` as {name: value} (cached).
+
+    Initialises the stack against environments/<env>/backend.hcl first (with
+    key=<state_key> for access contracts). Returns {} when Terraform is missing,
+    the state is empty or the command fails.
+    """
+    env = env or DEFAULT_ENV
+    root = repo_root or REPO_ROOT
+    cache_key = (root, env, stack, state_key)
+    if not refresh and cache_key in _tf_outputs_cache:
+        return _tf_outputs_cache[cache_key]
     outputs = {}
     try:
-        result = subprocess.run(
-            ["terraform", f"-chdir={resolved}", "output", "-json"],
-            capture_output=True, text=True, check=False,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            outputs = json.loads(result.stdout)
-    except (FileNotFoundError, json.JSONDecodeError):
-        outputs = {}
+        if os.path.isfile(os.path.join(env_dir(env, root), "backend.hcl")):
+            _stack_init(stack, env, state_key, root, quiet=True)
+        proc = _exec([_exe("terraform"), f"-chdir={stack_dir(stack, root)}", "output", "-json"], quiet=True)
+        if proc.returncode == 0 and proc.stdout.strip():
+            outputs = {k: (v.get("value") if isinstance(v, dict) else v) for k, v in json.loads(proc.stdout).items()}
     except Exception:
         outputs = {}
-    _tf_outputs_cache[resolved] = outputs
+    _tf_outputs_cache[cache_key] = outputs
     return outputs
 
 
-def terraform_output_get(name, default=None, tf_dir=None):
-    """Return a single Terraform output value by name.
+def terraform_output_get(name, default=None, stack="platform", env=None, state_key=None, repo_root=None):
+    """Return a single stack output value by name.
 
     Complex (object/array) outputs are JSON-stringified so callers that expect a
     string they can `json.loads(...)` — exactly like an azd env value — keep
     working. Scalar outputs are returned as their native string/number.
     """
-    entry = _load_terraform_outputs(tf_dir).get(name)
-    if entry is None:
-        return default
-    value = entry.get("value") if isinstance(entry, dict) else entry
+    if stack == "common":
+        value = read_common_tfvars(env, repo_root).get(name)
+    else:
+        value = stack_outputs(stack, env, state_key, repo_root).get(name)
     if value is None:
         return default
     if isinstance(value, (dict, list)):
@@ -154,10 +288,38 @@ def terraform_output_get(name, default=None, tf_dir=None):
     return value
 
 
+def get_contract_subscription_key(contract_outputs, code="LLM", key_vault_name=None):
+    """Primary key of an access-contract subscription (keys are never in Terraform state).
+
+    Reads the Key Vault secret named in `key_vault_secret_names[code].key` when
+    key_vault_name is given (key_vault.enabled = true); otherwise, or when that
+    fails, calls listSecrets on the subscription resource ID from `subscriptions[code]`.
+    """
+    secret = ((contract_outputs.get("key_vault_secret_names") or {}).get(code) or {}).get("key")
+    if key_vault_name and secret:
+        proc = _exec([_exe("az"), "keyvault", "secret", "show", "--vault-name", key_vault_name,
+                      "--name", secret, "--query", "value", "-o", "tsv"], quiet=True)
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+        print_warning(f"Could not read secret '{secret}' from Key Vault '{key_vault_name}'; falling back to APIM listSecrets.")
+    sub_id = (contract_outputs.get("subscriptions") or {}).get(code)
+    if not sub_id:
+        return None
+    proc = _exec([_exe("az"), "rest", "--method", "post", "--url",
+                  f"https://management.azure.com{sub_id}/listSecrets?api-version=2024-05-01"], quiet=True)
+    if proc.returncode == 0 and proc.stdout.strip():
+        try:
+            return json.loads(proc.stdout).get("primaryKey")
+        except json.JSONDecodeError:
+            pass
+    print_error(f"Could not list the secrets of {sub_id}", proc.stderr or "")
+    return None
+
+
 def azd_env_get(var_name, default=None):
     """Return the value of an `azd` environment variable for the active azd environment.
 
-    Falls back to the matching Terraform output (see `_TF_OUTPUT_ALIASES`) when
+    Falls back to the matching stack output (see `_TF_OUTPUT_ALIASES`) when
     the `azd` CLI is unavailable or has no value, so this Terraform port works
     without azd. Returns `default` when neither source has a value. The value is
     returned as a stripped string; callers that expect JSON should `json.loads(...)`
@@ -188,10 +350,10 @@ def azd_env_get(var_name, default=None):
     except Exception:
         pass
 
-    # Fall back to Terraform outputs (this port deploys with Terraform, not azd).
-    tf_name = _TF_OUTPUT_ALIASES.get(var_name)
-    if tf_name:
-        tf_value = terraform_output_get(tf_name)
+    # Fall back to the stack outputs (this port deploys with Terraform, not azd).
+    alias = _TF_OUTPUT_ALIASES.get(var_name)
+    if alias:
+        tf_value = terraform_output_get(alias[1], stack=alias[0])
         if tf_value is not None:
             return tf_value
 
@@ -510,79 +672,6 @@ def run(command, ok_message = '', error_message = '', print_output = False, prin
         print_message(ok_message if success else error_message, combined_text if not success or print_output  else "", f"[{int(minutes)}m:{int(seconds)}s]")
 
     return Output(success, output_text)
-
-def _resolve_bash():
-    """Return a bash executable usable for the modules' scripts/*.sh on any OS.
-
-    On Windows, prefer Git Bash: C:\\Windows\\System32\\bash.exe is the WSL
-    launcher, which runs in a separate Linux environment without the Windows
-    terraform/az/python on PATH (or fails when no distro is installed).
-    """
-    import shutil
-    if os.name == "nt":
-        candidates = []
-        git = shutil.which("git")
-        if git:
-            git_root = os.path.dirname(os.path.dirname(os.path.realpath(git)))  # ...\Git\cmd\git.exe -> ...\Git
-            candidates.append(os.path.join(git_root, "bin", "bash.exe"))
-        for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"), os.environ.get("ProgramFiles(x86)")):
-            if base:
-                candidates.append(os.path.join(base, "Git", "bin", "bash.exe"))
-        for c in candidates:
-            if os.path.isfile(c):
-                return c
-        raise FileNotFoundError("Git Bash not found. Install Git for Windows (provides bin\\bash.exe) to run the Terraform module scripts.")
-    bash = shutil.which("bash")
-    if not bash:
-        raise FileNotFoundError("bash not found on PATH.")
-    return bash
-
-def run_module_script(tf_dir, script, args=(), ok_message='', error_message='', workspace=None):
-    """Run a Terraform module script (e.g. scripts/deploy.sh) cross-platform.
-
-    Optionally selects (or creates) a Terraform workspace first. Commands are run
-    as argument lists with cwd=tf_dir, so no shell-specific syntax is involved.
-    Returns an Output, like run().
-    """
-    start_time = time.time()
-    combined = ""
-    try:
-        if workspace:
-            sel = subprocess.run(["terraform", "workspace", "select", workspace], cwd=tf_dir,
-                                 capture_output=True, text=True, encoding="utf-8", errors="replace")
-            if sel.returncode != 0:
-                new = subprocess.run(["terraform", "workspace", "new", workspace], cwd=tf_dir,
-                                     capture_output=True, text=True, encoding="utf-8", errors="replace")
-                if new.returncode != 0:
-                    combined = (new.stdout or "") + (new.stderr or "")
-                    print_error(error_message or f"Workspace '{workspace}' could not be selected or created", combined)
-                    return Output(False, combined)
-
-        # Forward slashes: valid for Windows terraform.exe and for Git Bash file tests.
-        script_args = [str(a).replace("\\", "/") if os.path.isabs(str(a)) else str(a) for a in args]
-        cmd = [_resolve_bash(), script.replace("\\", "/")] + script_args
-        print_command(" ".join(cmd) + f"   (cwd: {tf_dir})")
-        proc = subprocess.run(cmd, cwd=tf_dir, capture_output=True, text=True, encoding="utf-8", errors="replace")
-        output_text = proc.stdout or ""
-        combined = output_text + ("\n" + proc.stderr if proc.stderr else "")
-        success = proc.returncode == 0
-    except FileNotFoundError as e:
-        output_text, combined, success = "", str(e), False
-
-    minutes, seconds = divmod(time.time() - start_time, 60)
-    if ok_message or error_message:
-        (print_ok if success else print_error)(ok_message if success else error_message,
-                                               "" if success else combined, f"[{int(minutes)}m:{int(seconds)}s]")
-    return Output(success, output_text)
-
-def terraform_output_json(tf_dir, ok_message='', error_message=''):
-    """`terraform output -json` in tf_dir (current workspace), cross-platform. Returns an Output."""
-    proc = subprocess.run(["terraform", "output", "-json"], cwd=tf_dir,
-                          capture_output=True, text=True, encoding="utf-8", errors="replace")
-    success = proc.returncode == 0
-    if ok_message or error_message:
-        (print_ok if success else print_error)(ok_message if success else error_message, "" if success else proc.stderr)
-    return Output(success, proc.stdout or "")
 
 def create_bicep_params(policy_xml_filepath, parameters_filepath, bicep_parameters, replacements_list):
     # Read the specified policy XML file

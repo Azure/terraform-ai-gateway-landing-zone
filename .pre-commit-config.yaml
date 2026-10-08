@@ -15,7 +15,7 @@ repos:
         args:
           - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
       - id: terraform_docs
-        files: ^modules/   # module READMEs only; root/stack READMEs are hand-written
+        files: ^(modules|stacks)/   # README sections between the TF_DOCS markers
         args:
           - --args=--config=__GIT_WORKING_DIR__/.terraform-docs.yml
       - id: terraform_checkov
@@ -42,8 +42,14 @@ repos:
   - repo: local
     hooks:
       - id: policy-assets
-        name: policy XML assets (no dead, duplicate or missing files)
+        name: policy XML assets (one owner, no dead, duplicate or missing files)
         entry: scripts/ci/check-policy-assets.sh
         language: script
         pass_filenames: false
         files: \.(xml|tf)$
+      - id: repository-rules
+        name: stack and module rules (common files, module depth, AVM versions, no remote state)
+        entry: bash -c 'for c in check-common-vars check-module-depth check-avm-versions check-no-remote-state; do scripts/ci/$c.sh || exit 1; done'
+        language: system
+        pass_filenames: false
+        files: \.tf$
