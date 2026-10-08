@@ -642,9 +642,10 @@ module "logic_app" {
   ase_sku_size               = local.usage_cfg.logic_app.ase_sku
   ase_worker_count           = local.usage_cfg.logic_app.worker_count
   ase_max_worker_count       = local.usage_cfg.logic_app.max_worker_count
+  package_upload_ip_rules    = local.usage_cfg.logic_app.package_upload_ip_rules
   ase_zone_redundant         = local.usage_cfg.ase.zone_redundant
   deployment_method          = local.usage_cfg.logic_app.deployment
-  package_upload_ip_rules    = local.usage_cfg.logic_app.package_upload_ip_rules
+  
 
   # Networking
   subnet_id    = local.network.logic_app_subnet_id
