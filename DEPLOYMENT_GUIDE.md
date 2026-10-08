@@ -110,8 +110,9 @@ The effective order for a full deployment is:
 
 ```text
 0. Random suffix + Resource Group
-1. networking         ── VNet, subnets, NSGs, route table (greenfield; BYO = data lookups in network.tf)
-   private_dns        ── private DNS zones + VNet links (created or supplied IDs)
+1. networking         ── VNet, subnets, NSGs, route table (greenfield); subnets + NSGs + UDR to
+                         the hub firewall in the vended VNet (alz_spoke); BYO = data lookups in network.tf
+   private_dns        ── private DNS zones + VNet links (created or supplied IDs; none in alz_spoke)
 2. eventhub           ── namespace + ai-usage/pii-usage hubs + consumer groups
    cosmosdb           ── account + usage-db + 4 containers
    monitoring         ── LAW + 3 App Insights + 3 dashboards + AMPLS
@@ -120,7 +121,8 @@ The effective order for a full deployment is:
 3. security           ── Key Vault + Foundry KV RBAC
 4. redis              ── Azure Managed Redis + PE + APIM caches link
 5. entra_id           ── (optional) azuread_application + SP + KV secret
-6. apim               ── APIM service + identity + PE + named values (JWT-*, AWS placeholders)
+6. apim               ── APIM service + identity + PE + named values (JWT-*, AWS placeholders);
+                         v2 private access applied on the next apply (§5.3)
    ├─ backends        ── content safety + AI search + embeddings + MS Learn MCP
    └─ foundry-sub     ── (optional) dedicated APIM subscription for Foundry
    apim_telemetry     ── loggers + global diagnostics
@@ -234,6 +236,17 @@ az account show
 This is equivalent to `main.bicep` with everything but APIC onboarding
 disabled. Adds ~35 resources. Expect 25–35 minutes for the first run
 (APIM + Redis dominate).
+
+**APIM private access on v2 SKUs (`apim.public_network_access = false`).**
+Azure rejects creating an API Management service with public network access
+disabled (`ActivateServiceWithPrivateEndpointAccessNotAllowed`); it needs an
+approved private endpoint first. The first apply therefore creates the service
+**public** together with its private endpoint; the requested setting is applied
+on the **next apply**, once the service and its private endpoint exist
+(`modules/apim` probes for the existing service at plan time). Run the deploy
+twice for a private gateway. This replaces the v1 post-create `azapi` PATCH.
+`public_network_access = false` requires `apim.private_endpoint = true`
+(precondition); classic SKUs always keep public access.
 
 ### 5.4 Verify
 
@@ -690,6 +703,28 @@ previous partial run or a state loss), apply fails with `already exists`.
 [scripts/import-blocks-from-log.py](scripts/import-blocks-from-log.py)). Paste
 them into an `imports.tf`, re-run (the plan lists each import), and remove the
 blocks afterwards. Nothing is imported behind your back. See
+[docs/operations/adopting-existing-resources.md](docs/operations/adopting-existing-resources.md).
+
+#### Upgrading an existing (v1) environment
+
+Phase 2 moved most resources onto Azure Verified Modules (AVM). Where an AVM
+module manages its resource with `azapi` instead of `azurerm` (usage-pipeline
+storage account + content share + App Service plan; greenfield VNet, subnets,
+NSGs + APIM NSG rules, private DNS zones + VNet links), a `moved {}` block
+can't carry the state across, so the v1 resource is dropped from state and
+re-imported by [adopt.tf](adopt.tf). For the run that upgrades an environment
+deployed before Phase 2, set:
+
+```hcl
+adopt_existing_resources = true
+```
+
+Each import runs only when the Azure resource exists (probed at plan time);
+check that the plan shows `will be imported` and that nothing is replaced or
+destroyed, apply, then set it back to `false` (or leave it — the imports are
+no-ops once the resources are in state). New environments leave it `false`.
+Without the flag, the upgrade apply fails with `already exists` for the adopted
+resources; re-run with it set. Full runbook:
 [docs/operations/adopting-existing-resources.md](docs/operations/adopting-existing-resources.md).
 
 ### 9.4 Validation notebooks (`validation/` + `shared/`)

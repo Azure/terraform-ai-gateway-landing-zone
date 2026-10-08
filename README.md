@@ -175,6 +175,19 @@ network = {
 }
 ```
 
+**Azure Landing Zone spoke (platform-vended VNet):**
+```hcl
+network = {
+  mode                = "alz_spoke"
+  resource_group_name = "rg-spoke-network"     # the vended spoke VNet
+  vnet_name           = "vnet-spoke-citadel"
+  hub_firewall_ip     = "10.0.0.4"             # UDR next hop for 0.0.0.0/0
+  # No private DNS zones are created. Supply private_dns.zone_ids, or leave the
+  # PE DNS zone groups to the platform's Deploy-Private-DNS-Zones policy.
+}
+```
+This deployment creates the subnets inside the spoke VNet, each with an NSG and a route table sending `0.0.0.0/0` to the hub firewall; default outbound access is off. See [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md) for what to request from the platform team.
+
 > The old flat inputs (`use_existing_vnet`, `apim_network_type`, `logic_app_hosting_model`, …) still work for one release but raise a plan-time deprecation warning. See [VARIABLES.md §23](VARIABLES.md#23-deprecated-flat-inputs) for the old → new mapping.
 
 ### Entra ID Authentication
@@ -288,23 +301,25 @@ there.
 | Module | Resources Created |
 |--------|-------------------|
 | `naming` | No resources — generates every resource name (honours `name_overrides`) |
-| `networking` | Greenfield VNet, subnets, NSGs, route table (skipped when `network.mode = "byo"`) |
-| `private-dns` | Private DNS zones + VNet links (created, or the zone IDs you supply) |
-| `monitoring` | Log Analytics workspace, 2× Application Insights, dashboard |
-| `security` | Key Vault, RBAC assignments, PE |
-| `cosmosdb` | Cosmos DB account, `usage-db` database, `usage` + `model-pricing` containers |
-| `eventhub` | Event Hub namespace, `apim-usage` + `pii-usage` hubs, auth rules, consumer groups |
-| `foundry` | AI Foundry accounts (n instances), projects, model deployments, APIM connection |
+| `networking` | Greenfield VNet, or subnets in the ALZ spoke VNet (`alz_spoke`); an NSG per subnet, route tables (skipped when `network.mode = "byo"`). AVM: `avm-res-network-virtualnetwork` 0.22.2, `avm-res-network-networksecuritygroup` 0.6.0 |
+| `private-dns` | Private DNS zones + VNet links (created, or the zone IDs you supply; none in `alz_spoke`). AVM: `avm-res-network-privatednszone` 0.5.0 |
+| `monitoring` | Log Analytics workspace, 2× Application Insights, dashboard. AVM: `avm-res-operationalinsights-workspace` 0.5.1, `avm-res-insights-component` 0.4.0 |
+| `security` | Key Vault, RBAC assignments, PE. AVM: `avm-res-keyvault-vault` 0.11.0 |
+| `cosmosdb` | Cosmos DB account, `usage-db` database, `usage` + `model-pricing` containers. AVM: `avm-res-documentdb-databaseaccount` 0.11.0 (account, database, PE; containers stay azurerm) |
+| `eventhub` | Event Hub namespace, `apim-usage` + `pii-usage` hubs, auth rules, consumer groups. AVM: `avm-res-eventhub-namespace` 0.1.1 (namespace, hubs, RBAC, PE) |
+| `foundry` | AI Foundry accounts (n instances), projects, model deployments, APIM connection. AVM: `avm-res-cognitiveservices-account` 0.11.1 (accounts; deployments and projects stay azapi) |
 | `apic` | API Center service, workspace, environments |
 | `api-center-registration` | API Center registration of the enabled gateway APIs (`features.api_center_onboarding`) |
-| `apim` | APIM instance, private endpoint, named values, non-LLM backends, default product, Foundry subscription, Redis external cache |
+| `apim` | APIM instance, private endpoint, named values, non-LLM backends, default product, Foundry subscription, Redis external cache. AVM: `avm-res-apimanagement-service` 0.9.0 (service + PE) |
 | `apim-telemetry` | APIM loggers (App Insights, Azure Monitor, Event Hub) + global diagnostics |
 | `apim-policy-fragments` | Reusable policy fragments from the [policy-fragments.tf](policy-fragments.tf) catalogue |
 | `llm-routing` | LLM backends, backend pools, generated routing fragments |
 | `gateway-api` | One APIM API (http / websocket / mcp) + policies, diagnostics, optional product — one instance per entry in [apis.tf](apis.tf) |
-| `redis` | Azure Managed Redis (semantic cache, `features.semantic_cache`) |
+| `redis` | Azure Managed Redis (semantic cache, `features.semantic_cache`). Stays on azapi: the AVM Redis Enterprise module (0.2.0) can't set `accessKeysAuthentication`, which the APIM external cache needs |
 | `entra-id` | Entra app registration + rotating client secret in Key Vault |
-| `logic-app` | Logic App Standard, App Service Plan, Storage Account (runtime); optional App Service Environment v3 for keyless storage (`usage_pipeline.logic_app.hosting = "ase_v3"`) |
+| `logic-app` | Logic App Standard, App Service Plan, Storage Account (runtime); optional App Service Environment v3 for keyless storage (`usage_pipeline.logic_app.hosting = "ase_v3"`). AVM: `avm-res-storage-storageaccount` 0.10.0, `avm-res-web-serverfarm` 2.0.8 |
+
+The two user-assigned managed identities (`apim`, `usage`) are created by the root `module "identity"` in [main.tf](main.tf) on AVM `avm-res-managedidentity-userassignedidentity` 0.5.3. AVM usage telemetry is on by default; set `enable_telemetry = false` to turn it off ([aka.ms/avm/telemetryinfo](https://aka.ms/avm/telemetryinfo)).
 
 Each module has a generated `README.md` (terraform-docs) with its full inputs and outputs, e.g. [modules/gateway-api/README.md](modules/gateway-api/README.md).
 
@@ -408,13 +423,14 @@ citadel-terraform/
 ├── terraform.tf             # Provider + Terraform version constraints
 ├── .terraform.lock.hcl      # Provider lock file (committed; CI runs init -lockfile=readonly)
 ├── providers.tf             # AzureRM, AzAPI, Random provider config
-├── main.tf                  # Root module — naming, resource group, BYO Log Analytics lookup, module calls
+├── main.tf                  # Root module — naming, resource group, identities (AVM), BYO Log Analytics lookup, module calls
 ├── interfaces.tf            # Typed inputs (apim, network, features, usage_pipeline, monitoring) + effective config
-├── network.tf               # Networking (greenfield module or BYO lookups) + private DNS
+├── network.tf               # Networking (greenfield / alz_spoke module or BYO lookups) + private DNS
 ├── apis.tf                  # API catalogue → modules/gateway-api
 ├── policy-fragments.tf      # Policy-fragment catalogue → modules/apim-policy-fragments
 ├── api-center-registration.tf # API Center registration → modules/api-center-registration
 ├── moved.tf                 # moved {} blocks for relocated resource addresses
+├── adopt.tf                 # Phase 2 import {} blocks — adopts v1 resources into AVM modules (adopt_existing_resources)
 ├── variables.tf             # All input variables (flat inputs are deprecated shims; deprecated inputs at the end)
 ├── checks.tf                # Plan-time checks (deprecated inputs, deprecated flat inputs)
 ├── outputs.tf               # Key deployment outputs
@@ -426,7 +442,7 @@ citadel-terraform/
 │
 ├── modules/
 │   ├── naming/              # Resource names
-│   ├── networking/          # Greenfield VNet, subnets, NSGs, route tables
+│   ├── networking/          # Greenfield VNet / ALZ spoke subnets, NSGs, route tables
 │   ├── private-dns/         # Private DNS zones + VNet links
 │   ├── monitoring/          # Log Analytics, Application Insights, dashboards
 │   ├── security/            # Key Vault, RBAC assignments, private endpoints
@@ -473,7 +489,7 @@ citadel-terraform/
 │   └── asetest.tfvars.example # Logic App on ASE v3 (keyless storage) template
 │
 ├── docs/operations/         # Runbooks — platform-team-requests.md (ALZ prerequisites),
-│                            #   adopting-existing-resources.md (import {} blocks)
+│                            #   adopting-existing-resources.md (import {} blocks, Phase 2 upgrade)
 │
 ├── scripts/                # Bash (*.sh) + PowerShell (*.ps1) equivalents
 │   ├── ci/                     # CI helpers: tf-dirs.sh, check-policy-assets.sh
@@ -504,6 +520,7 @@ citadel-terraform/
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — local quality checks (fmt, tflint, tests, checkov, gitleaks) and the rules CI enforces
 - [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md) — what to request from the Azure Landing Zone platform team
+- [docs/operations/adopting-existing-resources.md](docs/operations/adopting-existing-resources.md) — adopting existing objects with `import {}` blocks, and upgrading a pre-Phase 2 environment to Azure Verified Modules (`adopt_existing_resources = true`)
 
 - [AI Citadel Governance Hub README](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1)
 - [Full Deployment Guide](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/full-deployment-guide.md)
