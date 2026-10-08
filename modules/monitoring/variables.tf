@@ -57,3 +57,9 @@ variable "ampls_dns_zone_id_monitor" {
   type        = string
   default     = ""
 }
+
+variable "enable_telemetry" {
+  description = "Enable Azure Verified Modules usage telemetry."
+  type        = bool
+  default     = true
+}

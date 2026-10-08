@@ -123,31 +123,29 @@ resource "random_string" "suffix" {
 #     App for Cosmos DB SQL data plane + Storage + EventHub receiver.
 # =============================================================================
 
-resource "azurerm_user_assigned_identity" "apim" {
-  name                = local.names.uami_apim
-  resource_group_name = local.resource_group_name_resolved
-  location            = var.location
-  tags                = local.all_tags
-}
+module "identity" {
+  source   = "Azure/avm-res-managedidentity-userassignedidentity/azurerm"
+  version  = "0.5.3"
+  for_each = { apim = local.names.uami_apim, usage = local.names.uami_usage }
 
-resource "azurerm_user_assigned_identity" "usage" {
-  name                = local.names.uami_usage
+  name                = each.value
   resource_group_name = local.resource_group_name_resolved
   location            = var.location
   tags                = local.all_tags
+  enable_telemetry    = var.enable_telemetry
 }
 
 # Backwards-compat alias used by downstream outputs. Kept during the split so
 # existing callers / outputs continue to function without churn. Prefer the
 # explicit `.apim` / `.usage` identities going forward.
 locals {
-  apim_identity_id        = azurerm_user_assigned_identity.apim.id
-  apim_identity_client_id = azurerm_user_assigned_identity.apim.client_id
-  apim_identity_principal = azurerm_user_assigned_identity.apim.principal_id
+  apim_identity_id        = module.identity["apim"].resource_id
+  apim_identity_client_id = module.identity["apim"].client_id
+  apim_identity_principal = module.identity["apim"].principal_id
 
-  usage_identity_id        = azurerm_user_assigned_identity.usage.id
-  usage_identity_client_id = azurerm_user_assigned_identity.usage.client_id
-  usage_identity_principal = azurerm_user_assigned_identity.usage.principal_id
+  usage_identity_id        = module.identity["usage"].resource_id
+  usage_identity_client_id = module.identity["usage"].client_id
+  usage_identity_principal = module.identity["usage"].principal_id
 }
 
 # BYO Log Analytics workspace, possibly in another subscription (provider alias).
@@ -177,6 +175,7 @@ module "monitoring" {
   } : null
 
   environment_name  = var.environment_name
+  enable_telemetry  = var.enable_telemetry
   create_dashboards = local.monitoring_cfg.app_insights_dashboards
   subscription_id   = var.subscription_id
 

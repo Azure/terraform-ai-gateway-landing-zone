@@ -5,65 +5,66 @@
 
 locals {
   byo_workspace    = var.existing_log_analytics_workspace != null
-  log_analytics_id = local.byo_workspace ? var.existing_log_analytics_workspace.id : azurerm_log_analytics_workspace.citadel[0].id
+  log_analytics_id = local.byo_workspace ? var.existing_log_analytics_workspace.id : module.log_analytics[0].resource_id
 }
 
 # -----------------------------------------------------------------------------
 # LOG ANALYTICS WORKSPACE
 # -----------------------------------------------------------------------------
 
-resource "azurerm_log_analytics_workspace" "citadel" {
-  count               = local.byo_workspace ? 0 : 1
+module "log_analytics" {
+  source  = "Azure/avm-res-operationalinsights-workspace/azurerm"
+  version = "0.5.1"
+  count   = local.byo_workspace ? 0 : 1
+
   name                = var.log_analytics_name
   location            = var.location
   resource_group_name = var.resource_group_name
-  sku                 = "PerGB2018"
-  retention_in_days   = 30 # Bicep parity (was 90)
   tags                = var.tags
+  enable_telemetry    = var.enable_telemetry
 
+  log_analytics_workspace_sku               = "PerGB2018"
+  log_analytics_workspace_retention_in_days = 30 # Bicep parity (was 90)
   # Bicep parity: when AMPLS is in use, disable public ingestion; queries remain enabled.
-  internet_ingestion_enabled = !var.use_azure_monitor_private_link_scope
-  internet_query_enabled     = true
+  log_analytics_workspace_internet_ingestion_enabled = var.use_azure_monitor_private_link_scope ? "false" : "true"
+  log_analytics_workspace_internet_query_enabled     = "true"
 }
 
 # -----------------------------------------------------------------------------
 # APPLICATION INSIGHTS (for APIM monitoring)
 # -----------------------------------------------------------------------------
 
-resource "azurerm_application_insights" "apim" {
-  name                = "appi-apim-${var.environment_name}"
+locals {
+  app_insights = {
+    apim      = "appi-apim-${var.environment_name}"
+    logic_app = "appi-logic-${var.environment_name}"
+    foundry   = "appi-aif-${var.environment_name}"
+  }
+}
+
+module "app_insights" {
+  source   = "Azure/avm-res-insights-component/azurerm"
+  version  = "0.4.0"
+  for_each = local.app_insights
+
+  name                = each.value
   location            = var.location
   resource_group_name = var.resource_group_name
   workspace_id        = local.log_analytics_id
   application_type    = "web"
   tags                = var.tags
+  enable_telemetry    = var.enable_telemetry
 }
 
 # -----------------------------------------------------------------------------
 # APPLICATION INSIGHTS (for Logic App monitoring)
 # -----------------------------------------------------------------------------
 
-resource "azurerm_application_insights" "logic_app" {
-  name                = "appi-logic-${var.environment_name}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  workspace_id        = local.log_analytics_id
-  application_type    = "web"
-  tags                = var.tags
-}
 
 # -----------------------------------------------------------------------------
 # APPLICATION INSIGHTS (for AI Foundry monitoring — Bicep: appi-aif-*)
 # -----------------------------------------------------------------------------
 
-resource "azurerm_application_insights" "foundry" {
-  name                = "appi-aif-${var.environment_name}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  workspace_id        = local.log_analytics_id
-  application_type    = "web"
-  tags                = var.tags
-}
 
 # -----------------------------------------------------------------------------
 # DASHBOARDS — Bicep parity (applicationinsights-dashboard.bicep deployed 3×)
@@ -75,18 +76,18 @@ locals {
   dashboard_components = var.create_dashboards ? {
     apim = {
       suffix  = "apim"
-      ai_id   = azurerm_application_insights.apim.id
-      ai_name = azurerm_application_insights.apim.name
+      ai_id   = module.app_insights["apim"].resource_id
+      ai_name = module.app_insights["apim"].name
     }
     logic = {
       suffix  = "func"
-      ai_id   = azurerm_application_insights.logic_app.id
-      ai_name = azurerm_application_insights.logic_app.name
+      ai_id   = module.app_insights["logic_app"].resource_id
+      ai_name = module.app_insights["logic_app"].name
     }
     foundry = {
       suffix  = "aif"
-      ai_id   = azurerm_application_insights.foundry.id
-      ai_name = azurerm_application_insights.foundry.name
+      ai_id   = module.app_insights["foundry"].resource_id
+      ai_name = module.app_insights["foundry"].name
     }
   } : {}
 }
@@ -124,7 +125,7 @@ resource "azurerm_monitor_private_link_scoped_service" "law" {
   name                = "scoped-law"
   resource_group_name = var.resource_group_name
   scope_name          = azurerm_monitor_private_link_scope.ampls[0].name
-  linked_resource_id  = azurerm_log_analytics_workspace.citadel[0].id
+  linked_resource_id  = module.log_analytics[0].resource_id
 }
 
 resource "azurerm_monitor_private_link_scoped_service" "appi_apim" {
@@ -132,7 +133,7 @@ resource "azurerm_monitor_private_link_scoped_service" "appi_apim" {
   name                = "scoped-appi-apim"
   resource_group_name = var.resource_group_name
   scope_name          = azurerm_monitor_private_link_scope.ampls[0].name
-  linked_resource_id  = azurerm_application_insights.apim.id
+  linked_resource_id  = module.app_insights["apim"].resource_id
 }
 
 resource "azurerm_monitor_private_link_scoped_service" "appi_logic" {
@@ -140,7 +141,7 @@ resource "azurerm_monitor_private_link_scoped_service" "appi_logic" {
   name                = "scoped-appi-logic"
   resource_group_name = var.resource_group_name
   scope_name          = azurerm_monitor_private_link_scope.ampls[0].name
-  linked_resource_id  = azurerm_application_insights.logic_app.id
+  linked_resource_id  = module.app_insights["logic_app"].resource_id
 }
 
 resource "azurerm_monitor_private_link_scoped_service" "appi_foundry" {
@@ -148,7 +149,7 @@ resource "azurerm_monitor_private_link_scoped_service" "appi_foundry" {
   name                = "scoped-appi-foundry"
   resource_group_name = var.resource_group_name
   scope_name          = azurerm_monitor_private_link_scope.ampls[0].name
-  linked_resource_id  = azurerm_application_insights.foundry.id
+  linked_resource_id  = module.app_insights["foundry"].resource_id
 }
 
 resource "azurerm_private_endpoint" "ampls" {

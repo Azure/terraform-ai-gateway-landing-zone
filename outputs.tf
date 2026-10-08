@@ -54,22 +54,22 @@ output "key_vault_uri" {
 
 output "apim_managed_identity_client_id" {
   description = "APIM user-assigned managed identity client ID (Bicep: id-apim-*)"
-  value       = azurerm_user_assigned_identity.apim.client_id
+  value       = module.identity["apim"].client_id
 }
 
 output "apim_managed_identity_principal_id" {
   description = "APIM user-assigned managed identity principal ID"
-  value       = azurerm_user_assigned_identity.apim.principal_id
+  value       = module.identity["apim"].principal_id
 }
 
 output "usage_managed_identity_client_id" {
   description = "Logic App / usage user-assigned managed identity client ID (Bicep: id-logicapp-*)"
-  value       = azurerm_user_assigned_identity.usage.client_id
+  value       = module.identity["usage"].client_id
 }
 
 output "usage_managed_identity_principal_id" {
   description = "Logic App / usage user-assigned managed identity principal ID"
-  value       = azurerm_user_assigned_identity.usage.principal_id
+  value       = module.identity["usage"].principal_id
 }
 
 output "vnet_id" {

@@ -367,3 +367,29 @@ moved {
   from = module.networking.azurerm_private_dns_zone_virtual_network_link.links
   to   = module.private_dns.azurerm_private_dns_zone_virtual_network_link.links
 }
+
+# --- WP-2.1: identities, Log Analytics and App Insights on Azure Verified Modules ---
+moved {
+  from = azurerm_user_assigned_identity.apim
+  to   = module.identity["apim"].azurerm_user_assigned_identity.this
+}
+moved {
+  from = azurerm_user_assigned_identity.usage
+  to   = module.identity["usage"].azurerm_user_assigned_identity.this
+}
+moved {
+  from = module.monitoring.azurerm_log_analytics_workspace.citadel[0]
+  to   = module.monitoring.module.log_analytics[0].azurerm_log_analytics_workspace.this
+}
+moved {
+  from = module.monitoring.azurerm_application_insights.apim
+  to   = module.monitoring.module.app_insights["apim"].azurerm_application_insights.this
+}
+moved {
+  from = module.monitoring.azurerm_application_insights.logic_app
+  to   = module.monitoring.module.app_insights["logic_app"].azurerm_application_insights.this
+}
+moved {
+  from = module.monitoring.azurerm_application_insights.foundry
+  to   = module.monitoring.module.app_insights["foundry"].azurerm_application_insights.this
+}

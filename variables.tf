@@ -58,6 +58,13 @@ variable "use_existing_resource_group" {
   default     = false
 }
 
+variable "enable_telemetry" {
+  description = "Let the Azure Verified Modules (AVM) send their usage telemetry to Microsoft (https://aka.ms/avm/telemetryinfo). No deployment data is sent."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
 variable "name_overrides" {
   description = "Logical role => explicit resource name (keys: the names output of modules/naming, e.g. apim, key_vault, redis, logic_app). Empty values are ignored; the dedicated *_name variables take precedence."
   type        = map(string)
