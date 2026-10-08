@@ -7,26 +7,64 @@
 #   - zoneRedundant: managed automatically for Standard/Premium SKUs (no arg).
 #   - kafkaEnabled: Kafka is always enabled on Standard+ namespaces; Bicep sets
 #     it false but the RP ignores that for Standard. No TF action required.
-resource "azurerm_eventhub_namespace" "citadel" {
+module "namespace" {
+  source  = "Azure/avm-res-eventhub-namespace/azurerm"
+  version = "0.1.1"
+
   name                = var.namespace_name
   location            = var.location
   resource_group_name = var.resource_group_name
-  sku                 = "Standard"
-  capacity            = var.capacity_units
   tags                = var.tags
+  enable_telemetry    = var.enable_telemetry
 
+  sku                           = "Standard"
+  capacity                      = var.capacity_units
   auto_inflate_enabled          = true
   maximum_throughput_units      = 20
-  local_authentication_enabled  = false
-  public_network_access_enabled = var.public_network_access == "Enabled" ? true : false
+  local_authentication_enabled  = false # no SAS: APIM and the Logic App use managed identities
+  public_network_access_enabled = var.public_network_access == "Enabled"
+  # Network rules: azapi_update_resource.network_rule_set below (retried independently).
 
-  # Network rules are managed by `azurerm_eventhub_namespace_network_rule_set`
-  # below. Splitting them out avoids a known RP flake where the namespace
-  # create succeeds but the inline networkRuleSets PUT drops its connection
-  # ("HTTP response was nil"), which leaves Terraform unable to retry cleanly.
-  lifecycle {
-    ignore_changes = [network_rulesets]
+  # Bicep parity: partition 4 / 2, retention 7 days.
+  event_hubs = {
+    "ai-usage"  = { namespace_name = var.namespace_name, resource_group_name = var.resource_group_name, partition_count = 4, message_retention = 7 }
+    "pii-usage" = { namespace_name = var.namespace_name, resource_group_name = var.resource_group_name, partition_count = 2, message_retention = 7 }
   }
+
+  # Managed identities instead of SAS keys:
+  #   APIM loggers send; the Logic App (usage UAMI) receives. Bicep also gives
+  #   the Logic App UAMI Data Owner (at RG scope; namespace scope is tighter).
+  role_assignments = {
+    apim_data_sender = {
+      role_definition_id_or_name = "Azure Event Hubs Data Sender"
+      principal_id               = var.apim_identity_principal_id
+    }
+    usage_data_receiver = {
+      role_definition_id_or_name = "Azure Event Hubs Data Receiver"
+      principal_id               = var.usage_identity_principal_id
+    }
+    usage_data_owner = {
+      role_definition_id_or_name = "Azure Event Hubs Data Owner"
+      principal_id               = var.usage_identity_principal_id
+    }
+  }
+
+  private_endpoints_manage_dns_zone_group = !var.dns_zone_group_managed_by_policy
+  private_endpoints = {
+    namespace = {
+      name                            = "pe-${var.namespace_name}"
+      private_service_connection_name = "psc-${var.namespace_name}"
+      subnet_resource_id              = var.subnet_id
+      private_dns_zone_group_name     = "evhns-dns-group"
+      private_dns_zone_resource_ids   = var.dns_zone_id != "" && !var.dns_zone_group_managed_by_policy ? [var.dns_zone_id] : []
+      tags                            = var.tags
+    }
+  }
+}
+
+locals {
+  namespace_id   = module.namespace.resource_id
+  namespace_name = var.namespace_name
 }
 
 # -----------------------------------------------------------------------------
@@ -44,7 +82,7 @@ resource "azurerm_eventhub_namespace" "citadel" {
 
 resource "azapi_update_resource" "network_rule_set" {
   type        = "Microsoft.EventHub/namespaces/networkRuleSets@2024-01-01"
-  resource_id = "${azurerm_eventhub_namespace.citadel.id}/networkRuleSets/default"
+  resource_id = "${local.namespace_id}/networkRuleSets/default"
 
   body = {
     properties = {
@@ -59,23 +97,9 @@ resource "azapi_update_resource" "network_rule_set" {
 # EVENT HUB: ai-usage (LLM token/request metrics). Bicep parity: partition=4, retention=7.
 # -----------------------------------------------------------------------------
 
-resource "azurerm_eventhub" "ai_usage" {
-  name              = "ai-usage"
-  namespace_id      = azurerm_eventhub_namespace.citadel.id
-  partition_count   = 4
-  message_retention = 7
-}
-
 # -----------------------------------------------------------------------------
 # EVENT HUB: pii-usage (PII anonymization audit logs). Bicep parity: partition=2, retention=7.
 # -----------------------------------------------------------------------------
-
-resource "azurerm_eventhub" "pii_usage" {
-  name              = "pii-usage"
-  namespace_id      = azurerm_eventhub_namespace.citadel.id
-  partition_count   = 2
-  message_retention = 7
-}
 
 # -----------------------------------------------------------------------------
 # CONSUMER GROUPS (match Bicep names: aiUsageIngestion / piiUsageIngestion).
@@ -86,44 +110,21 @@ resource "azurerm_eventhub" "pii_usage" {
 
 resource "azurerm_eventhub_consumer_group" "ai_usage_ingestion" {
   name                = "aiUsageIngestion"
-  namespace_name      = azurerm_eventhub_namespace.citadel.name
-  eventhub_name       = azurerm_eventhub.ai_usage.name
+  namespace_name      = local.namespace_name
+  eventhub_name       = "ai-usage"
   resource_group_name = var.resource_group_name
 }
 
 resource "azurerm_eventhub_consumer_group" "pii_usage_ingestion" {
   name                = "piiUsageIngestion"
-  namespace_name      = azurerm_eventhub_namespace.citadel.name
-  eventhub_name       = azurerm_eventhub.pii_usage.name
+  namespace_name      = local.namespace_name
+  eventhub_name       = "pii-usage"
   resource_group_name = var.resource_group_name
 }
 
 # -----------------------------------------------------------------------------
 # PRIVATE ENDPOINT
 # -----------------------------------------------------------------------------
-
-resource "azurerm_private_endpoint" "eventhub" {
-  name                = "pe-${var.namespace_name}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.subnet_id
-  tags                = var.tags
-
-  private_service_connection {
-    name                           = "psc-${var.namespace_name}"
-    private_connection_resource_id = azurerm_eventhub_namespace.citadel.id
-    subresource_names              = ["namespace"]
-    is_manual_connection           = false
-  }
-
-  dynamic "private_dns_zone_group" {
-    for_each = var.dns_zone_id != "" ? [1] : []
-    content {
-      name                 = "evhns-dns-group"
-      private_dns_zone_ids = [var.dns_zone_id]
-    }
-  }
-}
 
 # -----------------------------------------------------------------------------
 # DIAGNOSTIC SETTINGS
@@ -139,7 +140,7 @@ resource "azurerm_private_endpoint" "eventhub" {
 
 resource "azapi_resource_action" "eventhub_diagnostics" {
   type        = "Microsoft.Insights/diagnosticSettings@2021-05-01-preview"
-  resource_id = "${azurerm_eventhub_namespace.citadel.id}/providers/Microsoft.Insights/diagnosticSettings/diag-${var.namespace_name}"
+  resource_id = "${local.namespace_id}/providers/Microsoft.Insights/diagnosticSettings/diag-${var.namespace_name}"
   method      = "PUT"
 
   body = {
@@ -161,26 +162,9 @@ resource "azapi_resource_action" "eventhub_diagnostics" {
 # (used by APIM loggers via managed identity instead of SAS keys)
 # -----------------------------------------------------------------------------
 
-resource "azurerm_role_assignment" "eventhub_data_sender" {
-  scope                = azurerm_eventhub_namespace.citadel.id
-  role_definition_name = "Azure Event Hubs Data Sender"
-  principal_id         = var.apim_identity_principal_id
-}
-
-resource "azurerm_role_assignment" "eventhub_data_receiver" {
-  scope                = azurerm_eventhub_namespace.citadel.id
-  role_definition_name = "Azure Event Hubs Data Receiver"
-  principal_id         = var.usage_identity_principal_id
-}
-
 # Bicep parity: Logic App UAMI also gets "Azure Event Hubs Data Owner" at
 # namespace scope (Bicep grants at RG scope; namespace scope is tighter and
 # sufficient for the Logic App workflows).
-resource "azurerm_role_assignment" "eventhub_data_owner_usage" {
-  scope                = azurerm_eventhub_namespace.citadel.id
-  role_definition_name = "Azure Event Hubs Data Owner"
-  principal_id         = var.usage_identity_principal_id
-}
 
 # -----------------------------------------------------------------------------
 # OPTIONAL DISASTER RECOVERY PAIRING (Bicep parity: disasterRecoveryConfig)
@@ -193,6 +177,6 @@ resource "azurerm_eventhub_namespace_disaster_recovery_config" "pairing" {
   count                = var.disaster_recovery_config == null ? 0 : 1
   name                 = var.disaster_recovery_config.alias
   resource_group_name  = var.resource_group_name
-  namespace_name       = azurerm_eventhub_namespace.citadel.name
+  namespace_name       = local.namespace_name
   partner_namespace_id = var.disaster_recovery_config.partner_namespace_id
 }

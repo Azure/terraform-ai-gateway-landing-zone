@@ -465,3 +465,33 @@ moved {
   from = module.cosmosdb.azurerm_private_endpoint.cosmos
   to   = module.cosmosdb.module.cosmos.azurerm_private_endpoint.this_managed_dns_zone_groups["sql"]
 }
+
+# --- WP-2.5: Event Hub namespace, hubs, RBAC and PE on the Azure Verified Module ---
+moved {
+  from = module.eventhub.azurerm_eventhub_namespace.citadel
+  to   = module.eventhub.module.namespace.azurerm_eventhub_namespace.this[0]
+}
+moved {
+  from = module.eventhub.azurerm_eventhub.ai_usage
+  to   = module.eventhub.module.namespace.azurerm_eventhub.this["ai-usage"]
+}
+moved {
+  from = module.eventhub.azurerm_eventhub.pii_usage
+  to   = module.eventhub.module.namespace.azurerm_eventhub.this["pii-usage"]
+}
+moved {
+  from = module.eventhub.azurerm_private_endpoint.eventhub
+  to   = module.eventhub.module.namespace.azurerm_private_endpoint.this["namespace"]
+}
+moved {
+  from = module.eventhub.azurerm_role_assignment.eventhub_data_sender
+  to   = module.eventhub.module.namespace.azurerm_role_assignment.this["apim_data_sender"]
+}
+moved {
+  from = module.eventhub.azurerm_role_assignment.eventhub_data_receiver
+  to   = module.eventhub.module.namespace.azurerm_role_assignment.this["usage_data_receiver"]
+}
+moved {
+  from = module.eventhub.azurerm_role_assignment.eventhub_data_owner_usage
+  to   = module.eventhub.module.namespace.azurerm_role_assignment.this["usage_data_owner"]
+}

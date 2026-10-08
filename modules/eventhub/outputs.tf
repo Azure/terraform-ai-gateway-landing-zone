@@ -1,17 +1,17 @@
 output "namespace_name" {
   description = "Name of the Event Hubs namespace."
-  value       = azurerm_eventhub_namespace.citadel.name
+  value       = local.namespace_name
 }
 output "namespace_id" {
   description = "Resource ID of the Event Hubs namespace."
-  value       = azurerm_eventhub_namespace.citadel.id
+  value       = module.namespace.resource_id
 }
 
 output "apim_usage_hub_name" {
   description = "Name of the Event Hub that receives AI usage events from APIM."
-  value       = azurerm_eventhub.ai_usage.name
+  value       = nonsensitive(module.namespace.resource_eventhubs["ai-usage"].name)
   # Consumers (APIM loggers, Logic App) send/receive with managed identities: wait for their roles and the PE.
-  depends_on = [azurerm_role_assignment.eventhub_data_sender, azurerm_role_assignment.eventhub_data_receiver, azurerm_role_assignment.eventhub_data_owner_usage, azurerm_private_endpoint.eventhub]
+  depends_on = [module.namespace]
 }
 output "ai_usage_ingestion_cg" {
   description = "Consumer group used by the AI usage ingestion workflow."
@@ -19,9 +19,9 @@ output "ai_usage_ingestion_cg" {
 }
 output "pii_usage_hub_name" {
   description = "Name of the Event Hub that receives PII usage events from APIM."
-  value       = azurerm_eventhub.pii_usage.name
+  value       = nonsensitive(module.namespace.resource_eventhubs["pii-usage"].name)
   # Consumers (APIM loggers, Logic App) send/receive with managed identities: wait for their roles and the PE.
-  depends_on = [azurerm_role_assignment.eventhub_data_sender, azurerm_role_assignment.eventhub_data_receiver, azurerm_role_assignment.eventhub_data_owner_usage, azurerm_private_endpoint.eventhub]
+  depends_on = [module.namespace]
 }
 output "pii_usage_ingestion_cg" {
   description = "Consumer group used by the PII usage ingestion workflow."
@@ -30,5 +30,5 @@ output "pii_usage_ingestion_cg" {
 
 output "endpoint_uri" {
   description = "HTTPS endpoint of the Event Hubs namespace."
-  value       = "https://${azurerm_eventhub_namespace.citadel.name}.servicebus.windows.net"
+  value       = "https://${local.namespace_name}.servicebus.windows.net"
 }
