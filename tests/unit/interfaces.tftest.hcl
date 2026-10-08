@@ -387,3 +387,68 @@ run "alz_policy_owns_every_dns_zone_group" {
     error_message = "alz_spoke without zone IDs: no zones, zone groups owned by policy."
   }
 }
+
+# --- Keyless usage pipeline on ASE v3 (Phase 2b) ---------------------------------
+
+run "ase_v3_is_keyless_and_runs_from_package" {
+  command = plan
+
+  variables {
+    usage_pipeline = {
+      logic_app = { hosting = "ase_v3", code_deploy = true, code_source_path = "logicapp-src/usage-ingestion-logicapp" }
+    }
+  }
+
+  assert {
+    condition     = length(module.app_hosting) == 1 && contains(keys(module.networking[0].subnet_nsg_names), "ase")
+    error_message = "ase_v3 without a shared ASE must create the ASE (and its subnet)."
+  }
+  assert {
+    condition     = module.logic_app.hosting.keyless_storage && module.logic_app.hosting.deployment_method == "run_from_package"
+    error_message = "ase_v3 must use keyless storage and run-from-package by default."
+  }
+  assert {
+    condition     = contains(module.logic_app.hosting.app_setting_names, "WEBSITE_RUN_FROM_PACKAGE") && contains(module.logic_app.hosting.app_setting_names, "AzureWebJobsStorage__credential")
+    error_message = "The ASE site must run from the package and use identity-based runtime storage."
+  }
+  assert {
+    condition     = length(setintersection(module.logic_app.hosting.app_setting_names, ["AzureWebJobsStorage", "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING", "WEBSITE_CONTENTSHARE", "AzureCosmosDB_connectionString"])) == 0
+    error_message = "No key-based app settings on the keyless site."
+  }
+}
+
+run "shared_ase_is_not_created" {
+  command = plan
+
+  variables {
+    usage_pipeline = {
+      logic_app = { hosting = "ase_v3" }
+      ase       = { app_service_environment_id = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-shared/providers/Microsoft.Web/hostingEnvironments/ase-shared" }
+    }
+  }
+
+  assert {
+    condition     = length(module.app_hosting) == 0 && !contains(keys(module.networking[0].subnet_nsg_names), "ase")
+    error_message = "A shared / BYO ASE: no ASE and no ASE subnet in this deployment."
+  }
+}
+
+run "shared_key_deny_needs_ase" {
+  command = plan
+
+  variables {
+    deny_storage_shared_key = true
+  }
+
+  expect_failures = [azurerm_resource_group_policy_assignment.deny_storage_shared_key]
+}
+
+run "rejects_unknown_deployment_method" {
+  command = plan
+
+  variables {
+    usage_pipeline = { logic_app = { hosting = "ase_v3", deployment = "ftp" } }
+  }
+
+  expect_failures = [var.usage_pipeline]
+}

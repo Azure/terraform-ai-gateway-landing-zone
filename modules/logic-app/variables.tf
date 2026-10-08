@@ -43,18 +43,6 @@ variable "hosting_model" {
   }
 }
 
-variable "ase_subnet_id" {
-  description = "Dedicated subnet (delegated to Microsoft.Web/hostingEnvironments) for the ASE v3."
-  type        = string
-  default     = ""
-}
-
-variable "vnet_id" {
-  description = "VNet ID used to link the ASE private DNS zone."
-  type        = string
-  default     = ""
-}
-
 variable "ase_sku_size" {
   description = "Isolated v2 App Service plan SKU for the Logic App when logic_app_hosting_model = \"AppServiceEnvironmentV3\"."
   type        = string
@@ -67,23 +55,12 @@ variable "ase_worker_count" {
   default     = 1
 }
 
-variable "ase_internal_load_balancing_mode" {
-  description = "ASE v3 ingress: \"Web, Publishing\" (internal/ILB — app and SCM endpoints reachable only from the VNet) or \"None\" (external, public VIP)."
-  type        = string
-  default     = "Web, Publishing"
-}
-
 variable "ase_zone_redundant" {
   description = "Deploy the ASE v3 as zone redundant (region must support availability zones; increases minimum billed instances)."
   type        = bool
   default     = false
 }
 
-variable "ase_create_private_dns_zone" {
-  description = "For an internal (ILB) ASE v3, create the <ase>.appserviceenvironment.net private DNS zone (*, *.scm, @ records) and link it to the VNet. Set false when DNS is managed centrally (hub)."
-  type        = bool
-  default     = true
-}
 variable "eventhub_endpoint_host" {
   type        = string
   description = "EventHub namespace FQDN (e.g. evhns-xxx.servicebus.windows.net)"
@@ -285,4 +262,33 @@ variable "dns_zone_group_managed_by_policy" {
   description = "Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoints' DNS zone groups; Terraform leaves them alone."
   type        = bool
   default     = false
+}
+
+variable "app_service_environment_id" {
+  description = "ase_v3 hosting: resource ID of the App Service Environment v3 (modules/app-hosting or a shared ASE)."
+  type        = string
+  default     = null
+}
+
+variable "ase_max_worker_count" {
+  description = "ase_v3 hosting: upper bound for the CPU autoscale of the Isolated v2 plan."
+  type        = number
+  default     = 3
+}
+
+variable "deployment_method" {
+  description = "How workflow code is published on ase_v3: run_from_package (blob + managed identity, no SCM access needed) or zip_deploy (az CLI push to SCM, needs a runner inside the VNet). Workflow Standard always uses zip_deploy."
+  type        = string
+  default     = "run_from_package"
+
+  validation {
+    condition     = contains(["run_from_package", "zip_deploy"], var.deployment_method)
+    error_message = "deployment_method must be run_from_package or zip_deploy."
+  }
+}
+
+variable "storage_endpoint_suffix" {
+  description = "Storage endpoint suffix of the cloud (core.windows.net for Azure public)."
+  type        = string
+  default     = "core.windows.net"
 }

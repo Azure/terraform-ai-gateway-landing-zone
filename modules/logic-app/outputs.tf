@@ -10,7 +10,14 @@ output "storage_account_name" {
   description = "Name of the Logic App runtime storage account."
   value       = module.storage.name
 }
-output "app_service_environment_id" {
-  description = "Resource ID of the App Service Environment v3 (null when not ASE-hosted)."
-  value       = one(azurerm_app_service_environment_v3.ase[*].id)
+
+output "hosting" {
+  description = "Hosting summary: model, whether the runtime storage is keyless, how workflows are deployed and the app setting names of the keyless (ASE) site."
+  value = {
+    model             = var.hosting_model
+    keyless_storage   = local.use_ase
+    deployment_method = local.use_ase ? var.deployment_method : "zip_deploy"
+    package_url       = local.package_url
+    app_setting_names = local.use_ase ? sort(keys(local.ase_app_settings)) : []
+  }
 }

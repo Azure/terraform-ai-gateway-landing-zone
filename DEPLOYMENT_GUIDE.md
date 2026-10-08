@@ -134,12 +134,21 @@ The effective order for a full deployment is:
                          DocIntel×2, Inference, Realtime, Weather, Weather MCP,
                          MS Learn MCP — with their API + operation policies
    api_center_registration ── (optional) register each API in APIC
-7. logic_app          ── Logic App Standard + 4 storage PEs + MI RBAC
-   └─ publish_workflows
-                      ── zip + `az functionapp deployment source config-zip`
-                         of logicapp-src/usage-ingestion-logicapp (4 workflows +
-                         host.json + connections.json). On in the example
-                         tfvars; gated by `usage_pipeline.logic_app.code_deploy`.
+7. app_hosting        ── (ase_v3, no shared ASE) App Service Environment v3 +
+                         <ase>.appserviceenvironment.net private DNS zone (1–4 h)
+   logic_app          ── Logic App Standard + runtime storage PEs + MI RBAC
+                         workflow_standard: WS plan, shared-key content share, 4 PEs
+                         ase_v3: Isolated v2 plan + CPU autoscale, keyless storage
+                         (blob/queue/table PEs), azapi site
+   └─ workflow code   ── zip of logicapp-src/usage-ingestion-logicapp (4 workflows +
+                         host.json + connections.json); on in the example tfvars,
+                         gated by `usage_pipeline.logic_app.code_deploy`:
+                         zip_deploy: `az functionapp deployment source config-zip`
+                         run_from_package (ase_v3 default): blob upload → site
+                         restart → syncfunctiontriggers
+   deny_storage_shared_key
+                      ── (optional, ase_v3) Deny shared-key policy on the RG,
+                         assigned after the keyless storage account exists
 8. foundry.connection_apim
                       ── (optional) Foundry project → APIM connection
 ```
@@ -182,7 +191,8 @@ every add-on below that has a shortcut flag, plus `features.mcp_sample` and
 | `features.api_center` | `true` | — | Provisions the API Center service (workspace, environments, metadata schemas). |
 | `usage_pipeline.eventhub.disaster_recovery` | empty | — | Optional EH DR namespace pairing. |
 | `configure_circuit_breaker` | `false` | — | Adds circuit-breaker rules to LLM backends. |
-| `usage_pipeline.logic_app.code_deploy` | `false` (`true` in the example tfvars) | `--skip-logic-app-code` (sets `skip_logic_app_code_deploy = true` for that run) | Zips and publishes `logicapp-src/usage-ingestion-logicapp` to the Logic App Standard site after infra is ready. See §7.8. |
+| `usage_pipeline.logic_app.code_deploy` | `false` (`true` in the example tfvars) | `--skip-logic-app-code` (sets `skip_logic_app_code_deploy = true` for that run) | Zips and publishes `logicapp-src/usage-ingestion-logicapp` to the Logic App Standard site after infra is ready (zip deploy, or run-from-package on ASE v3). See §7.8. |
+| `deny_storage_shared_key` | `false` (`true` in prod.tfvars.example) | — | Assigns the built-in *Storage accounts should prevent shared key access* policy (Deny) on the RG. Requires `usage_pipeline.logic_app.hosting = "ase_v3"`; skip when the platform assigns ALZ `Deny-Storage-Shared-Key`. |
 
 ---
 
@@ -573,36 +583,51 @@ accelerator's `azure.yaml`.
   under `ai-usage-ingestion/`, `ai-usage-streaming-ingestion/`,
   `llm-usage-ingestion/`, `pii-usage-ingestion/`). Excludes
   `workflow-designtime/`, `.funcignore`, and `local.settings.json`.
-- `null_resource.publish_workflows` — runs
-  `az functionapp deployment source config-zip` (Logic App Standard is built
-  on the Functions runtime, so the Functions zip-deploy command is the
-  supported path). Ships in core Azure CLI — no extension install required.
+- Then one of two publish methods (`usage_pipeline.logic_app.deployment`;
+  Workflow Standard always uses `zip_deploy`):
+
+| Method | Used by | What runs | Network access needed by `apply` |
+|---|---|---|---|
+| `zip_deploy` | `workflow_standard`; `ase_v3` opt-in | `null_resource.publish_workflows` runs `az functionapp deployment source config-zip` (Logic App Standard is built on the Functions runtime; ships in core Azure CLI, no extension) | The site's SCM endpoint: `<sitename>.scm.azurewebsites.net`, or on an internal ASE `<sitename>.scm.<ase>.appserviceenvironment.net`, which only resolves and is only reachable inside the VNet |
+| `run_from_package` | `ase_v3` default | `azurerm_storage_blob.package` uploads the zip as `usage-ingestion-<sha>.zip` to the keyless storage account's `deployments` container (the apply identity gets *Storage Blob Data Contributor* on that container); the site gets `WEBSITE_RUN_FROM_PACKAGE` = blob URL and `WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID` = usage UAMI; `azapi_resource_action` restarts the site and calls `syncfunctiontriggers` for each new package | The storage **blob private endpoint** (the account has no public endpoint). No SCM access, no `az` CLI |
+
+> **To confirm:** that Logic Apps Standard loads its workflows from a package
+> fetched with a managed identity still needs a live spike. If it doesn't, set
+> `usage_pipeline.logic_app.deployment = "zip_deploy"` (and run `apply` from a
+> runner inside the VNet).
 
 **Runtime prerequisites:**
 
-- `az` CLI ≥ 2.57. No extra extensions needed.
-- A signed-in principal with **Logic App Contributor** (or higher) on the RG
-  — the same identity that runs `terraform apply`.
-- Network reachability to `management.azure.com` and the Logic App's SCM
-  endpoint (`<sitename>.scm.azurewebsites.net`). The zip is uploaded through
-  Kudu, so if the Logic App itself is behind a private endpoint the
-  deployer must run from inside the VNet. For public-network sites
-  (`apim.public_network_access = true`) SCM is reachable from anywhere.
+- `zip_deploy`: `az` CLI ≥ 2.57 (no extra extensions) and a signed-in principal
+  with **Logic App Contributor** (or higher) on the RG — the same identity
+  that runs `terraform apply`. Network reachability to `management.azure.com`
+  and the SCM endpoint above. For public-network Workflow Standard sites
+  (`apim.public_network_access = true`) SCM is reachable from anywhere;
+  behind a private endpoint or an internal ASE the deployer must run from
+  inside the VNet.
+- `run_from_package`: the apply identity must be able to create role
+  assignments (it grants itself the container-scoped blob role) and must
+  reach the storage private endpoint — run `apply` from a VPN-connected
+  machine or a private runner (see
+  [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md)),
+  or skip the publish with `--skip-logic-app-code` / `-SkipLogicAppCode`.
 
 **Trigger behaviour:**
 
 | Change | Effect on next apply |
 |---|---|
-| Edit any file under `logicapp-src/usage-ingestion-logicapp/` | `code_sha256` trigger changes → re-publish. |
-| Logic App site is recreated | `logic_app_id` trigger changes → re-publish. |
-| Infrastructure-only edits elsewhere | `null_resource` is untouched (no re-publish). |
+| Edit any file under `logicapp-src/usage-ingestion-logicapp/` | `zip_deploy`: `code_sha256` trigger changes → re-publish. `run_from_package`: new content hash → new blob and URL → app setting update, restart and trigger sync. |
+| Logic App site is recreated | `zip_deploy`: `logic_app_id` trigger changes → re-publish. `run_from_package`: the new site gets the package URL in its app settings. |
+| Infrastructure-only edits elsewhere | No re-publish. |
 
 **Variables:**
 
 | Variable | Default |
 |---|---|
 | `usage_pipeline.logic_app.code_deploy` | `false` (`true` in the example tfvars) |
-| `usage_pipeline.logic_app.code_source_path` | `logicapp-src/usage-ingestion-logicapp` (set in `environments/dev.tfvars`; blank disables the publish) |
+| `usage_pipeline.logic_app.code_source_path` | `""` = the vendored `logicapp-src/usage-ingestion-logicapp` (the root falls back to it); set a path to publish another project tree |
+| `usage_pipeline.logic_app.deployment` | `run_from_package` (ASE v3 only) |
+| `skip_logic_app_code_deploy` | `false` (`--skip-logic-app-code` / `-SkipLogicAppCode` set it for one run) |
 
 **Examples:**
 
@@ -613,7 +638,7 @@ accelerator's `azure.yaml`.
 # Iterate on IaC without re-publishing the workflows
 ./scripts/deploy.sh dev --skip-logic-app-code
 
-# Iterate on workflow JSON only — skips full plan/apply and retargets
+# Iterate on workflow JSON only (zip_deploy) — skips full plan/apply and retargets
 # `module.logic_app.null_resource.publish_workflows[0]`
 ./scripts/deploy.sh dev --logic-app-code-only
 
@@ -621,11 +646,21 @@ accelerator's `azure.yaml`.
 # usage_pipeline.logic_app.code_source_path = "/path/to/my/workflows"
 # in environments/dev.tfvars, then
 ./scripts/deploy.sh dev --logic-app-code-only
+
+# run_from_package (ASE v3): publish with a normal apply from a runner that
+# reaches the storage private endpoint
+./scripts/deploy.sh prod
 ```
+
+`--logic-app-code-only` / `-LogicAppCodeOnly` covers both methods: with
+`zip_deploy` it re-runs the `az` push; with `run_from_package` it uploads the new
+package blob, points the site at it and re-syncs the triggers (run it from a
+machine that reaches the storage private endpoint).
 
 **Rollback:** there is no native slot history on Logic App Standard. To roll
 back, check out an earlier commit of `logicapp-src/usage-ingestion-logicapp/`
-and run `./scripts/deploy.sh <env> --logic-app-code-only`.
+and re-publish (`./scripts/deploy.sh <env> --logic-app-code-only` for
+`zip_deploy`, a normal apply for `run_from_package`).
 
 ---
 
@@ -662,6 +697,13 @@ Approx. 40 resources beyond core. Good for local demos.
 ```
 
 Each run is idempotent; re-running with the same flags is a no-op.
+
+[prod.tfvars.example](environments/prod.tfvars.example) uses the keyless usage
+pipeline (`usage_pipeline.logic_app.hosting = "ase_v3"`, run-from-package,
+`deny_storage_shared_key = true`): the first apply creates an App Service
+Environment v3 (roughly 1–4 hours), and the workflow package upload needs a
+runner that reaches the storage private endpoint — see §7.8 and
+[docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md).
 
 ### 8.3 Bicep-style single-command phased
 
@@ -777,7 +819,11 @@ variable map.
 | `az: command not found` during `publish_workflows` | Deployer doesn't have Azure CLI installed | Install `az` CLI or run with `--skip-logic-app-code` and publish manually. |
 | Workflow publish fails with `AuthorizationFailed` | Signed-in principal lacks **Website Contributor** / **Logic App Contributor** on the RG | Grant the role or run the zip-deploy as a different principal. |
 | Workflow publish hangs / `403 Ip Forbidden` on SCM | Logic App is behind a private endpoint and the deployer isn't on the VNet | Run `--logic-app-code-only` from a jumpbox inside the VNet, or temporarily flip `apim.public_network_access = true`. |
-| Logic App runs trigger but workflows are empty | Code-publish skipped or first apply crashed before the null_resource | Run `./scripts/deploy.sh <env> --logic-app-code-only`. |
+| Logic App runs trigger but workflows are empty | Code-publish skipped or first apply crashed before the publish | Run `./scripts/deploy.sh <env> --logic-app-code-only` (for `run_from_package`, from a runner that reaches the storage private endpoint); if the package is in place but the workflows still don't load, switch to `usage_pipeline.logic_app.deployment = "zip_deploy"`. |
+| `run_from_package`: `azurerm_storage_blob.package` fails with `403 AuthorizationFailure` / a timeout | The keyless storage account has no public endpoint and the machine running `apply` can't reach its blob private endpoint (or the new blob role assignment hasn't propagated yet) | Run `apply` from a VPN-connected machine or a private runner, or once with `--skip-logic-app-code`; re-run after a few minutes if the role was just granted. |
+| `RequestDisallowedByPolicy` on the Logic App storage account | A platform policy such as ALZ `Deny-Storage-Shared-Key` blocks the shared-key storage that Workflow Standard needs | Use `usage_pipeline.logic_app.hosting = "ase_v3"`, or get a time-boxed exemption for dev (decision D3). |
+| `deny_storage_shared_key needs usage_pipeline.logic_app.hosting = "ase_v3"` | Precondition in [policy.tf](policy.tf) | Set `hosting = "ase_v3"` or `deny_storage_shared_key = false`. |
+| Apply sits on the App Service Environment for hours | First-time ASE v3 creation takes roughly 1–4 hours | Normal; don't cancel. |
 
 ---
 

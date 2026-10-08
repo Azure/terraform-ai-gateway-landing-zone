@@ -58,6 +58,13 @@ variable "use_existing_resource_group" {
   default     = false
 }
 
+variable "deny_storage_shared_key" {
+  description = "Lock in the keyless usage pipeline (WP-2b.9): assign the built-in policy \"Storage accounts should prevent shared key access\" with effect Deny on the resource group. Requires usage_pipeline.logic_app.hosting = \"ase_v3\" (Workflow Standard needs shared keys). Skip it when the platform already assigns the ALZ Deny-Storage-Shared-Key policy."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "rollout_phase" {
   description = <<-EOT
     full = deploy everything configured. core = first phase of a phased rollout

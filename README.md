@@ -210,6 +210,33 @@ ai_foundry_models = [
 ]
 ```
 
+### Usage pipeline: keyless Logic App on ASE v3
+
+The usage-ingestion Logic App has two hosting models (`usage_pipeline.logic_app.hosting`):
+
+- `workflow_standard` (default, used by [dev.tfvars.example](environments/dev.tfvars.example)) — WS plan with a key-based Azure Files content share; a documented exception to the ALZ `Deny-Storage-Shared-Key` policy.
+- `ase_v3` (used by [prod.tfvars.example](environments/prod.tfvars.example)) — keyless: an Isolated v2 plan (CPU autoscale) in a dedicated, internal App Service Environment v3 ([modules/app-hosting](modules/app-hosting/README.md)) or a shared / BYO one, runtime storage with shared keys and public access disabled, and the workflows run from a package read with the usage managed identity.
+
+```hcl
+usage_pipeline = {
+  logic_app = {
+    hosting          = "ase_v3"
+    sku              = "I1v2"
+    worker_count     = 2                    # autoscale minimum
+    max_worker_count = 4                    # autoscale maximum
+    deployment       = "run_from_package"   # or "zip_deploy"
+    code_deploy      = true
+  }
+  ase = {
+    zone_redundant = true
+    # app_service_environment_id = "<shared ASE resource ID>"   # BYO: no ASE / ASE subnet created here
+  }
+}
+deny_storage_shared_key = true   # Deny policy on the RG; skip if ALZ Deny-Storage-Shared-Key is assigned
+```
+
+Creating an ASE takes roughly 1–4 hours. The package upload uses the storage data plane, which has no public endpoint, so run `apply` from a machine or runner that reaches the storage private endpoint (or pass `--skip-logic-app-code` / `-SkipLogicAppCode`). Details: [VARIABLES.md — Logic App hosting on ASE v3](VARIABLES.md#logic-app-hosting-on-ase-v3); platform prerequisites: [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md).
+
 ---
 
 ## 🌐 API Endpoints (post-deploy)
@@ -315,7 +342,8 @@ there.
 | `gateway-api` | One APIM API (http / websocket / mcp) + policies, diagnostics, optional product — one instance per entry in [apis.tf](apis.tf) |
 | `redis` | Azure Managed Redis (semantic cache, `features.semantic_cache`). Stays on azapi: the AVM Redis Enterprise module (0.2.0) can't set `accessKeysAuthentication`, which the APIM external cache needs |
 | `entra-id` | Entra app registration + rotating client secret in Key Vault |
-| `logic-app` | Logic App Standard, App Service Plan, Storage Account (runtime); optional App Service Environment v3 for keyless storage (`usage_pipeline.logic_app.hosting = "ase_v3"`). AVM: `avm-res-storage-storageaccount` 0.10.0, `avm-res-web-serverfarm` 2.0.8 |
+| `app-hosting` | Dedicated, internal App Service Environment v3 + `<ase>.appserviceenvironment.net` private DNS zone for the keyless usage pipeline (`usage_pipeline.logic_app.hosting = "ase_v3"` without a shared / BYO ASE). AVM: `avm-res-web-hostingenvironment` 2.0.1, `avm-res-network-privatednszone` 0.5.0 |
+| `logic-app` | Logic App Standard, App Service Plan, Storage Account (runtime). `workflow_standard`: WS plan + shared-key content share. `ase_v3`: Isolated v2 plan with CPU autoscale in the ASE, keyless storage, azapi site, run-from-package (or zip) deploy. AVM: `avm-res-storage-storageaccount` 0.10.0, `avm-res-web-serverfarm` 2.0.8 |
 
 The two user-assigned managed identities (`apim`, `usage`) are created by the root `module "identity"` in [main.tf](main.tf) on AVM `avm-res-managedidentity-userassignedidentity` 0.5.3. AVM usage telemetry is on by default; set `enable_telemetry = false` to turn it off ([aka.ms/avm/telemetryinfo](https://aka.ms/avm/telemetryinfo)).
 
@@ -426,6 +454,7 @@ citadel-terraform/
 ├── network.tf               # Networking (greenfield / alz_spoke module or BYO lookups) + private DNS
 ├── apis.tf                  # API catalogue → modules/gateway-api
 ├── policy-fragments.tf      # Policy-fragment catalogue → modules/apim-policy-fragments
+├── policy.tf                # Workload policy: optional Deny storage shared-key assignment (deny_storage_shared_key)
 ├── api-center-registration.tf # API Center registration → modules/api-center-registration
 ├── variables.tf             # All other input variables (the typed objects live in interfaces.tf)
 ├── outputs.tf               # Key deployment outputs
@@ -454,6 +483,7 @@ citadel-terraform/
 │   ├── gateway-api/         # Generic API module (http / websocket / mcp)
 │   ├── redis/               # Azure Managed Redis (semantic cache)
 │   ├── entra-id/            # Entra app registration
+│   ├── app-hosting/         # App Service Environment v3 + its private DNS zone (ase_v3)
 │   └── logic-app/           # Logic App Standard for usage ingestion
 │
 ├── apis/                    # Per-API OpenAPI specs + policy XML (universal-llm-api/, azure-openai-api/,
@@ -478,9 +508,9 @@ citadel-terraform/
 │   └── scripts/             # deploy.sh / destroy.sh / test.sh
 │
 ├── environments/
-│   ├── dev.tfvars.example   # Development template (typed inputs) — copy to dev.tfvars and fill in
-│   ├── prod.tfvars.example  # Production template (typed inputs) — copy to prod.tfvars and fill in
-│   └── asetest.tfvars.example # Logic App on ASE v3 (keyless storage) template
+│   ├── dev.tfvars.example   # Development template (typed inputs; Workflow Standard Logic App) — copy to dev.tfvars and fill in
+│   ├── prod.tfvars.example  # Production template (typed inputs; keyless Logic App on ASE v3) — copy to prod.tfvars and fill in
+│   └── asetest.tfvars.example # Test template: Workflow Standard (phase A), then keyless ASE v3 run-from-package (phase B)
 │
 ├── docs/operations/         # Runbooks — platform-team-requests.md (ALZ prerequisites), apim-network-modes.md
 │

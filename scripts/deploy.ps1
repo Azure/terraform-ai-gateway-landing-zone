@@ -274,7 +274,13 @@ function Invoke-PlanAndApply {
 # --- Execute phases ---
 if ($LogicAppCodeOnly) {
     Write-Info 'Logic App code-only mode: re-publishing workflow code without full apply.'
-    $applyArgs = @("-var-file=$TfvarsFile", '-target=module.logic_app.null_resource.publish_workflows[0]')
+    # zip_deploy publishes via publish_workflows; run_from_package uploads the
+    # package blob, updates the site setting and re-syncs the triggers.
+    $applyArgs = @("-var-file=$TfvarsFile",
+        '-target=module.logic_app.null_resource.publish_workflows',
+        '-target=module.logic_app.azurerm_storage_blob.package',
+        '-target=module.logic_app.azapi_resource.usage_ingestion_ase',
+        '-target=module.logic_app.azapi_resource_action.sync_triggers')
     if ($AutoApprove) { $applyArgs += '-auto-approve' }
     terraform apply @applyArgs
     Write-Success 'Workflow code re-published.'

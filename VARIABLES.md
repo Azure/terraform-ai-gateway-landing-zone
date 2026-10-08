@@ -119,7 +119,7 @@ network = {
 | ☆ `subnets.logic_app.name` / `.prefix` | string | `snet-citadel-functions` / `10.170.0.128/26` | |
 | ☆ `subnets.agent.enabled` | bool | `true` | Create a dedicated subnet for Foundry agent network injection. |
 | ☆ `subnets.agent.name` / `.prefix` | string | `snet-agents` / `10.170.0.192/26` | Agent subnet (prefix used for a new VNet). |
-| ☆ `subnets.ase.name` / `.prefix` | string | `snet-citadel-ase` / `10.170.1.0/24` | ASE v3 subnet; only used when `usage_pipeline.logic_app.hosting = "ase_v3"`. Min `/27`, `/24` recommended. Greenfield: appended to the VNet as an extra address space when outside `address_space`. Byo: must already exist, be empty and be delegated to `Microsoft.Web/hostingEnvironments`. |
+| ☆ `subnets.ase.name` / `.prefix` | string | `snet-citadel-ase` / `10.170.1.0/24` | ASE v3 subnet; only used when `usage_pipeline.logic_app.hosting = "ase_v3"` and this deployment creates the ASE (`usage_pipeline.ase.app_service_environment_id = null`; a shared / BYO ASE brings its own subnet, so none is created). Min `/27`, `/24` recommended. Greenfield: appended to the VNet as an extra address space when outside `address_space`. Byo: must already exist, be empty and be delegated to `Microsoft.Web/hostingEnvironments`. |
 | ☆ `private_dns.resource_group_name` | string | `null` | Existing private DNS zones RG. |
 | ☆ `private_dns.zone_ids` | map(string) | `{}` | Map zone → resource ID. Empty (and no `resource_group_name`) = create the private DNS zones (greenfield / byo); otherwise use the zone IDs supplied. |
 | ☆ `private_dns.zone_groups_managed_by_policy` | bool | `false` | `true` = Azure Policy (ALZ `Deploy-Private-DNS-Zones`) creates the private endpoint DNS zone groups; Terraform doesn't create or remove them and no zone IDs are required. Automatically `true` for `alz_spoke` without `zone_ids`. |
@@ -203,12 +203,19 @@ usage_pipeline = {
   logic_app = {
     hosting            = "workflow_standard"  # or "ase_v3"
     sku                = null                 # null = WS1 (workflow_standard) / I1v2 (ase_v3)
-    worker_count       = 1
+    worker_count       = 1                    # ase_v3: autoscale minimum
+    max_worker_count   = 3                    # ase_v3: autoscale maximum
+    deployment         = "run_from_package"   # ase_v3: or "zip_deploy"
     content_share_name = ""
     code_deploy        = false
     code_source_path   = ""
   }
-  ase = { internal_load_balancing_mode = "Web, Publishing", zone_redundant = false, create_private_dns_zone = true }
+  ase = {
+    app_service_environment_id   = null       # set = use a shared / BYO ASE
+    internal_load_balancing_mode = "Web, Publishing"
+    zone_redundant               = false
+    create_private_dns_zone      = true
+  }
 }
 ```
 
@@ -221,13 +228,22 @@ usage_pipeline = {
 | ☆ `cosmos.local_auth_enabled` | bool | `false` | Key / connection-string auth on Cosmos DB. `false` = Entra ID (RBAC) only; the Logic App's Cosmos connection uses its system-assigned managed identity. Set `true` only if an external client (e.g. a Power BI report refreshed with the account key) still needs keys. |
 | ☆ `logic_app.hosting` | string | `workflow_standard` | `workflow_standard` (WS plan + regional VNet integration; storage account **must keep shared-key access** for the Azure Files content share) or `ase_v3` (Isolated v2 plan in a dedicated ASE v3; runtime storage via the usage UAMI, no content share, **shared-key access disabled**). See [Logic App hosting on ASE v3](#logic-app-hosting-on-ase-v3). |
 | ☆ `logic_app.sku` | string | `null` | `workflow_standard`: `WS1`/`WS2`/`WS3` (default `WS1`). `ase_v3`: Isolated v2 SKU `I1v2`–`I6v2`, `I1mv2`–`I5mv2` (default `I1v2`). Validated against `hosting`. |
-| ☆ `logic_app.worker_count` | number | `1` | Isolated v2 instance count. ASE v3 only. |
+| ☆ `logic_app.worker_count` | number | `1` | ASE v3 only: Isolated v2 instance count and lower bound of the CPU autoscale. |
+| ☆ `logic_app.max_worker_count` | number | `3` | ASE v3 only: upper bound of the CPU autoscale (`azurerm_monitor_autoscale_setting`: +1 instance above 70 % CPU, −1 below 30 %). Validated `>= worker_count`. |
+| ☆ `logic_app.deployment` | string | `run_from_package` | ASE v3 only: how the workflow code is published. `run_from_package` = the zip is uploaded to the keyless storage account and the site runs it with the usage UAMI (no SCM access); `zip_deploy` = `az` pushes the zip to the site's SCM endpoint. Validated (`run_from_package` / `zip_deploy`). Workflow Standard always uses `zip_deploy`. See [Logic App hosting on ASE v3](#logic-app-hosting-on-ase-v3). |
 | ☆ `logic_app.content_share_name` | string | `""` | `WEBSITE_CONTENTSHARE`; auto-derived if blank. Ignored with `hosting = "ase_v3"` (no content share). |
-| ☆ `logic_app.code_deploy` | bool | `false` | Zip + publish the Logic App Standard workflows via `az functionapp deployment source config-zip` after infra is ready. Requires the `az` CLI on the deployer (no extra extension). The publish only runs when `code_source_path` is non-empty (the example tfvars set `code_deploy = true`). See [DEPLOYMENT_GUIDE.md §7.8](DEPLOYMENT_GUIDE.md#78-logic-app-workflow-code-off-by-default). |
-| ☆ `logic_app.code_source_path` | string | `""` | Path to the Logic App Standard project folder to publish (the examples use `logicapp-src/usage-ingestion-logicapp`). **Blank disables the workflow-code publish** — there is no vendored fallback path. |
+| ☆ `logic_app.code_deploy` | bool | `false` | Zip + publish the Logic App Standard workflows after infra is ready: `az functionapp deployment source config-zip` (`zip_deploy`; requires the `az` CLI on the deployer, no extra extension) or a package blob in the runtime storage account (`run_from_package`, ASE v3). The example tfvars set `code_deploy = true`. See [DEPLOYMENT_GUIDE.md §7.8](DEPLOYMENT_GUIDE.md#78-logic-app-workflow-code-off-by-default). |
+| ☆ `logic_app.code_source_path` | string | `""` | Path to the Logic App Standard project folder to publish. Blank = the vendored `logicapp-src/usage-ingestion-logicapp` (root fallback in [main.tf](main.tf)). |
+| ☆ `ase.app_service_environment_id` | string | `null` | `null` = this deployment creates a dedicated ASE v3 ([modules/app-hosting](modules/app-hosting/README.md)) in `network.subnets.ase`. Set to the resource ID of a shared / BYO ASE v3 to host the plan there: no ASE, no ASE subnet and no ASE DNS zone are created (the `internal_load_balancing_mode` and `create_private_dns_zone` settings below are then ignored). |
 | ☆ `ase.internal_load_balancing_mode` | string | `Web, Publishing` | `Web, Publishing` = internal (ILB) ASE; `None` = external (public VIP). |
-| ☆ `ase.zone_redundant` | bool | `false` | Zone-redundant ASE v3 (region must support AZs; raises minimum billed instances). |
-| ☆ `ase.create_private_dns_zone` | bool | `true` | ILB ASE only: create `<ase>.appserviceenvironment.net` (`*`, `*.scm`, `@` → ILB IP) and link it to the VNet. Set `false` when DNS is centralised in a hub. |
+| ☆ `ase.zone_redundant` | bool | `false` | Zone-redundant ASE v3 (region must support AZs; raises minimum billed instances) and zone balancing of the Isolated v2 plan (also applied with a shared ASE). |
+| ☆ `ase.create_private_dns_zone` | bool | `true` | ILB ASE only: create `<ase>.appserviceenvironment.net` (`*`, `*.scm`, `@` → ILB IP) and link it to the gateway VNet. Set `false` when DNS is centralised in a hub. |
+
+Keyless lock-in (flat, [variables.tf](variables.tf); assignment in [policy.tf](policy.tf)):
+
+| Variable | Type | Default | Notes |
+|---|---|---|---|
+| ☆ `deny_storage_shared_key` | bool | `false` | Assigns the built-in policy *Storage accounts should prevent shared key access* (`8c6a50c6-9ffd-4ae7-986f-5fa6111f9a54`) with effect **Deny** on the resource group, after the Logic App storage account exists. Requires `usage_pipeline.logic_app.hosting = "ase_v3"` (precondition — Workflow Standard needs shared keys). Leave `false` when the platform already assigns the ALZ `Deny-Storage-Shared-Key` policy. `true` in [prod.tfvars.example](environments/prod.tfvars.example). |
 
 Other network access inputs (flat):
 
@@ -237,19 +253,26 @@ Other network access inputs (flat):
 
 ### Logic App hosting on ASE v3
 
-Logic Apps Standard on the **Workflow Service Plan** (WS1/WS2/WS3) keeps its site content on an Azure Files share that is mounted with the storage account key, so [shared-key access cannot be disabled](https://learn.microsoft.com/azure/logic-apps/create-single-tenant-workflows-azure-portal#set-up-managed-identity-access-to-your-storage-account). Set `usage_pipeline.logic_app.hosting = "ase_v3"` when policy requires `allowSharedKeyAccess = false` (see [environments/asetest.tfvars.example](environments/asetest.tfvars.example)). This mode:
+Logic Apps Standard on the **Workflow Service Plan** (WS1/WS2/WS3) keeps its site content on an Azure Files share that is mounted with the storage account key, so [shared-key access cannot be disabled](https://learn.microsoft.com/azure/logic-apps/create-single-tenant-workflows-azure-portal#set-up-managed-identity-access-to-your-storage-account). That is a documented exception to the ALZ `Deny-Storage-Shared-Key` policy; the dev / quick-start template ([dev.tfvars.example](environments/dev.tfvars.example)) keeps `workflow_standard` on purpose (decision D3). Set `usage_pipeline.logic_app.hosting = "ase_v3"` for the **keyless** usage pipeline — the production template ([prod.tfvars.example](environments/prod.tfvars.example)) does, and [asetest.tfvars.example](environments/asetest.tfvars.example) walks through a test. This mode:
 
-- Creates a dedicated subnet `network.subnets.ase`, delegated to `Microsoft.Web/hostingEnvironments`. The default `/24` VNet is full, so the ASE prefix (default `10.170.1.0/24`) is added as a second VNet address space.
-- Deploys an App Service Environment v3 (internal by default), an Isolated v2 plan (`usage_pipeline.logic_app.sku`) and, for ILB, the `<ase>.appserviceenvironment.net` private DNS zone.
-- Deploys the Logic App via `azapi` (`Microsoft.Web/sites`, kind `functionapp,workflowapp`) because `azurerm_logic_app_standard` always requires a storage key. Runtime storage uses `AzureWebJobsStorage__*` identity settings with the usage UAMI; no content share is created and `shared_access_key_enabled = false`.
-- The existing `snet-citadel-functions` subnet is kept but unused.
+- **ASE v3** — with `usage_pipeline.ase.app_service_environment_id = null`, the root `module "app_hosting"` ([modules/app-hosting](modules/app-hosting/README.md), AVM `avm-res-web-hostingenvironment` 2.0.1) creates a dedicated ASE v3 in the subnet `network.subnets.ase` (delegated to `Microsoft.Web/hostingEnvironments`; the default `/24` VNet is full, so the ASE prefix, default `10.170.1.0/24`, is added as a second VNet address space). It is internal by default (`Web, Publishing`), with internal encryption on, TLS 1.0, FTP and remote debugging off, and zone redundancy from `usage_pipeline.ase.zone_redundant`. For an internal ASE it also creates the private DNS zone `<ase>.appserviceenvironment.net` (AVM `avm-res-network-privatednszone` 0.5.0; `*`, `*.scm` and `@` → the internal inbound IP), linked to the gateway VNet. Set `app_service_environment_id` to use a shared / BYO ASE instead — then no ASE, ASE subnet or DNS zone is created here.
+- **Plan** — an Isolated v2 plan (`usage_pipeline.logic_app.sku`, default `I1v2`) in the ASE, zone-balanced when `ase.zone_redundant = true`, with a CPU autoscale setting: +1 instance above 70 % average CPU, −1 below 30 %, between `worker_count` and `max_worker_count`.
+- **Keyless runtime storage** — shared keys disabled, OAuth by default, public network access disabled, network rules `Deny` with no bypass, infrastructure encryption, allowed copy scope `PrivateLink`, cross-tenant replication and local users off, 7-day container delete retention. Private endpoints for `blob`, `queue` and `table` only (no content share, so no `file` endpoint). The configuration never reads a storage account key on this path, so none ends up in state.
+- **Site** — deployed with `azapi` (`Microsoft.Web/sites`, kind `functionapp,workflowapp`) because `azurerm_logic_app_standard` always requires a storage key. `publicNetworkAccess = Disabled`, FTPS disabled, remote debugging off, Always On, TLS 1.2, basic publishing credentials (FTP and SCM) disabled. Runtime storage uses the identity-based `AzureWebJobsStorage__*` settings with the usage UAMI. A precondition rejects key-based settings (`AzureWebJobsStorage`, `WEBSITE_CONTENTAZUREFILECONNECTIONSTRING`, `WEBSITE_CONTENTSHARE`, `AzureCosmosDB_connectionString`).
+- **Workflow code** (`usage_pipeline.logic_app.deployment`):
+  - `run_from_package` (default) — the workflow zip is uploaded as a content-addressed blob (`usage-ingestion-<sha>.zip`) to the storage account's `deployments` container; the identity running `apply` gets *Storage Blob Data Contributor* on that container. The site gets `WEBSITE_RUN_FROM_PACKAGE` (the blob URL) and `WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID` (the usage UAMI), and each new package triggers a site restart plus `syncfunctiontriggers`. No SCM access is needed, but the upload goes to the storage data plane, which has no public endpoint: **run `apply` from a machine or runner that reaches the storage private endpoint**, or skip the publish for that run (`-SkipLogicAppCode` / `skip_logic_app_code_deploy = true`). *Still to be confirmed in a live spike: that Logic Apps Standard loads workflows from a package fetched with a managed identity — fallback `deployment = "zip_deploy"`.*
+  - `zip_deploy` — `az` pushes the zip to `<app>.scm.<ase>.appserviceenvironment.net`, which on an internal ASE only resolves and is only reachable inside the VNet: run `apply` from a runner in the VNet.
+- The `snet-citadel-functions` subnet (`network.subnets.logic_app`) is kept but unused.
+- Optional: `deny_storage_shared_key = true` locks the resource group keyless with a Deny policy (see the table above).
+
+The `workflow_standard` path is unchanged: WS plan with regional VNet integration, shared-key content share (with a `file` private endpoint), `azurerm_logic_app_standard`, and `zip_deploy`. The `module.logic_app` output `hosting` summarises the result (`model`, `keyless_storage`, `deployment_method`, `package_url`, `app_setting_names`).
 
 Things to plan for:
 
-- **Cost:** an ASE v3 is billed for at least one Windows I1v2 instance even when empty, so it costs considerably more than WS1.
-- **Duration:** first-time ASE creation is slow and can take an hour or more.
-- **Code publish:** with an ILB ASE, `usage_pipeline.logic_app.code_deploy` pushes the zip to `<app>.scm.<ase>.appserviceenvironment.net`, which is only reachable from inside the VNet. Run `terraform apply` from a VNet-connected agent.
-- **Switching:** switching an existing deployment between hosting models replaces the App Service plan and the Logic App site. The storage account is kept and only its shared-key setting changes.
+- **Cost:** an ASE v3 is billed for at least one Windows I1v2 instance even when empty, so it costs considerably more than WS1; zone redundancy raises the minimum billed instances.
+- **Duration:** creating an ASE v3 takes roughly 1–4 hours.
+- **Network access for `apply`:** see *Workflow code* above, and [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md) for what to ask the platform team (ASE subnet, DNS, firewall, deployment runner).
+- **Hosting model is a first-deploy choice:** this codebase targets fresh installs; to change the model, deploy a new environment (or destroy and redeploy) rather than switching in place.
 - **Cosmos DB:** independent of hosting model, the workflows' Cosmos DB connection uses the Logic App's managed identity and Cosmos key auth is off by default (`usage_pipeline.cosmos.local_auth_enabled`).
 
 ## 9. Entra ID Authentication
@@ -412,11 +435,11 @@ Set `monitoring.private_link_scope = true` to create an AMPLS for private ingest
 
 ## 19. Logic App Content Share
 
-The content share and workflow-code publish settings are attributes of `usage_pipeline.logic_app` (`content_share_name`, `code_deploy`, `code_source_path`) — see [§8](#8-usage-pipeline--network-access-usage_pipeline).
+The content share and workflow-code publish settings are attributes of `usage_pipeline.logic_app` (`content_share_name`, `code_deploy`, `code_source_path`, `deployment`) — see [§8](#8-usage-pipeline--network-access-usage_pipeline).
 
 | Variable | Type | Default | Notes |
 |---|---|---|---|
-| ☆ `skip_logic_app_code_deploy` | bool | `false` | Skip publishing the Logic App workflow code on this run even when `usage_pipeline.logic_app.code_deploy = true` (what `scripts/deploy.sh --skip-logic-app-code` / `deploy.ps1 -SkipLogicAppCode` pass), e.g. when the SCM endpoint is only reachable from inside the VNet. |
+| ☆ `skip_logic_app_code_deploy` | bool | `false` | Skip publishing the Logic App workflow code on this run even when `usage_pipeline.logic_app.code_deploy = true` (what `scripts/deploy.sh --skip-logic-app-code` / `deploy.ps1 -SkipLogicAppCode` pass), e.g. when the deployer can't reach the SCM endpoint (`zip_deploy`) or the runtime storage private endpoint (`run_from_package`, ASE v3) from where `apply` runs. |
 
 ## 20. APIM Logic Plane (JWT / PII / MCP)
 
@@ -502,7 +525,13 @@ Account, database, SQL containers and private endpoint on AVM `avm-res-documentd
 Namespace, event hubs, RBAC and private endpoint on AVM `avm-res-eventhub-namespace` 0.1.1. Receives namespace name, `usage_pipeline.eventhub.capacity`, `usage_pipeline.eventhub.public_network_access`, APIM + Logic App MI principals, and `usage_pipeline.eventhub.disaster_recovery` → `disaster_recovery_config`.
 
 ### [modules/logic-app](modules/logic-app/README.md)
-Usage-pipeline storage account on AVM `avm-res-storage-storageaccount` 0.10.0 and App Service plan on AVM `avm-res-web-serverfarm` 2.0.8. Consumes `usage_pipeline.logic_app` (`hosting` → `hosting_model`, `sku` → `sku_size` / `ase_sku_size`, `worker_count`, `content_share_name` (workflow_standard only), `code_deploy` / `code_source_path` → `enable_code_deploy` / `code_source_path`) and `usage_pipeline.ase` settings, the ASE subnet and `vnet_id`, Cosmos/Event Hub endpoints, MI trio, PE subnet + DNS zones for the storage account, and toggles for storage PEs / Cosmos role / azuremonitorlogs API connection.
+Usage-pipeline storage account on AVM `avm-res-storage-storageaccount` 0.10.0 and App Service plan on AVM `avm-res-web-serverfarm` 2.0.8. Consumes `usage_pipeline.logic_app` (`hosting` → `hosting_model`, `sku` → `sku_size` / `ase_sku_size`, `worker_count` / `max_worker_count` → `ase_worker_count` / `ase_max_worker_count`, `deployment` → `deployment_method`, `content_share_name` (workflow_standard only), `code_deploy` / `code_source_path` → `enable_code_deploy` / `code_source_path`), `usage_pipeline.ase.zone_redundant` → `ase_zone_redundant`, the ASE ID (`app_service_environment_id`: the shared / BYO ID or `module.app_hosting`'s), Cosmos/Event Hub endpoints, MI trio, PE subnet + DNS zones for the storage account, and toggles for storage PEs / Cosmos role / azuremonitorlogs API connection. Outputs a `hosting` summary (`model`, `keyless_storage`, `deployment_method`, `package_url`, `app_setting_names`). See [Logic App hosting on ASE v3](#logic-app-hosting-on-ase-v3).
+
+### [modules/app-hosting](modules/app-hosting/README.md)
+Root `module "app_hosting"` ([main.tf](main.tf)): dedicated App Service Environment v3 on AVM `avm-res-web-hostingenvironment` 2.0.1 plus, for an internal ASE, the `<ase>.appserviceenvironment.net` private DNS zone on AVM `avm-res-network-privatednszone` 0.5.0. Created only when `usage_pipeline.logic_app.hosting = "ase_v3"` and `usage_pipeline.ase.app_service_environment_id = null`. Consumes the generated ASE name, the ASE subnet, `usage_pipeline.ase` (`internal_load_balancing_mode`, `zone_redundant`, `create_private_dns_zone`) and the gateway VNet ID for the DNS zone link.
+
+### Workload policy ([policy.tf](policy.tf))
+`deny_storage_shared_key = true` assigns the built-in *Storage accounts should prevent shared key access* policy (Deny) on the resource group — see [§8](#8-usage-pipeline--network-access-usage_pipeline).
 
 ### [modules/redis](modules/redis/README.md)
 Deployed when `features.semantic_cache = true`. Stays on its own azapi resources (the AVM Redis Enterprise module, 0.2.0, can't set `accessKeysAuthentication`, which the APIM external cache needs). Mirrors all `redis_*` root variables plus `use_private_endpoint`, subnet + DNS zone.

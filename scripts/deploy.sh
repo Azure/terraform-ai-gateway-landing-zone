@@ -280,7 +280,10 @@ if [[ -n "$LOGIC_APP_CODE_ONLY" ]]; then
   info "Logic App code-only mode: re-publishing workflow code without full apply."
   terraform apply \
     -var-file="$TFVARS_FILE" \
-    -target=module.logic_app.null_resource.publish_workflows[0] \
+    -target=module.logic_app.null_resource.publish_workflows \
+    -target=module.logic_app.azurerm_storage_blob.package \
+    -target=module.logic_app.azapi_resource.usage_ingestion_ase \
+    -target=module.logic_app.azapi_resource_action.sync_triggers \
     ${AUTO_APPROVE:+-auto-approve}
   success "Workflow code re-published."
   exit 0

@@ -167,7 +167,15 @@ variable "usage_pipeline" {
       logic_app.hosting  workflow_standard = WS plan with regional VNet integration (needs shared-key storage);
                          ase_v3 = Isolated v2 plan in an App Service Environment v3 (keyless storage).
       logic_app.sku      null = WS1 (workflow_standard) or I1v2 (ase_v3).
-      ase                ASE v3 settings, used when logic_app.hosting = ase_v3.
+      logic_app.worker_count / max_worker_count
+                         ase_v3: autoscale range of the Isolated v2 plan (CPU based).
+      logic_app.deployment
+                         ase_v3: run_from_package (default; zip in the keyless storage account,
+                         read by the usage UAMI) or zip_deploy (az push to SCM from a runner in
+                         the VNet). workflow_standard always uses zip_deploy.
+      ase                ASE v3 settings (ase_v3). app_service_environment_id = use a shared /
+                         BYO ASE; null = this deployment creates one (modules/app-hosting) in
+                         the ASE subnet (network.subnets.ase).
   EOT
   type = object({
     eventhub = optional(object({
@@ -186,11 +194,14 @@ variable "usage_pipeline" {
       hosting            = optional(string, "workflow_standard")
       sku                = optional(string)
       worker_count       = optional(number, 1)
+      max_worker_count   = optional(number, 3)
+      deployment         = optional(string, "run_from_package")
       content_share_name = optional(string, "")
       code_deploy        = optional(bool, false)
       code_source_path   = optional(string, "")
     }), {})
     ase = optional(object({
+      app_service_environment_id   = optional(string)
       internal_load_balancing_mode = optional(string, "Web, Publishing")
       zone_redundant               = optional(bool, false)
       create_private_dns_zone      = optional(bool, true)
@@ -210,6 +221,14 @@ variable "usage_pipeline" {
       : can(regex("^WS[1-3]$", coalesce(var.usage_pipeline.logic_app.sku, "-")))
     )
     error_message = "usage_pipeline.logic_app.sku: ase_v3 needs an Isolated v2 SKU (I1v2..I6v2, I1mv2..I5mv2); workflow_standard needs WS1, WS2 or WS3."
+  }
+  validation {
+    condition     = contains(["run_from_package", "zip_deploy"], var.usage_pipeline.logic_app.deployment)
+    error_message = "usage_pipeline.logic_app.deployment must be run_from_package or zip_deploy."
+  }
+  validation {
+    condition     = var.usage_pipeline.logic_app.max_worker_count >= var.usage_pipeline.logic_app.worker_count
+    error_message = "usage_pipeline.logic_app.max_worker_count must be >= worker_count."
   }
   validation {
     condition     = contains(["None", "Web, Publishing"], var.usage_pipeline.ase.internal_load_balancing_mode)
@@ -305,6 +324,8 @@ locals {
       ws_sku             = var.usage_pipeline.logic_app.hosting == "workflow_standard" ? coalesce(var.usage_pipeline.logic_app.sku, "WS1") : "WS1"
       ase_sku            = var.usage_pipeline.logic_app.hosting == "ase_v3" ? coalesce(var.usage_pipeline.logic_app.sku, "I1v2") : "I1v2"
       worker_count       = var.usage_pipeline.logic_app.worker_count
+      max_worker_count   = var.usage_pipeline.logic_app.max_worker_count
+      deployment         = var.usage_pipeline.logic_app.deployment
       content_share_name = var.usage_pipeline.logic_app.content_share_name
       code_deploy        = var.usage_pipeline.logic_app.code_deploy && !var.skip_logic_app_code_deploy
       code_source_path   = var.usage_pipeline.logic_app.code_source_path

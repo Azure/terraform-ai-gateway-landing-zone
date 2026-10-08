@@ -9,7 +9,8 @@
 # =============================================================================
 
 locals {
-  enable_ase_subnet = local.usage_cfg.logic_app.hosting_model == "AppServiceEnvironmentV3"
+  # Only when this deployment creates the ASE (a shared / BYO ASE brings its own subnet).
+  enable_ase_subnet = local.usage_cfg.logic_app.hosting == "ase_v3" && local.usage_cfg.ase.app_service_environment_id == null
 }
 
 module "networking" {

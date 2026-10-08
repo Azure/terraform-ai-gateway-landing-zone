@@ -19,24 +19,22 @@
 #
 #   PHASE A — Workflow Service Plan (WS1) + Cosmos managed identity
 #     (Skip if a policy forces allowSharedKeyAccess=false on storage accounts —
-#      WS1 cannot run there; that is exactly what phase B solves.)
+#      WS1 cannot run there; that is exactly what phase B tests.)
 #     ./scripts/deploy.ps1 asetest            (~45 min, APIM Developer SKU)
 #     ./scripts/validate.ps1 asetest          (smoke test also emits usage events)
 #     -> run the VERIFY checklist at the bottom
 #
-#   PHASE B — switch the SAME environment to ASE v3 (tests the migration path)
-#     set usage_pipeline.logic_app = { hosting = "ase_v3", sku = "I1v2", ... } below, then:
-#     ./scripts/deploy.ps1 asetest -SkipLogicAppCode   (ASE creation: 1h+)
-#     Publish workflow code from a machine INSIDE the VNet (ILB ASE — the SCM
-#     endpoint is private). Tested approach: a small Linux VM in snet-citadel-pe
-#     (no public IP) with a system-assigned identity holding "Website
-#     Contributor" on the Logic App site, driven via `az vm run-command`:
-#       TOKEN=$(curl -s -H Metadata:true "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
-#       curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary @app.zip \
-#         "https://<logic_app_name>.scm.<ase-name>.appserviceenvironment.net/api/zipdeploy?isAsync=false"
-#     Delete that VM before `destroy` (it blocks deletion of the PE subnet).
-#     (No VNet access available? Set usage_pipeline.ase.internal_load_balancing_mode = "None"
-#      and deploy without -SkipLogicAppCode — less prod-like, but quick.)
+#   PHASE B — keyless pipeline on ASE v3 (fresh environment: destroy phase A first)
+#     set usage_pipeline.logic_app = { hosting = "ase_v3", sku = "I1v2", ... } below
+#     (deployment = "run_from_package" is the default), then:
+#     ./scripts/deploy.ps1 asetest            (ASE creation: 1–4 h)
+#     The workflow package is uploaded to the keyless storage account, which has
+#     no public endpoint: run apply from a machine that reaches the storage
+#     private endpoint (VPN / private runner), or use -SkipLogicAppCode for the
+#     first apply and publish from inside the VNet afterwards. The site reads
+#     the package with the usage managed identity — no SCM access is needed.
+#     (No private network access at all? Set usage_pipeline.logic_app.code_deploy
+#      = false to validate the infrastructure only.)
 #     ./scripts/validate.ps1 asetest
 #     -> run the VERIFY checklist again
 #

@@ -56,6 +56,7 @@ network = {
     apim             = { name = "snet-citadel-apim", prefix = "10.180.0.0/26" }
     private_endpoint = { name = "snet-citadel-pe", prefix = "10.180.0.64/26" }
     logic_app        = { name = "snet-citadel-functions", prefix = "10.180.0.128/26" }
+    ase              = { name = "snet-citadel-ase", prefix = "10.180.1.0/24" } # added as an extra VNet address space
   }
 }
 
@@ -115,17 +116,27 @@ usage_pipeline = {
   cosmos = {
     public_network_access = "Disabled"
   }
+  # Keyless pipeline (decision D3): Isolated v2 plan in a dedicated, zone-redundant
+  # ASE v3; storage without shared keys; workflows run from a package read with
+  # the usage managed identity. Apply from a runner that reaches the storage
+  # private endpoint (the package upload uses the data plane).
   logic_app = {
-    hosting            = "workflow_standard"
-    sku                = "WS2"
-    content_share_name = ""                                       # auto-derived if blank
-    code_deploy        = true                                     # requires deployer permissions for az functionapp deployment
-    code_source_path   = "gitignore/src/usage-ingestion-logicapp" # blank → use vendored accelerator project
+    hosting          = "ase_v3"
+    sku              = "I1v2"
+    worker_count     = 2
+    max_worker_count = 4
+    deployment       = "run_from_package"
+    code_deploy      = true
+    code_source_path = "" # blank → vendored logicapp-src/usage-ingestion-logicapp
   }
-  # Keyless Logic App storage (allowSharedKeyAccess=false) requires ASE v3 hosting:
-  # logic_app = { hosting = "ase_v3", sku = "I1v2", worker_count = 1, code_deploy = true }
-  # and set network.subnets.ase = { prefix = "10.180.1.0/24" } (added as an extra VNet address space).
+  ase = {
+    zone_redundant = true
+    # app_service_environment_id = "/subscriptions/.../hostingEnvironments/ase-shared" # shared ASE instead
+  }
 }
+
+# Lock the pipeline keyless (skip when the platform assigns ALZ Deny-Storage-Shared-Key).
+deny_storage_shared_key = true
 
 api_center_sku = "Free"
 

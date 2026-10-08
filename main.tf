@@ -585,6 +585,33 @@ module "apim" {
 }
 
 # =============================================================================
+# APP HOSTING — App Service Environment v3 for the keyless usage pipeline
+# (WP-2b.1). Created here unless a shared / BYO ASE is supplied.
+# =============================================================================
+
+module "app_hosting" {
+  source = "./modules/app-hosting"
+  count  = local.usage_cfg.logic_app.hosting == "ase_v3" && local.usage_cfg.ase.app_service_environment_id == null ? 1 : 0
+
+  name                         = local.names.app_service_environment
+  location                     = var.location
+  resource_group_id            = local.resource_group_id
+  subnet_id                    = local.network.ase_subnet_id
+  internal_load_balancing_mode = local.usage_cfg.ase.internal_load_balancing_mode
+  zone_redundant               = local.usage_cfg.ase.zone_redundant
+  create_private_dns_zone      = local.usage_cfg.ase.create_private_dns_zone
+  dns_vnet_link_ids            = { spoke = local.network.vnet_id }
+  tags                         = local.all_tags
+  enable_telemetry             = var.enable_telemetry
+}
+
+locals {
+  app_service_environment_id = local.usage_cfg.logic_app.hosting != "ase_v3" ? null : coalesce(
+    local.usage_cfg.ase.app_service_environment_id, one(module.app_hosting[*].id)
+  )
+}
+
+# =============================================================================
 # MODULE: LOGIC APP (Usage Ingestion)
 # =============================================================================
 
@@ -609,15 +636,14 @@ module "logic_app" {
   sku_size = local.usage_cfg.logic_app.ws_sku
 
   # Hosting model — ASE v3 enables keyless (shared-key disabled) runtime storage
-  enable_telemetry                 = var.enable_telemetry
-  hosting_model                    = local.usage_cfg.logic_app.hosting_model
-  ase_subnet_id                    = local.network.ase_subnet_id
-  vnet_id                          = local.network.vnet_id
-  ase_sku_size                     = local.usage_cfg.logic_app.ase_sku
-  ase_worker_count                 = local.usage_cfg.logic_app.worker_count
-  ase_internal_load_balancing_mode = local.usage_cfg.ase.internal_load_balancing_mode
-  ase_zone_redundant               = local.usage_cfg.ase.zone_redundant
-  ase_create_private_dns_zone      = local.usage_cfg.ase.create_private_dns_zone
+  enable_telemetry           = var.enable_telemetry
+  hosting_model              = local.usage_cfg.logic_app.hosting_model
+  app_service_environment_id = local.app_service_environment_id
+  ase_sku_size               = local.usage_cfg.logic_app.ase_sku
+  ase_worker_count           = local.usage_cfg.logic_app.worker_count
+  ase_max_worker_count       = local.usage_cfg.logic_app.max_worker_count
+  ase_zone_redundant         = local.usage_cfg.ase.zone_redundant
+  deployment_method          = local.usage_cfg.logic_app.deployment
 
   # Networking
   subnet_id    = local.network.logic_app_subnet_id

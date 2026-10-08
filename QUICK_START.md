@@ -158,6 +158,14 @@ pattern:**
 
 Takes ~25–35 min on first run. Creates ~35 resources (VNet, APIM, Foundry, Cosmos, Event Hub, Key Vault, Logic App, etc.).
 
+> **Prod uses the keyless usage pipeline.** [prod.tfvars.example](environments/prod.tfvars.example)
+> hosts the Logic App on an App Service Environment v3 (`usage_pipeline.logic_app.hosting = "ase_v3"`,
+> run-from-package, `deny_storage_shared_key = true`). The first prod apply also creates the ASE
+> (roughly 1–4 hours), and the workflow package upload needs network access to the storage private
+> endpoint — run it from a VPN-connected machine or private runner, or add `--skip-logic-app-code`.
+> Dev keeps `workflow_standard` (shared-key content share). See
+> [VARIABLES.md — Logic App hosting on ASE v3](VARIABLES.md#logic-app-hosting-on-ase-v3).
+
 ---
 
 ## Step 4 — Validate
@@ -228,7 +236,7 @@ Examples:
 # Plan only (no changes)
 terraform plan -var-file=environments/dev.tfvars
 
-# Re-publish Logic App workflow code only
+# Re-publish Logic App workflow code only (zip_deploy or run_from_package)
 ./scripts/deploy.sh dev --logic-app-code-only
 
 # Skip workflow code publish
