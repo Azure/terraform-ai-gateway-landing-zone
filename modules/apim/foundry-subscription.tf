@@ -8,7 +8,7 @@
 
 resource "azurerm_api_management_subscription" "foundry_connection" {
   count               = var.enable_foundry_apim_connection ? 1 : 0
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
   display_name        = "foundry-apim-connection"
   state               = "active"

@@ -1,26 +1,26 @@
 output "apim_name" {
   description = "Name of the API Management service."
-  value       = azurerm_api_management.citadel.name
+  value       = local.apim.name
 }
 output "apim_id" {
   description = "Resource ID of the API Management service."
-  value       = azurerm_api_management.citadel.id
+  value       = local.apim.id
 }
 output "gateway_url" {
   description = "Gateway URL of the API Management service."
-  value       = azurerm_api_management.citadel.gateway_url
+  value       = local.apim.gateway_url
 }
 output "portal_url" {
   description = "Developer portal URL (classic SKUs)."
-  value       = azurerm_api_management.citadel.portal_url
+  value       = local.apim.portal_url
 }
 output "management_api_url" {
   description = "Management API URL of the API Management service."
-  value       = azurerm_api_management.citadel.management_api_url
+  value       = local.apim.management_api_url
 }
 output "private_ip_addresses" {
   description = "Private IP addresses of the APIM gateway (VNet-injected SKUs)."
-  value       = azurerm_api_management.citadel.private_ip_addresses
+  value       = local.apim.private_ip_addresses
 }
 
 # Primary key of the dedicated subscription used for Foundry → APIM connections.

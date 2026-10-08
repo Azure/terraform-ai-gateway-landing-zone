@@ -47,7 +47,12 @@ locals {
   virtual_network_type = local.is_vnet_injection ? var.apim_network_type : (local.is_vnet_integration ? "External" : "None")
 }
 
-resource "azurerm_api_management" "citadel" {
+# APIM service (Azure Verified Module). Child objects (APIs, products, named
+# values, loggers, policies) stay in this module and the gateway modules.
+module "service" {
+  source  = "Azure/avm-res-apimanagement-service/azurerm"
+  version = "0.9.0"
+
   name                = var.apim_name
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -55,25 +60,46 @@ resource "azurerm_api_management" "citadel" {
   publisher_email     = var.publisher_email
   sku_name            = local.apim_sku_string
   tags                = var.tags
-
-  # Bicep parity: `minApiVersion` — control plane API floor.
-  # V2 SKUs use 2024-05-01 floor; others use 2021-08-01.
-  min_api_version = var.is_apim_v2 ? "2024-05-01" : "2021-08-01"
+  enable_telemetry    = var.enable_telemetry
+  min_api_version     = var.is_apim_v2 ? "2024-05-01" : "2021-08-01"
 
   # Bicep parity: availability zones (Premium + skuCount>1; []/null otherwise).
   zones = length(var.apim_zones) > 0 ? var.apim_zones : null
 
-  # Bicep parity: publicNetworkAccess gated for V2 SKUs only.
-  # Azure rejects APIM creation with publicNetworkAccess=Disabled
-  # ("ActivateServiceWithPrivateEndpointAccessNotAllowed"), so we always
-  # create with public access enabled and then flip it off (if requested)
-  # via `azapi_update_resource.apim_disable_public_access` below.
-  public_network_access_enabled = true
+  # Azure rejects creating a service with public access disabled
+  # (ActivateServiceWithPrivateEndpointAccessNotAllowed) and requires an
+  # approved private endpoint first: the first apply creates it public, the next
+  # apply (service + PE exist) applies the requested setting. Classic SKUs
+  # always keep public access.
+  public_network_access_enabled = !var.is_apim_v2 || !local.apim_exists || var.apim_v2_public_network_access
+
+  # Bicep parity: UserAssigned only.
+  managed_identities = { user_assigned_resource_ids = [var.managed_identity_id] }
+
+  virtual_network_type      = local.virtual_network_type
+  virtual_network_subnet_id = (local.is_vnet_injection || local.is_vnet_integration) && var.apim_subnet_id != "" ? var.apim_subnet_id : null
+
+  # Legacy protocols and weak ciphers off (Bicep parity).
+  security = {}
+
+  private_endpoints_manage_dns_zone_group = !var.dns_zone_group_managed_by_policy
+  private_endpoints = var.is_apim_v2 && var.apim_v2_use_private_endpoint ? {
+    gateway = {
+      name                            = "pe-${var.apim_name}"
+      private_service_connection_name = "psc-${var.apim_name}"
+      subnet_resource_id              = var.pe_subnet_id
+      private_dns_zone_group_name     = "apim-dns-group"
+      private_dns_zone_resource_ids   = var.dns_zone_id_apim != "" && !var.dns_zone_group_managed_by_policy ? [var.dns_zone_id_apim] : []
+      tags                            = var.tags
+    }
+  } : {}
+}
+
+# Plan-time rules for the SKU x network matrix (review 7.5.4.1) and scale.
+resource "terraform_data" "service_rules" {
+  input = var.apim_name
 
   lifecycle {
-    ignore_changes = [public_network_access_enabled]
-
-    # SKU x network matrix (review 7.5.4.1) and scale rules.
     precondition {
       condition     = contains(["Developer", "Premium", "StandardV2", "PremiumV2"], var.sku_name)
       error_message = "APIM sku must be Developer, Premium, StandardV2 or PremiumV2."
@@ -99,48 +125,28 @@ resource "azurerm_api_management" "citadel" {
       error_message = "Availability zones need the Premium SKU and at least one unit per zone (capacity >= number of zones)."
     }
   }
+}
 
-  # Bicep parity: UserAssigned only (system-assigned identity dropped upstream;
-  # all backend auth + RBAC uses the user-assigned MI).
-  identity {
-    type         = "UserAssigned"
-    identity_ids = [var.managed_identity_id]
+locals {
+  apim = {
+    id                   = module.service.resource_id
+    name                 = module.service.name
+    gateway_url          = module.service.apim_gateway_url
+    portal_url           = module.service.portal_url
+    management_api_url   = module.service.apim_management_url
+    private_ip_addresses = module.service.private_ip_addresses
   }
+}
 
-  # VNet injection for Developer/Premium SKUs; outbound VNet integration for V2 SKUs.
-  dynamic "virtual_network_configuration" {
-    for_each = local.is_vnet_injection || local.is_vnet_integration ? [1] : []
-    content {
-      subnet_id = var.apim_subnet_id
-    }
-  }
+# Whether the service already exists (drives the public-access flip above).
+data "azapi_resource" "service_state" {
+  type             = "Microsoft.ApiManagement/service@2024-05-01"
+  resource_id      = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}/providers/Microsoft.ApiManagement/service/${var.apim_name}"
+  ignore_not_found = true
+}
 
-  virtual_network_type = local.virtual_network_type
-
-  # Bicep parity: customProperties — TLS/cipher hardening.
-  # Disable TLS 1.0 / 1.1 / SSL 3.0 on both frontend and backend.
-  # Disable weak ciphers (3DES, legacy RSA/CBC suites) on the frontend.
-  # Skipped for Consumption SKU (customProperties unsupported there).
-  dynamic "security" {
-    for_each = var.sku_name == "Consumption" ? [] : [1]
-    content {
-      backend_ssl30_enabled  = false
-      backend_tls10_enabled  = false
-      backend_tls11_enabled  = false
-      frontend_ssl30_enabled = false
-      frontend_tls10_enabled = false
-      frontend_tls11_enabled = false
-
-      tls_ecdhe_rsa_with_aes128_cbc_sha_ciphers_enabled = false
-      tls_ecdhe_rsa_with_aes256_cbc_sha_ciphers_enabled = false
-      tls_rsa_with_aes128_cbc_sha256_ciphers_enabled    = false
-      tls_rsa_with_aes128_cbc_sha_ciphers_enabled       = false
-      tls_rsa_with_aes128_gcm_sha256_ciphers_enabled    = false
-      tls_rsa_with_aes256_cbc_sha256_ciphers_enabled    = false
-      tls_rsa_with_aes256_cbc_sha_ciphers_enabled       = false
-      triple_des_ciphers_enabled                        = false
-    }
-  }
+locals {
+  apim_exists = data.azapi_resource.service_state.exists
 }
 
 
@@ -148,29 +154,7 @@ resource "azurerm_api_management" "citadel" {
 # PRIVATE ENDPOINT (for APIM V2 SKUs)
 # -----------------------------------------------------------------------------
 
-resource "azurerm_private_endpoint" "apim" {
-  count               = var.is_apim_v2 && var.apim_v2_use_private_endpoint ? 1 : 0
-  name                = "pe-${var.apim_name}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.pe_subnet_id
-  tags                = var.tags
 
-  private_service_connection {
-    name                           = "psc-${var.apim_name}"
-    private_connection_resource_id = azurerm_api_management.citadel.id
-    subresource_names              = ["Gateway"]
-    is_manual_connection           = false
-  }
-
-  dynamic "private_dns_zone_group" {
-    for_each = var.dns_zone_id_apim != "" ? [1] : []
-    content {
-      name                 = "apim-dns-group"
-      private_dns_zone_ids = [var.dns_zone_id_apim]
-    }
-  }
-}
 
 # -----------------------------------------------------------------------------
 # APIM public network access — set AFTER activation.
@@ -180,21 +164,13 @@ resource "azurerm_private_endpoint" "apim" {
 # setting (V2 SKUs only; classic SKUs always keep public access enabled).
 # -----------------------------------------------------------------------------
 
-resource "azapi_update_resource" "apim_public_network_access" {
-  count       = var.is_apim_v2 ? 1 : 0
-  type        = "Microsoft.ApiManagement/service@2024-05-01"
-  resource_id = azurerm_api_management.citadel.id
-
-  body = {
-    properties = {
-      publicNetworkAccess = var.apim_v2_public_network_access ? "Enabled" : "Disabled"
-    }
+# The v1 post-create PATCH is replaced by the module's
+# public_network_access_enabled (see module.service).
+removed {
+  from = azapi_update_resource.apim_public_network_access
+  lifecycle {
+    destroy = false
   }
-
-  # Azure requires at least one approved private endpoint connection before
-  # publicNetworkAccess can be set to Disabled (error:
-  # DisablingPublicNetworkAccessRequiredPrivateEndpoint). Gate on the PE.
-  depends_on = [azurerm_private_endpoint.apim]
 }
 
 # -----------------------------------------------------------------------------
@@ -204,7 +180,7 @@ resource "azapi_update_resource" "apim_public_network_access" {
 resource "azurerm_api_management_named_value" "uami_client_id" {
   name                = "uami-client-id"
   display_name        = "uami-client-id"
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
   value               = var.managed_identity_client_id
   secret              = false
@@ -214,7 +190,7 @@ resource "azurerm_api_management_named_value" "pii_service_url" {
   count               = var.enable_pii_redaction ? 1 : 0
   name                = "piiServiceUrl"
   display_name        = "piiServiceUrl"
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
   value               = var.pii_service_endpoint
   secret              = false
@@ -224,7 +200,7 @@ resource "azurerm_api_management_named_value" "content_safety_url" {
   count               = var.enable_content_safety ? 1 : 0
   name                = "contentSafetyServiceUrl"
   display_name        = "contentSafetyServiceUrl"
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
   value               = var.content_safety_endpoint
   secret              = false
@@ -240,7 +216,7 @@ resource "azurerm_api_management_named_value" "content_safety_url" {
 resource "azurerm_api_management_named_value" "entra_tenant_id" {
   name                = "tenant-id"
   display_name        = "tenant-id"
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
   value               = var.entra_auth_enabled && var.entra_tenant_id != "" ? var.entra_tenant_id : "common"
   secret              = false
@@ -249,7 +225,7 @@ resource "azurerm_api_management_named_value" "entra_tenant_id" {
 resource "azurerm_api_management_named_value" "entra_client_id" {
   name                = "client-id"
   display_name        = "client-id"
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
   value               = var.entra_auth_enabled && var.entra_client_id != "" ? var.entra_client_id : "00000000-0000-0000-0000-000000000000"
   secret              = false
@@ -258,7 +234,7 @@ resource "azurerm_api_management_named_value" "entra_client_id" {
 resource "azurerm_api_management_named_value" "entra_audience" {
   name                = "audience"
   display_name        = "audience"
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
   value               = var.entra_auth_enabled && var.entra_audience != "" ? var.entra_audience : "api://disabled"
   secret              = false
@@ -267,7 +243,7 @@ resource "azurerm_api_management_named_value" "entra_audience" {
 resource "azurerm_api_management_named_value" "entra_auth_flag" {
   name                = "entra-auth"
   display_name        = "entra-auth"
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
   value               = tostring(var.entra_auth_enabled)
   secret              = false
@@ -284,7 +260,7 @@ resource "azurerm_api_management_product" "default_contract" {
   product_id            = "default-ai-access"
   display_name          = "Default AI Access Contract"
   description           = "Default governed access to all LLM backends"
-  api_management_name   = azurerm_api_management.citadel.name
+  api_management_name   = local.apim.name
   resource_group_name   = var.resource_group_name
   subscription_required = true
   approval_required     = false
@@ -294,14 +270,14 @@ resource "azurerm_api_management_product" "default_contract" {
 resource "azurerm_api_management_product_api" "universal_llm_default" {
   api_name            = var.default_product_api_names.universal_llm
   product_id          = azurerm_api_management_product.default_contract.product_id
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
 }
 
 resource "azurerm_api_management_product_api" "openai_default" {
   api_name            = var.default_product_api_names.azure_openai
   product_id          = azurerm_api_management_product.default_contract.product_id
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
 }
 
@@ -317,7 +293,7 @@ resource "azurerm_api_management_product_api" "openai_default" {
 resource "azurerm_api_management_redis_cache" "default" {
   count             = var.enable_redis_cache ? 1 : 0
   name              = "Default"
-  api_management_id = azurerm_api_management.citadel.id
+  api_management_id = local.apim.id
   connection_string = var.redis_cache_connection_string
   description       = "Azure Managed Redis for APIM semantic cache"
 }

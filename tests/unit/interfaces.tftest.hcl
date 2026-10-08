@@ -338,3 +338,13 @@ run "alz_spoke_needs_hub_firewall_ip" {
 
   expect_failures = [var.network]
 }
+
+run "developer_sku_cannot_scale_out" {
+  command = plan
+
+  variables {
+    apim = { sku = "Developer", capacity = 2 }
+  }
+
+  expect_failures = [var.apim]
+}

@@ -517,6 +517,10 @@ module "apim" {
   location            = var.location
   tags                = local.all_tags
 
+  subscription_id                  = var.subscription_id
+  enable_telemetry                 = var.enable_telemetry
+  dns_zone_group_managed_by_policy = local.network_cfg.zone_groups_managed_by_policy
+
   apim_name       = local.apim_service_name
   sku_name        = local.apim_cfg.sku
   sku_capacity    = local.apim_cfg.capacity

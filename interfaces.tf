@@ -45,6 +45,10 @@ variable "apim" {
     }, var.apim.sku, []), coalesce(var.apim.vnet_mode, "-"))
     error_message = "apim.vnet_mode isn't supported for this SKU: Developer/Premium take none, external or internal; StandardV2/PremiumV2 take integration."
   }
+  validation {
+    condition     = coalesce(var.apim_sku, var.apim.sku) != "Developer" || coalesce(var.apim_sku_units, var.apim.capacity) == 1
+    error_message = "The Developer SKU can't scale out: apim.capacity must be 1."
+  }
 }
 
 variable "network" {

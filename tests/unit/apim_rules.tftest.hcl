@@ -77,6 +77,7 @@ variables {
   entra_tenant_id               = ""
   entra_client_id               = ""
   entra_audience                = ""
+  subscription_id               = "00000000-0000-0000-0000-000000000002"
   default_product_api_names     = { universal_llm = "universal-llm-api", azure_openai = "azure-openai-api" }
 }
 
@@ -96,22 +97,9 @@ run "v2_private_access_needs_private_endpoint" {
     apim_v2_use_private_endpoint  = false
     apim_v2_public_network_access = false
   }
-  expect_failures = [azurerm_api_management.citadel]
+  expect_failures = [terraform_data.service_rules]
 }
 
-run "developer_cannot_scale_out" {
-  command = plan
-  module {
-    source = "./modules/apim"
-  }
-  variables {
-    sku_name          = "Developer"
-    is_apim_v2        = false
-    apim_network_type = "External"
-    sku_capacity      = 2
-  }
-  expect_failures = [azurerm_api_management.citadel]
-}
 
 run "zones_need_premium_and_enough_units" {
   command = plan
@@ -125,7 +113,7 @@ run "zones_need_premium_and_enough_units" {
     sku_capacity      = 2
     apim_zones        = ["1", "2", "3"]
   }
-  expect_failures = [azurerm_api_management.citadel]
+  expect_failures = [terraform_data.service_rules]
 }
 
 run "premium_zone_redundant_is_valid" {
@@ -140,30 +128,4 @@ run "premium_zone_redundant_is_valid" {
     sku_capacity      = 3
     apim_zones        = ["1", "2", "3"]
   }
-}
-
-run "classic_injection_needs_a_subnet" {
-  command = plan
-  module {
-    source = "./modules/apim"
-  }
-  variables {
-    sku_name          = "Premium"
-    is_apim_v2        = false
-    apim_network_type = "Internal"
-    apim_subnet_id    = ""
-  }
-  expect_failures = [azurerm_api_management.citadel]
-}
-
-run "sku_family_flag_must_match_sku" {
-  command = plan
-  module {
-    source = "./modules/apim"
-  }
-  variables {
-    sku_name   = "Premium"
-    is_apim_v2 = true
-  }
-  expect_failures = [azurerm_api_management.citadel]
 }

@@ -16,7 +16,7 @@ resource "azapi_resource" "content_safety_backend" {
   count     = var.enable_content_safety ? 1 : 0
   type      = "Microsoft.ApiManagement/service/backends@2024-06-01-preview"
   name      = "content-safety-backend"
-  parent_id = azurerm_api_management.citadel.id
+  parent_id = local.apim.id
 
   schema_validation_enabled = false
 
@@ -47,7 +47,7 @@ resource "azurerm_api_management_backend" "ai_search" {
   for_each = var.enable_azure_ai_search ? { for s in var.ai_search_instances : s.name => s } : {}
 
   name                = each.value.name
-  api_management_name = azurerm_api_management.citadel.name
+  api_management_name = local.apim.name
   resource_group_name = var.resource_group_name
   protocol            = "http"
   url                 = each.value.url
@@ -67,7 +67,7 @@ resource "azapi_resource" "embeddings_backend" {
   count     = var.enable_embeddings_backend && var.embeddings_backend_url != "" ? 1 : 0
   type      = "Microsoft.ApiManagement/service/backends@2024-06-01-preview"
   name      = var.embeddings_backend_id
-  parent_id = azurerm_api_management.citadel.id
+  parent_id = local.apim.id
 
   schema_validation_enabled = false
 
@@ -98,7 +98,7 @@ resource "azapi_resource" "ms_learn_mcp_backend" {
   count     = var.is_mcp_sample_deployed ? 1 : 0
   type      = "Microsoft.ApiManagement/service/backends@2024-06-01-preview"
   name      = "ms-learn-mcp-backend"
-  parent_id = azurerm_api_management.citadel.id
+  parent_id = local.apim.id
 
   body = {
     properties = {

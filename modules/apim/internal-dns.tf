@@ -33,7 +33,7 @@ resource "azurerm_private_dns_a_record" "internal" {
   zone_name           = azurerm_private_dns_zone.internal[each.key].name
   resource_group_name = var.resource_group_name
   ttl                 = 300
-  records             = azurerm_api_management.citadel.private_ip_addresses
+  records             = local.apim.private_ip_addresses
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "internal" {

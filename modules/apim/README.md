@@ -19,6 +19,13 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | ---- | ------- |
 | <a name="provider_azapi"></a> [azapi](#provider\_azapi) | >= 2.9, < 3.0 |
 | <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | >= 4.79, < 5.0 |
+| <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
+
+## Modules
+
+| Name | Source | Version |
+| ---- | ------ | ------- |
+| <a name="module_service"></a> [service](#module\_service) | Azure/avm-res-apimanagement-service/azurerm | 0.9.0 |
 
 ## Resources
 
@@ -27,8 +34,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | [azapi_resource.content_safety_backend](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.embeddings_backend](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.ms_learn_mcp_backend](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
-| [azapi_update_resource.apim_public_network_access](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/update_resource) | resource |
-| [azurerm_api_management.citadel](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management) | resource |
 | [azurerm_api_management_backend.ai_search](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_backend) | resource |
 | [azurerm_api_management_named_value.aws_access_key](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_named_value) | resource |
 | [azurerm_api_management_named_value.aws_region](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_named_value) | resource |
@@ -52,7 +57,8 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | [azurerm_private_dns_a_record.internal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_a_record) | resource |
 | [azurerm_private_dns_zone.internal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_zone) | resource |
 | [azurerm_private_dns_zone_virtual_network_link.internal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_zone_virtual_network_link) | resource |
-| [azurerm_private_endpoint.apim](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
+| [terraform_data.service_rules](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [azapi_resource.service_state](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource) | data source |
 
 ## Inputs
 
@@ -83,6 +89,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Name of the resource group the module deploys into. | `string` | n/a | yes |
 | <a name="input_sku_capacity"></a> [sku\_capacity](#input\_sku\_capacity) | Number of APIM scale units | `number` | n/a | yes |
 | <a name="input_sku_name"></a> [sku\_name](#input\_sku\_name) | APIM SKU: Developer, StandardV2, Premium, PremiumV2. REGION AVAILABILITY (important — v2 SKUs are NOT globally available): - Developer / Premium (classic): Globally available in virtually all Azure public regions. - StandardV2 / PremiumV2 (stv2 platform): Available in a limited subset of regions. Authoritative list (check before deploy): https://learn.microsoft.com/azure/api-management/api-management-region-availability az apim list-skus --location <region> If you hit `SkuNotSupportedInRegion` at apply time, either: (a) pick a supported region for `location`, or (b) fall back to `Premium` (classic) | `string` | n/a | yes |
+| <a name="input_subscription_id"></a> [subscription\_id](#input\_subscription\_id) | Subscription of the APIM service (existence probe for the public-access flip). | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
 | <a name="input_vnet_id"></a> [vnet\_id](#input\_vnet\_id) | Resource ID of the virtual network. | `string` | n/a | yes |
 | <a name="input_ai_search_instances"></a> [ai\_search\_instances](#input\_ai\_search\_instances) | Existing AI Search endpoints to register as APIM backends. | <pre>list(object({<br/>    name        = string<br/>    description = optional(string, "AI Search backend")<br/>    url         = string<br/>  }))</pre> | `[]` | no |
@@ -90,6 +97,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_aws_region"></a> [aws\_region](#input\_aws\_region) | AWS region for AWS Bedrock backends (APIM named value). | `string` | `""` | no |
 | <a name="input_azure_login_endpoint"></a> [azure\_login\_endpoint](#input\_azure\_login\_endpoint) | Entra login endpoint (e.g. https://login.microsoftonline.com/). | `string` | `"https://login.microsoftonline.com/"` | no |
 | <a name="input_create_internal_dns"></a> [create\_internal\_dns](#input\_create\_internal\_dns) | For apim\_network\_type = Internal (Developer/Premium), create per-hostname private DNS zones for the gateway/portal/developer/management/scm endpoints and link them to the VNet. | `bool` | `true` | no |
+| <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone. | `bool` | `false` | no |
 | <a name="input_embeddings_backend_id"></a> [embeddings\_backend\_id](#input\_embeddings\_backend\_id) | APIM backend ID of the embeddings backend used by semantic caching. | `string` | `"foundry-embeddings"` | no |
 | <a name="input_embeddings_backend_url"></a> [embeddings\_backend\_url](#input\_embeddings\_backend\_url) | Foundry embeddings deployment endpoint (consumed only when enable\_embeddings\_backend = true). | `string` | `""` | no |
 | <a name="input_enable_azure_ai_search"></a> [enable\_azure\_ai\_search](#input\_enable\_azure\_ai\_search) | Enable Azure AI Search Index API in APIM. | `bool` | `false` | no |
@@ -97,6 +105,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_enable_foundry_apim_connection"></a> [enable\_foundry\_apim\_connection](#input\_enable\_foundry\_apim\_connection) | Create a dedicated APIM subscription for Foundry connections. | `bool` | `false` | no |
 | <a name="input_enable_jwt_auth"></a> [enable\_jwt\_auth](#input\_enable\_jwt\_auth) | When true, JWT-* named values are populated from jwt\_tenant\_id / jwt\_app\_registration\_id. | `bool` | `false` | no |
 | <a name="input_enable_redis_cache"></a> [enable\_redis\_cache](#input\_enable\_redis\_cache) | Attach Azure Managed Redis as the APIM external cache (requires redis\_cache\_connection\_string). | `bool` | `false` | no |
+| <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_is_mcp_sample_deployed"></a> [is\_mcp\_sample\_deployed](#input\_is\_mcp\_sample\_deployed) | Deploy the sample MCP server (weather-api / weather-mcp / ms-learn-mcp). | `bool` | `false` | no |
 | <a name="input_jwt_app_registration_id"></a> [jwt\_app\_registration\_id](#input\_jwt\_app\_registration\_id) | Entra application (client) ID used as the JWT audience. | `string` | `""` | no |
 | <a name="input_jwt_tenant_id"></a> [jwt\_tenant\_id](#input\_jwt\_tenant\_id) | Entra tenant ID used by the JWT-validation policies. | `string` | `""` | no |

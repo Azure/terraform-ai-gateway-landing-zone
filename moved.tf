@@ -537,3 +537,13 @@ moved {
   from = module.foundry.azapi_resource.foundry[9]
   to   = module.foundry.module.account[9].azapi_resource.ai_service[0]
 }
+
+# --- WP-2.8: APIM service on the Azure Verified Module ---
+moved {
+  from = module.apim.azurerm_api_management.citadel
+  to   = module.apim.module.service.azurerm_api_management.this
+}
+moved {
+  from = module.apim.azurerm_private_endpoint.apim[0]
+  to   = module.apim.module.service.azurerm_private_endpoint.this["gateway"]
+}
