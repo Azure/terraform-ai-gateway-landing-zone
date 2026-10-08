@@ -48,13 +48,12 @@ resource "time_sleep" "package_writer_rbac" {
 }
 
 resource "azurerm_storage_blob" "package" {
-  count                  = local.package_enabled ? 1 : 0
-  name                   = local.package_blob_name
-  storage_account_name   = module.storage.name
-  storage_container_name = "deployments"
-  type                   = "Block"
-  source                 = data.archive_file.workflow_code[0].output_path
-  content_md5            = data.archive_file.workflow_code[0].output_md5
+  count                = local.package_enabled ? 1 : 0
+  name                 = local.package_blob_name
+  storage_container_id = module.storage.containers["deployments"].id
+  type                 = "Block"
+  source               = data.archive_file.workflow_code[0].output_path
+  content_md5          = data.archive_file.workflow_code[0].output_md5
 
   depends_on = [time_sleep.package_writer_rbac]
 }
