@@ -17,10 +17,15 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       envs: ${{ steps.m.outputs.envs }}
+      contracts: ${{ steps.m.outputs.contracts }}
     steps:
       - uses: actions/checkout@v7
       - id: m
-        run: echo "envs=$(ls -d environments/*/ | xargs -n1 basename | while read e; do [ -f environments/$e/backend.hcl ] && echo $e; done | jq -Rsc 'split("\n") | map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+        run: |
+          envs=$(ls -d environments/*/ | xargs -n1 basename | while read -r e; do [ -f "environments/$e/backend.hcl" ] && echo "$e"; done)
+          echo "envs=$(printf '%s\n' $envs | jq -Rsc 'split("\n") | map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+          # env => space-separated contract names
+          echo "contracts=$(for e in $envs; do printf '%s\t%s\n' "$e" "$(ls environments/$e/access-contracts/*.tfvars 2>/dev/null | xargs -rn1 basename | sed 's/.tfvars$//' | tr '\n' ' ')"; done | jq -Rsc 'split("\n") | map(select(. != "") | split("\t") | {(.[0]): (.[1] // "")}) | add // {}')" >> "$GITHUB_OUTPUT"
 
   drift:
     needs: detect
@@ -33,4 +38,5 @@ jobs:
       env: ${{ matrix.env }}
       command: drift
       stacks: identity network app-hosting platform gateway-config llm-backend-onboarding
+      contracts: ${{ fromJSON(needs.detect.outputs.contracts)[matrix.env] }}
       runner: ${{ vars[format('RUNNER_{0}', matrix.env)] || '"ubuntu-latest"' }}

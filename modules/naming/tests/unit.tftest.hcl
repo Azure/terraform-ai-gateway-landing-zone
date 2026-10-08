@@ -17,7 +17,7 @@ run "snapshot" {
       state_storage_account   = "staigwdev27cbbtf"
       pipeline_plan           = "id-tf-aigw-dev-plan"
       pipeline_apply          = "id-tf-aigw-dev-apply"
-      gateway_app             = "app-aigw-dev-gateway"
+      gateway_app             = "app-aigw-dev-27cbb-gateway"
       virtual_network         = "vnet-aigw-dev"
       subnet_apim             = "snet-apim"
       subnet_pe               = "snet-pe"

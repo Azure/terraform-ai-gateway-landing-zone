@@ -24,7 +24,8 @@ locals {
     pipeline_apply        = "id-tf-${local.base}-apply"
 
     # Identity
-    gateway_app = "app-${local.base}-gateway"
+    # Display names are tenant-wide: the seed keeps same-named environments apart.
+    gateway_app = "app-${local.base}-${local.seed}-gateway"
 
     # Network (subnet names are fixed so downstream stacks can look them up)
     virtual_network  = "vnet-${local.base}"

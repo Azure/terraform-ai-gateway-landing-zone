@@ -104,18 +104,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          drifted=(${DRIFTED:-})
           for c in ${{ inputs.contracts }}; do
             f="environments/${{ inputs.env }}/access-contracts/$c.tfvars"
             [[ -f "$f" ]] || { echo "skip $c (no $f)"; continue; }
             echo "::group::${{ inputs.command }} contract $c"
             if [[ "${{ inputs.command }}" == apply ]]; then
               task contract ENV="${{ inputs.env }}" USE_CASE="$c"
+            elif [[ "${{ inputs.command }}" == drift ]]; then
+              rc=0; task -x plan STACK=access-contracts ENV="${{ inputs.env }}" STATE_KEY="$c.tfstate" VAR_FILE="$PWD/$f" LOCK=-lock=false PLAN_ARGS=-detailed-exitcode || rc=$?
+              [[ $rc -eq 2 ]] && drifted+=("contract:$c")
+              [[ $rc -eq 1 ]] && exit 1
             else
               task plan STACK=access-contracts ENV="${{ inputs.env }}" STATE_KEY="$c.tfstate" VAR_FILE="$PWD/$f" LOCK=-lock=false
               scripts/ci/plan-summary.sh stacks/access-contracts "contract $c" >> "$GITHUB_STEP_SUMMARY"
             fi
             echo "::endgroup::"
           done
+          if [[ ${#drifted[@]} -gt 0 ]]; then echo "DRIFTED=${drifted[*]}" >> "$GITHUB_ENV"; fi
 
       - name: open drift issue
         if: inputs.command == 'drift' && env.DRIFTED != ''

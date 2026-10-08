@@ -108,7 +108,7 @@ Every stack's inputs and outputs are documented in its README
 URL=$(task output STACK=llm-backend-onboarding ENV=dev NAME="-raw universal_llm_api_url")
 KEY=$(az keyvault secret show --vault-name <key-vault> -n teama-llm-key --query value -o tsv)   # written by the access contract
 curl -X POST "$URL/chat/completions" -H "Content-Type: application/json" -H "api-key: $KEY" \
-  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello from Citadel!"}]}'
+  -d '{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"Hello from Citadel!"}]}'
 ```
 
 ---

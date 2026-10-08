@@ -309,7 +309,7 @@ if [[ -n "$APIM_NAME" && -n "$RG_NAME" && -n "$APIM_URL" ]]; then
                  -H "Ocp-Apim-Subscription-Key: ${APIM_KEY}" \
                  -H "api-key: ${APIM_KEY}" \
                  -H "Content-Type: application/json" \
-                 -d '{"model":"gpt-4o","messages":[{"role":"user","content":"ping"}],"max_tokens":4}' \
+                 -d "{\"model\":\"${VALIDATE_MODEL:-gpt-5.4-mini}\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_completion_tokens\":16}" \
                  "${APIM_URL%/}/models/chat/completions" 2>/dev/null || echo "000")
       case "$llm_code" in
         200) pass "Universal LLM chat/completions returned 200 (live model response)" ;;
@@ -343,7 +343,7 @@ info "Next steps:"
 echo "  • Run LLM test: curl -X POST ${APIM_URL}/models/chat/completions \\"
 echo "      -H 'Content-Type: application/json' \\"
 echo "      -H 'api-key: <your-subscription-key>' \\"
-echo "      -d '{\"model\":\"gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}'"
+echo "      -d '{\"model\":\"gpt-5.4-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}'"
 echo ""
 
 exit $FAILED

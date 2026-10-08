@@ -21,7 +21,7 @@ services = [
         <inbound>
           <base />
           <include-fragment fragment-id="set-llm-requested-model" />
-          <set-variable name="allowedModels" value="gpt-4o,gpt-4o-mini" />
+          <set-variable name="allowedModels" value="gpt-5.4,gpt-5.4-mini,fast" />
           <include-fragment fragment-id="validate-model-access" />
           <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="10000" estimate-prompt-tokens="false" token-quota="1000000" token-quota-period="Daily" />
         </inbound>

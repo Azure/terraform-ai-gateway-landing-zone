@@ -5,5 +5,5 @@ features = {
   api_center_onboarding = false
 }
 model_aliases = [
-  { name = "fast", models = ["gpt-4o-mini"], strategy = "priority" },
+  { name = "fast", models = ["gpt-5.4-mini"], strategy = "priority" },
 ]

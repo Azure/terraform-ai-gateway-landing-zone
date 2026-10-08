@@ -31,7 +31,7 @@ foundry = {
   network_injection_enabled = false
   instances                 = [{ location = "swedencentral", network_injection_enabled = false }]
   models = [
-    { name = "gpt-4o-mini", version = "2024-07-18", capacity = 10 },
+    { name = "gpt-5.4-mini", version = "2026-03-17", capacity = 10 },
   ]
 }
 

@@ -9,11 +9,21 @@ existing_pipeline_identities = {
 }
 graph_permissions = false # identity stack run by a human / Entra team; entra values set in gateway-config.tfvars
 
-# Network Contributor on the vended VNet (subnets live there).
+# Outside the workload RG: Network Contributor on the vended VNet (subnets),
+# on the hub / resolver VNet (the ASE DNS zone links to it: virtualNetworks/join),
+# and Reader on the central workspace (platform looks it up).
 additional_apply_role_assignments = {
   vended-vnet = {
     scope                      = "/subscriptions/<sub>/resourceGroups/<rg-vended-net>/providers/Microsoft.Network/virtualNetworks/<vnet-spoke>"
     role_definition_id_or_name = "Network Contributor"
+  }
+  hub-vnet-link = {
+    scope                      = "/subscriptions/<hub-sub>/resourceGroups/<rg-hub>/providers/Microsoft.Network/virtualNetworks/<vnet-hub-or-resolver>"
+    role_definition_id_or_name = "Network Contributor"
+  }
+  central-law = {
+    scope                      = "/subscriptions/<mgmt-sub>/resourceGroups/<rg-mgmt>/providers/Microsoft.OperationalInsights/workspaces/<law>"
+    role_definition_id_or_name = "Reader"
   }
 }
 

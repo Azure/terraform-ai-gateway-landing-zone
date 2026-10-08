@@ -55,7 +55,7 @@ KV=$(task output STACK=platform ENV=dev NAME="-raw key_vault_name")
 URL=$(task output STACK=llm-backend-onboarding ENV=dev NAME="-raw universal_llm_api_url")
 KEY=$(az keyvault secret show --vault-name "$KV" -n teama-llm-key --query value -o tsv)   # written by the access contract
 curl -s -X POST "$URL/chat/completions" -H "Content-Type: application/json" -H "api-key: $KEY" \
-  -d '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Hello"}]}'
+  -d '{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 ## 5 — Tear down

@@ -348,7 +348,8 @@ if ($ApimName -and $RgName -and $ApimUrl) {
         if ($ApimKey -and ($ApisTsv -match "`tmodels(`r?$|`n)" -or $ApisTsv -match "`tunified-ai(`r?$|`n)")) {
             Write-Info '  Functional probe: POST chat/completions on universal-llm-api...'
             $llmCode = '000'
-            $body = '{"model":"gpt-4o","messages":[{"role":"user","content":"ping"}],"max_tokens":4}'
+            $model = if ($env:VALIDATE_MODEL) { $env:VALIDATE_MODEL } else { 'gpt-5.4-mini' }
+            $body = '{"model":"' + $model + '","messages":[{"role":"user","content":"ping"}],"max_completion_tokens":16}'
             $llmHeaders = @{
                 'Ocp-Apim-Subscription-Key' = $ApimKey
                 'api-key'                   = $ApimKey
@@ -395,7 +396,7 @@ Write-Info 'Next steps:'
 Write-Host "  • Run LLM test: curl -X POST $ApimUrl/models/chat/completions \"
 Write-Host "      -H 'Content-Type: application/json' \"
 Write-Host "      -H 'api-key: <your-subscription-key>' \"
-Write-Host "      -d '{`"model`":`"gpt-4o`",`"messages`":[{`"role`":`"user`",`"content`":`"Hello`"}]}'"
+Write-Host "      -d '{`"model`":`"gpt-5.4-mini`",`"messages`":[{`"role`":`"user`",`"content`":`"Hello`"}]}'"
 Write-Host ''
 
 exit $script:Failed

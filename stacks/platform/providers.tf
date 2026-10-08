@@ -25,8 +25,9 @@ provider "azurerm" {
 
 # BYO Log Analytics workspace in another subscription (monitoring.log_analytics_subscription_id).
 provider "azurerm" {
-  alias                           = "loganalytics"
-  subscription_id                 = coalesce(var.monitoring.log_analytics_subscription_id, var.subscription_id)
+  alias = "loganalytics"
+  # The BYO workspace's subscription: explicit, else taken from its resource ID.
+  subscription_id                 = coalesce(var.monitoring.log_analytics_subscription_id, try(split("/", var.monitoring.log_analytics_workspace_id)[2], null), var.subscription_id)
   resource_provider_registrations = "none"
 
   features {}

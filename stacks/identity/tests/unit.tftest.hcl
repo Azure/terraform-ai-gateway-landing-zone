@@ -33,7 +33,7 @@ run "app_follows_naming_contract_and_has_no_secret" {
   command = plan
 
   assert {
-    condition     = module.gateway_app.display_name == "app-aigw-dev-gateway"
+    condition     = module.gateway_app.display_name == "app-aigw-dev-${module.naming.seed}-gateway"
     error_message = "gateway-config finds the app by its deterministic display name."
   }
   assert {

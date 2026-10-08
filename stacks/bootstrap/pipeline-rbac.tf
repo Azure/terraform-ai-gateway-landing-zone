@@ -60,7 +60,8 @@ resource "azurerm_role_assignment" "apply" {
 resource "azurerm_role_definition" "plan_reader" {
   count = local.separate_plan_identity ? 1 : 0
 
-  name        = "Terraform Plan Reader (${var.workload}-${var.environment})"
+  # Custom role names are unique per tenant: the seed keeps environments apart.
+  name        = "Terraform Plan Reader (${module.naming.base}-${module.naming.seed})"
   scope       = local.workload_resource_group_id
   description = "Read-only access for Terraform plans and drift checks of ${var.workload}-${var.environment}."
 
@@ -71,6 +72,10 @@ resource "azurerm_role_definition" "plan_reader" {
       "Microsoft.ApiManagement/service/*/listValue/action",
       "Microsoft.Cache/redisEnterprise/databases/listKeys/action",
       "Microsoft.CognitiveServices/accounts/listKeys/action",
+      # azurerm_cosmosdb_account always lists keys on refresh, even with local auth off.
+      "Microsoft.DocumentDB/databaseAccounts/listKeys/action",
+      "Microsoft.DocumentDB/databaseAccounts/readonlykeys/action",
+      "Microsoft.DocumentDB/databaseAccounts/listConnectionStrings/action",
       "Microsoft.OperationalInsights/workspaces/sharedKeys/action",
       "Microsoft.Storage/storageAccounts/listKeys/action",
       "Microsoft.Web/sites/config/list/action",

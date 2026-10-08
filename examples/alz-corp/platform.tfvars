@@ -26,9 +26,9 @@ network = {
 foundry = {
   instances = [{ location = "swedencentral" }, { location = "eastus2" }]
   models = [
-    { name = "gpt-4o", version = "2024-11-20", capacity = 100, ai_service_index = 0 },
-    { name = "gpt-4o-mini", version = "2024-07-18", capacity = 100, ai_service_index = 0 },
-    { name = "gpt-4o-mini", version = "2024-07-18", capacity = 100, ai_service_index = 1 },
+    { name = "gpt-5.4", version = "2026-03-05", capacity = 100, ai_service_index = 0 },
+    { name = "gpt-5.4-mini", version = "2026-03-17", capacity = 100, ai_service_index = 0 },
+    { name = "gpt-5.4-mini", version = "2026-03-17", capacity = 100, ai_service_index = 1 },
   ]
 }
 
