@@ -274,3 +274,9 @@ variable "names" {
     code_artifact           = string
   })
 }
+
+variable "enable_telemetry" {
+  description = "Enable Azure Verified Modules usage telemetry."
+  type        = bool
+  default     = true
+}

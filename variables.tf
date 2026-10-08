@@ -58,6 +58,13 @@ variable "use_existing_resource_group" {
   default     = false
 }
 
+variable "adopt_existing_resources" {
+  description = "Set true for the run that upgrades an environment deployed before Phase 2: resources that moved to azapi-based Azure Verified Modules are imported (adopt.tf) instead of created. Leave false for new environments. See docs/operations/adopting-existing-resources.md."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "enable_telemetry" {
   description = "Let the Azure Verified Modules (AVM) send their usage telemetry to Microsoft (https://aka.ms/avm/telemetryinfo). No deployment data is sent."
   type        = bool

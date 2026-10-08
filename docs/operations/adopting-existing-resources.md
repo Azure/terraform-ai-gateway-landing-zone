@@ -35,6 +35,32 @@ longer used.
    further changes to the imported objects), then apply.
 5. Delete the blocks. Once the objects are in state, the blocks are no-ops.
 
+## Upgrading an existing environment to Azure Verified Modules (Phase 2)
+
+Some resources moved from azurerm resources to Azure Verified Modules that
+manage them with azapi (WP-2.3: the usage-pipeline storage account, its Azure
+Files content share and the App Service plan). A `moved {}` block can't cross
+resource types, so the owning module drops the v1 resource from state with
+`removed { lifecycle { destroy = false } }` and the root (`adopt.tf`) imports the
+same Azure resource into the AVM module.
+
+1. For the upgrade run of an environment deployed before Phase 2, set:
+
+   ```hcl
+   adopt_existing_resources = true
+   ```
+
+2. Run plan. Expect, for each adopted resource, `will be imported` (with an
+   in-place update that only touches azapi metadata), and for the old azurerm
+   address `will no longer be managed by Terraform, but will not be destroyed`.
+   Nothing may be replaced or destroyed.
+3. Apply, then set `adopt_existing_resources = false` (or leave it; the imports
+   are no-ops once the resources are in state).
+
+New environments leave it `false`. If an existing environment is upgraded
+without the flag, apply fails with "already exists" for the adopted resources;
+re-run with the flag set and they are imported.
+
 ## Sub-deployments (built in)
 
 `llm-backend-onboarding/imports.tf` and `citadel-access-contracts/imports.tf`

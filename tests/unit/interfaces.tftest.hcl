@@ -292,3 +292,13 @@ run "byo_workspace_id_must_be_a_resource_id" {
 
   expect_failures = [var.monitoring]
 }
+
+# adopt.tf (Phase 2): greenfield deployments never probe for existing resources.
+run "greenfield_does_not_probe_for_v1_resources" {
+  command = plan
+
+  assert {
+    condition     = length(data.azapi_resource.adopt) == 0 && length(data.azapi_resource.adopt_content_share) == 0
+    error_message = "Without adopt_existing_resources no adoption probe (and no import) may run."
+  }
+}

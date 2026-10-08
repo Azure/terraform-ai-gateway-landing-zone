@@ -606,6 +606,7 @@ module "logic_app" {
   sku_size = local.usage_cfg.logic_app.ws_sku
 
   # Hosting model — ASE v3 enables keyless (shared-key disabled) runtime storage
+  enable_telemetry                 = var.enable_telemetry
   hosting_model                    = local.usage_cfg.logic_app.hosting_model
   ase_subnet_id                    = local.network.ase_subnet_id
   vnet_id                          = local.network.vnet_id

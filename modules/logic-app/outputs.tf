@@ -8,7 +8,7 @@ output "logic_app_id" {
 }
 output "storage_account_name" {
   description = "Name of the Logic App runtime storage account."
-  value       = azurerm_storage_account.logic_app.name
+  value       = module.storage.name
 }
 output "app_service_environment_id" {
   description = "Resource ID of the App Service Environment v3 (null when not ASE-hosted)."

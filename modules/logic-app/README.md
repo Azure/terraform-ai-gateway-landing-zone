@@ -24,6 +24,13 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | >= 4.79, < 5.0 |
 | <a name="provider_null"></a> [null](#provider\_null) | >= 3.2, < 4.0 |
 
+## Modules
+
+| Name | Source | Version |
+| ---- | ------ | ------- |
+| <a name="module_service_plan"></a> [service\_plan](#module\_service\_plan) | Azure/avm-res-web-serverfarm/azurerm | 2.0.8 |
+| <a name="module_storage"></a> [storage](#module\_storage) | Azure/avm-res-storage-storageaccount/azurerm | 0.10.0 |
+
 ## Resources
 
 | Name | Type |
@@ -48,12 +55,10 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | [azurerm_role_assignment.storage_blob_owner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.storage_queue_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.storage_table_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
-| [azurerm_service_plan.logic_app](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/service_plan) | resource |
-| [azurerm_storage_account.logic_app](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_account) | resource |
-| [azurerm_storage_share.logic_app_content](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_share) | resource |
 | [null_resource.publish_workflows](https://registry.terraform.io/providers/hashicorp/null/latest/docs/resources/resource) | resource |
 | [archive_file.workflow_code](https://registry.terraform.io/providers/hashicorp/archive/latest/docs/data-sources/file) | data source |
 | [azurerm_client_config.current](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/client_config) | data source |
+| [azurerm_storage_account.logic_app](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/storage_account) | data source |
 
 ## Inputs
 
@@ -98,6 +103,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_enable_code_deploy"></a> [enable\_code\_deploy](#input\_enable\_code\_deploy) | If true, zip and publish the Logic App Standard project folder (src/usage-ingestion-logicapp) as part of apply. | `bool` | `true` | no |
 | <a name="input_enable_cosmos_role_assignment"></a> [enable\_cosmos\_role\_assignment](#input\_enable\_cosmos\_role\_assignment) | Whether to create the Cosmos SQL role assignment for the Logic App system MI. Must be known at plan time. | `bool` | `true` | no |
 | <a name="input_enable_storage_private_endpoints"></a> [enable\_storage\_private\_endpoints](#input\_enable\_storage\_private\_endpoints) | Whether to create private endpoints for the Logic App storage account (blob/file/table/queue). Must be known at plan time. | `bool` | `true` | no |
+| <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_eventhub_ai_usage_hub_name"></a> [eventhub\_ai\_usage\_hub\_name](#input\_eventhub\_ai\_usage\_hub\_name) | Name of the Event Hub carrying AI usage events. | `string` | `""` | no |
 | <a name="input_eventhub_pii_usage_hub_name"></a> [eventhub\_pii\_usage\_hub\_name](#input\_eventhub\_pii\_usage\_hub\_name) | Name of the Event Hub carrying PII usage events. | `string` | `""` | no |
 | <a name="input_hosting_model"></a> [hosting\_model](#input\_hosting\_model) | WorkflowStandard (WS plan + VNet integration, key-based storage) or AppServiceEnvironmentV3 (Isolated v2 plan in an ASE v3, keyless storage). | `string` | `"WorkflowStandard"` | no |

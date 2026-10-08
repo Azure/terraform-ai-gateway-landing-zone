@@ -5,42 +5,61 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# STORAGE ACCOUNT (required for Logic App Standard runtime)
+# STORAGE ACCOUNT (required for Logic App Standard runtime) — Azure Verified
+# Module. Existing v1 accounts are adopted by the root (adopt.tf).
 # -----------------------------------------------------------------------------
 
-resource "azurerm_storage_account" "logic_app" {
-  name                     = var.names.storage_account
-  location                 = var.location
-  resource_group_name      = var.resource_group_name
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  tags                     = var.tags
+module "storage" {
+  source  = "Azure/avm-res-storage-storageaccount/azurerm"
+  version = "0.10.0"
 
+  name             = var.names.storage_account
+  location         = var.location
+  parent_id        = local.resource_group_id
+  tags             = var.tags
+  enable_telemetry = var.enable_telemetry
+
+  account_kind                    = "StorageV2"
+  account_sku_name                = "Standard_LRS"
+  access_tier                     = "Hot"
   allow_nested_items_to_be_public = false
   # Workflow Service Plan needs a key-based Azure Files content share; on ASE v3
   # the runtime authenticates with the usage UAMI, so shared keys are disabled.
   shared_access_key_enabled = !local.use_ase
   min_tls_version           = "TLS1_2"
+  # v1 behaviour kept (public endpoint open, private endpoints for the runtime);
+  # tightening is part of the keyless pipeline (Phase 2b).
+  public_network_access_enabled = true
+  local_user_enabled            = true
+  network_rules = {
+    default_action = "Allow"
+    bypass         = ["AzureServices"]
+  }
+
+  shares = local.use_ase ? {} : {
+    content = {
+      name  = local.content_share
+      quota = 100
+    }
+  }
 }
 
-resource "azurerm_storage_share" "logic_app_content" {
-  count              = local.use_ase ? 0 : 1
-  name               = local.content_share
-  storage_account_id = azurerm_storage_account.logic_app.id
-  quota              = 100
-}
+# Keys and endpoints for the Logic App runtime settings. Read after the account
+# exists (depends_on), so a brand-new account doesn't fail the plan.
+data "azurerm_storage_account" "logic_app" {
+  name                = module.storage.name
+  resource_group_name = var.resource_group_name
 
-moved {
-  from = azurerm_storage_share.logic_app_content
-  to   = azurerm_storage_share.logic_app_content[0]
+  depends_on = [module.storage]
 }
 
 locals {
-  use_ase        = var.hosting_model == "AppServiceEnvironmentV3"
-  logic_app_name = var.names.logic_app
+  use_ase           = var.hosting_model == "AppServiceEnvironmentV3"
+  resource_group_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
+  logic_app_name    = var.names.logic_app
 
   content_share = var.content_share_name != "" ? var.content_share_name : var.names.content_share
-  storage_key   = azurerm_storage_account.logic_app.primary_access_key
+  storage_key   = data.azurerm_storage_account.logic_app.primary_access_key
 }
 
 # -----------------------------------------------------------------------------
@@ -50,7 +69,7 @@ locals {
 
 resource "azurerm_private_endpoint" "storage_blob" {
   count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${azurerm_storage_account.logic_app.name}-blob"
+  name                = "pe-${module.storage.name}-blob"
   location            = var.location
   resource_group_name = var.resource_group_name
   subnet_id           = var.pe_subnet_id
@@ -58,7 +77,7 @@ resource "azurerm_private_endpoint" "storage_blob" {
 
   private_service_connection {
     name                           = "psc-blob"
-    private_connection_resource_id = azurerm_storage_account.logic_app.id
+    private_connection_resource_id = module.storage.resource_id
     subresource_names              = ["blob"]
     is_manual_connection           = false
   }
@@ -70,14 +89,14 @@ resource "azurerm_private_endpoint" "storage_blob" {
 
 resource "azurerm_private_endpoint" "storage_file" {
   count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${azurerm_storage_account.logic_app.name}-file"
+  name                = "pe-${module.storage.name}-file"
   location            = var.location
   resource_group_name = var.resource_group_name
   subnet_id           = var.pe_subnet_id
   tags                = var.tags
   private_service_connection {
     name                           = "psc-file"
-    private_connection_resource_id = azurerm_storage_account.logic_app.id
+    private_connection_resource_id = module.storage.resource_id
     subresource_names              = ["file"]
     is_manual_connection           = false
   }
@@ -89,14 +108,14 @@ resource "azurerm_private_endpoint" "storage_file" {
 
 resource "azurerm_private_endpoint" "storage_table" {
   count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${azurerm_storage_account.logic_app.name}-table"
+  name                = "pe-${module.storage.name}-table"
   location            = var.location
   resource_group_name = var.resource_group_name
   subnet_id           = var.pe_subnet_id
   tags                = var.tags
   private_service_connection {
     name                           = "psc-table"
-    private_connection_resource_id = azurerm_storage_account.logic_app.id
+    private_connection_resource_id = module.storage.resource_id
     subresource_names              = ["table"]
     is_manual_connection           = false
   }
@@ -108,14 +127,14 @@ resource "azurerm_private_endpoint" "storage_table" {
 
 resource "azurerm_private_endpoint" "storage_queue" {
   count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${azurerm_storage_account.logic_app.name}-queue"
+  name                = "pe-${module.storage.name}-queue"
   location            = var.location
   resource_group_name = var.resource_group_name
   subnet_id           = var.pe_subnet_id
   tags                = var.tags
   private_service_connection {
     name                           = "psc-queue"
-    private_connection_resource_id = azurerm_storage_account.logic_app.id
+    private_connection_resource_id = module.storage.resource_id
     subresource_names              = ["queue"]
     is_manual_connection           = false
   }
@@ -131,16 +150,22 @@ resource "azurerm_private_endpoint" "storage_queue" {
 #   AppServiceEnvironmentV3 : Isolated v2 (I*v2) inside the ASE (see ase.tf)
 # -----------------------------------------------------------------------------
 
-resource "azurerm_service_plan" "logic_app" {
-  name                         = var.names.app_service_plan
-  location                     = var.location
-  resource_group_name          = var.resource_group_name
+module "service_plan" {
+  source  = "Azure/avm-res-web-serverfarm/azurerm"
+  version = "2.0.8"
+
+  name             = var.names.app_service_plan
+  location         = var.location
+  parent_id        = local.resource_group_id
+  tags             = var.tags
+  enable_telemetry = var.enable_telemetry
+
   os_type                      = "Windows"
   sku_name                     = local.use_ase ? var.ase_sku_size : var.sku_size
   app_service_environment_id   = local.use_ase ? azurerm_app_service_environment_v3.ase[0].id : null
-  worker_count                 = local.use_ase ? var.ase_worker_count : null
+  worker_count                 = local.use_ase ? var.ase_worker_count : 1
   maximum_elastic_worker_count = local.use_ase ? null : 20 # Bicep parity: hostingPlan.properties.maximumElasticWorkerCount
-  tags                         = var.tags
+  zone_balancing_enabled       = false
 }
 
 locals {
@@ -200,9 +225,9 @@ locals {
 
     "AzureWebJobsStorage__credential"                = "managedIdentity"
     "AzureWebJobsStorage__managedIdentityResourceId" = var.managed_identity_id
-    "AzureWebJobsStorage__blobServiceUri"            = trimsuffix(azurerm_storage_account.logic_app.primary_blob_endpoint, "/")
-    "AzureWebJobsStorage__queueServiceUri"           = trimsuffix(azurerm_storage_account.logic_app.primary_queue_endpoint, "/")
-    "AzureWebJobsStorage__tableServiceUri"           = trimsuffix(azurerm_storage_account.logic_app.primary_table_endpoint, "/")
+    "AzureWebJobsStorage__blobServiceUri"            = trimsuffix(data.azurerm_storage_account.logic_app.primary_blob_endpoint, "/")
+    "AzureWebJobsStorage__queueServiceUri"           = trimsuffix(data.azurerm_storage_account.logic_app.primary_queue_endpoint, "/")
+    "AzureWebJobsStorage__tableServiceUri"           = trimsuffix(data.azurerm_storage_account.logic_app.primary_table_endpoint, "/")
   })
 }
 
@@ -212,12 +237,13 @@ locals {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_logic_app_standard" "usage_ingestion" {
-  count                      = local.use_ase ? 0 : 1
-  name                       = local.logic_app_name
-  location                   = var.location
-  resource_group_name        = var.resource_group_name
-  app_service_plan_id        = azurerm_service_plan.logic_app.id
-  storage_account_name       = azurerm_storage_account.logic_app.name
+  count               = local.use_ase ? 0 : 1
+  name                = local.logic_app_name
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  # azurerm expects ".../serverFarms/..."; the AVM (azapi) ID uses ".../serverfarms/".
+  app_service_plan_id        = replace(module.service_plan.resource_id, "Microsoft.Web/serverfarms", "Microsoft.Web/serverFarms")
+  storage_account_name       = module.storage.name
   storage_account_access_key = local.storage_key
   storage_account_share_name = local.content_share
   virtual_network_subnet_id  = var.subnet_id
@@ -257,7 +283,7 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
     "WEBSITE_CONTENTOVERVNET" = "1"
   })
 
-  depends_on = [azurerm_storage_share.logic_app_content]
+  depends_on = [module.storage]
 }
 
 moved {
@@ -293,7 +319,7 @@ resource "azapi_resource" "usage_ingestion_ase" {
     kind = "functionapp,workflowapp"
     properties = {
       # ARM returns ".../serverfarms/..." (lower-case); match it to avoid a perpetual diff.
-      serverFarmId              = replace(azurerm_service_plan.logic_app.id, "Microsoft.Web/serverFarms", "Microsoft.Web/serverfarms")
+      serverFarmId              = replace(module.service_plan.resource_id, "Microsoft.Web/serverFarms", "Microsoft.Web/serverfarms")
       hostingEnvironmentProfile = { id = azurerm_app_service_environment_v3.ase[0].id }
       httpsOnly                 = true
       clientAffinityEnabled     = false
@@ -420,25 +446,25 @@ resource "azurerm_monitor_diagnostic_setting" "logic_app" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_role_assignment" "storage_blob_owner" {
-  scope                = azurerm_storage_account.logic_app.id
+  scope                = module.storage.resource_id
   role_definition_name = "Storage Blob Data Owner"
   principal_id         = var.managed_identity_principal_id
 }
 
 resource "azurerm_role_assignment" "storage_queue_contributor" {
-  scope                = azurerm_storage_account.logic_app.id
+  scope                = module.storage.resource_id
   role_definition_name = "Storage Queue Data Contributor"
   principal_id         = var.managed_identity_principal_id
 }
 
 resource "azurerm_role_assignment" "storage_table_contributor" {
-  scope                = azurerm_storage_account.logic_app.id
+  scope                = module.storage.resource_id
   role_definition_name = "Storage Table Data Contributor"
   principal_id         = var.managed_identity_principal_id
 }
 
 resource "azurerm_role_assignment" "storage_account_contributor" {
-  scope                = azurerm_storage_account.logic_app.id
+  scope                = module.storage.resource_id
   role_definition_name = "Storage Account Contributor"
   principal_id         = var.managed_identity_principal_id
 }
@@ -471,4 +497,31 @@ resource "azurerm_role_assignment" "logic_app_system_monitor_reader" {
   role_definition_name = "Log Analytics Reader"
   principal_id         = local.logic_app_principal_id
   principal_type       = "ServicePrincipal"
+}
+
+# -----------------------------------------------------------------------------
+# v1 -> AVM (WP-2.3): the azurerm storage account, content share and plan leave
+# the state without being destroyed; the root (adopt.tf) imports the same Azure
+# resources into the AVM modules.
+# -----------------------------------------------------------------------------
+
+removed {
+  from = azurerm_storage_account.logic_app
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_storage_share.logic_app_content
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_service_plan.logic_app
+  lifecycle {
+    destroy = false
+  }
 }
