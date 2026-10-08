@@ -451,3 +451,17 @@ moved {
   from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[9]
   to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_9"]
 }
+
+# --- WP-2.4: Cosmos DB on the Azure Verified Module ---
+moved {
+  from = module.cosmosdb.azurerm_cosmosdb_account.citadel
+  to   = module.cosmosdb.module.cosmos.azurerm_cosmosdb_account.this
+}
+moved {
+  from = module.cosmosdb.azurerm_cosmosdb_sql_database.usage
+  to   = module.cosmosdb.module.cosmos.azurerm_cosmosdb_sql_database.this["usage"]
+}
+moved {
+  from = module.cosmosdb.azurerm_private_endpoint.cosmos
+  to   = module.cosmosdb.module.cosmos.azurerm_private_endpoint.this_managed_dns_zone_groups["sql"]
+}

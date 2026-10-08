@@ -264,7 +264,9 @@ module "cosmosdb" {
 
   subnet_id = local.network.pe_subnet_id
 
-  dns_zone_id = module.private_dns.zone_ids["cosmos_db"]
+  dns_zone_group_managed_by_policy = local.network_cfg.zone_groups_managed_by_policy
+  enable_telemetry                 = var.enable_telemetry
+  dns_zone_id                      = module.private_dns.zone_ids["cosmos_db"]
 
   log_analytics_id = module.monitoring.log_analytics_id
 }

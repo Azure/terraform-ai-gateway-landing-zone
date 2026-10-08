@@ -16,6 +16,6 @@ compact: true
 quiet: true
 skip-check:
   # Azure Verified Modules come from the Terraform Registry pinned to an exact
-  # version, and the provider/module lock + Renovate review cover changes;
+  # version (changes are reviewed in the PR that bumps the version);
   # registry sources can't be pinned to a commit hash.
   - CKV_TF_1
