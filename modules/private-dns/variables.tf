@@ -37,3 +37,14 @@ variable "required_zone_keys" {
   type        = list(string)
   default     = []
 }
+
+variable "subscription_id" {
+  description = "Subscription of the resource group (AVM modules take the resource group ID)."
+  type        = string
+}
+
+variable "enable_telemetry" {
+  description = "Enable Azure Verified Modules usage telemetry."
+  type        = bool
+  default     = true
+}

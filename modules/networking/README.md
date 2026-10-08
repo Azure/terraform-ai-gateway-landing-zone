@@ -18,28 +18,20 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | ---- | ------- |
 | <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | >= 4.79, < 5.0 |
 
+## Modules
+
+| Name | Source | Version |
+| ---- | ------ | ------- |
+| <a name="module_nsg"></a> [nsg](#module\_nsg) | Azure/avm-res-network-networksecuritygroup/azurerm | 0.6.0 |
+| <a name="module_spoke_subnet"></a> [spoke\_subnet](#module\_spoke\_subnet) | Azure/avm-res-network-virtualnetwork/azurerm//modules/subnet | 0.22.2 |
+| <a name="module_vnet"></a> [vnet](#module\_vnet) | Azure/avm-res-network-virtualnetwork/azurerm | 0.22.2 |
+
 ## Resources
 
 | Name | Type |
 | ---- | ---- |
-| [azurerm_network_security_group.agent](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/network_security_group) | resource |
-| [azurerm_network_security_group.apim](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/network_security_group) | resource |
-| [azurerm_network_security_group.ase](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/network_security_group) | resource |
-| [azurerm_network_security_group.logic_app](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/network_security_group) | resource |
-| [azurerm_network_security_group.pe](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/network_security_group) | resource |
 | [azurerm_route_table.apim](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/route_table) | resource |
-| [azurerm_subnet.agent](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet) | resource |
-| [azurerm_subnet.apim](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet) | resource |
-| [azurerm_subnet.ase](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet) | resource |
-| [azurerm_subnet.logic_app](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet) | resource |
-| [azurerm_subnet.pe](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet) | resource |
-| [azurerm_subnet_network_security_group_association.agent](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_network_security_group_association) | resource |
-| [azurerm_subnet_network_security_group_association.apim](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_network_security_group_association) | resource |
-| [azurerm_subnet_network_security_group_association.ase](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_network_security_group_association) | resource |
-| [azurerm_subnet_network_security_group_association.logic_app](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_network_security_group_association) | resource |
-| [azurerm_subnet_network_security_group_association.pe](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_network_security_group_association) | resource |
-| [azurerm_subnet_route_table_association.apim](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_route_table_association) | resource |
-| [azurerm_virtual_network.citadel](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/virtual_network) | resource |
+| [azurerm_route_table.spoke](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/route_table) | resource |
 
 ## Inputs
 
@@ -58,14 +50,18 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_pe_subnet_name"></a> [pe\_subnet\_name](#input\_pe\_subnet\_name) | Private endpoint subnet name | `string` | n/a | yes |
 | <a name="input_pe_subnet_prefix"></a> [pe\_subnet\_prefix](#input\_pe\_subnet\_prefix) | Private endpoint subnet address prefix (for new VNet) | `string` | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Name of the resource group the module deploys into. | `string` | n/a | yes |
+| <a name="input_subscription_id"></a> [subscription\_id](#input\_subscription\_id) | Subscription of the resource group (AVM modules take the resource group ID). | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
 | <a name="input_vnet_address_prefix"></a> [vnet\_address\_prefix](#input\_vnet\_address\_prefix) | Address prefix for new VNet | `string` | n/a | yes |
 | <a name="input_vnet_name"></a> [vnet\_name](#input\_vnet\_name) | Name of the virtual network to create. | `string` | n/a | yes |
 | <a name="input_ase_subnet_name"></a> [ase\_subnet\_name](#input\_ase\_subnet\_name) | Subnet for the App Service Environment v3 (only used when logic\_app\_hosting\_model = "AppServiceEnvironmentV3"). Must be empty and delegated to Microsoft.Web/hostingEnvironments when using an existing VNet. | `string` | `"snet-citadel-ase"` | no |
 | <a name="input_ase_subnet_prefix"></a> [ase\_subnet\_prefix](#input\_ase\_subnet\_prefix) | Address prefix for the ASE v3 subnet (new VNet only). Minimum /27; Microsoft recommends /24 for production scale. If this range is not inside vnet\_address\_prefix it is added to the VNet as an extra address space. | `string` | `"10.170.1.0/24"` | no |
+| <a name="input_default_outbound_access_enabled"></a> [default\_outbound\_access\_enabled](#input\_default\_outbound\_access\_enabled) | Default outbound internet access on the subnets. false (private subnets) needs another egress path: a NAT gateway or a UDR to a hub firewall. | `bool` | `true` | no |
 | <a name="input_enable_ase_subnet"></a> [enable\_ase\_subnet](#input\_enable\_ase\_subnet) | Create the dedicated /24 subnet for App Service Environment v3 (Logic App ASE hosting). | `bool` | `false` | no |
+| <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
+| <a name="input_existing_vnet_id"></a> [existing\_vnet\_id](#input\_existing\_vnet\_id) | alz\_spoke: resource ID of the platform-vended spoke VNet the subnets are created in. null = create the VNet (greenfield). | `string` | `null` | no |
+| <a name="input_hub_firewall_ip"></a> [hub\_firewall\_ip](#input\_hub\_firewall\_ip) | alz\_spoke: private IP of the hub firewall; every subnet routes 0.0.0.0/0 to it. | `string` | `null` | no |
 | <a name="input_is_apim_v2"></a> [is\_apim\_v2](#input\_is\_apim\_v2) | True when the APIM SKU is a v2 SKU (BasicV2, StandardV2 or PremiumV2). | `bool` | `false` | no |
-| <a name="input_nsg_on_all_subnets"></a> [nsg\_on\_all\_subnets](#input\_nsg\_on\_all\_subnets) | Also attach NSGs to the private-endpoint and Logic App subnets (Azure Landing Zone Deny-Subnet-Without-Nsg). | `bool` | `false` | no |
 
 ## Outputs
 
@@ -77,6 +73,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="output_ase_subnet_id"></a> [ase\_subnet\_id](#output\_ase\_subnet\_id) | Resource ID of the ASE v3 subnet (empty when disabled). |
 | <a name="output_logic_app_subnet_id"></a> [logic\_app\_subnet\_id](#output\_logic\_app\_subnet\_id) | Resource ID of the Logic App integration subnet. |
 | <a name="output_pe_subnet_id"></a> [pe\_subnet\_id](#output\_pe\_subnet\_id) | Resource ID of the private-endpoint subnet. |
-| <a name="output_subnet_nsg_names"></a> [subnet\_nsg\_names](#output\_subnet\_nsg\_names) | Names of the NSGs attached to the private-endpoint and Logic App subnets (null when nsg\_on\_all\_subnets = false). |
-| <a name="output_vnet_id"></a> [vnet\_id](#output\_vnet\_id) | Resource ID of the virtual network . |
+| <a name="output_spoke_routes"></a> [spoke\_routes](#output\_spoke\_routes) | alz\_spoke: subnet key => next hop of its 0.0.0.0/0 route (empty for greenfield). |
+| <a name="output_subnet_nsg_names"></a> [subnet\_nsg\_names](#output\_subnet\_nsg\_names) | Subnet key => name of its network security group (every subnet has one). |
+| <a name="output_vnet_id"></a> [vnet\_id](#output\_vnet\_id) | Resource ID of the virtual network. |
 <!-- END_TF_DOCS -->

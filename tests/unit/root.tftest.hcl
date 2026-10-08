@@ -141,8 +141,8 @@ run "optional_features_default_state" {
     error_message = "Entra ID setup must be opt-in (enable_entra_id_setup defaults to false)."
   }
   assert {
-    condition     = module.networking[0].subnet_nsg_names.pe == null && module.networking[0].subnet_nsg_names.logic_app == null
-    error_message = "NSGs on the PE / Logic App subnets must stay opt-in (nsg_on_all_subnets = false) so existing deployments don't change."
+    condition     = toset(keys(module.networking[0].subnet_nsg_names)) == toset(["apim", "pe", "logic_app", "agent"])
+    error_message = "Every greenfield subnet must have an NSG (ALZ Deny-Subnet-Without-Nsg)."
   }
 }
 
@@ -163,17 +163,14 @@ run "redis_and_entra_toggle_on" {
   # because the APIM cache count depended on the Redis connection string.
 }
 
-run "nsg_on_all_subnets_adds_two_nsgs" {
+run "deprecated_nsg_flag_is_reported" {
   command = plan
 
   variables {
     nsg_on_all_subnets = true
   }
 
-  assert {
-    condition     = module.networking[0].subnet_nsg_names.pe != null && module.networking[0].subnet_nsg_names.logic_app != null
-    error_message = "nsg_on_all_subnets = true must associate NSGs with the PE and Logic App subnets."
-  }
+  expect_failures = [check.deprecated_inputs]
 }
 
 run "apim_sku_family" {

@@ -85,8 +85,32 @@ variable "is_apim_v2" {
   type        = bool
   default     = false
 }
-variable "nsg_on_all_subnets" {
-  description = "Also attach NSGs to the private-endpoint and Logic App subnets (Azure Landing Zone Deny-Subnet-Without-Nsg)."
+
+variable "subscription_id" {
+  description = "Subscription of the resource group (AVM modules take the resource group ID)."
+  type        = string
+}
+
+variable "default_outbound_access_enabled" {
+  description = "Default outbound internet access on the subnets. false (private subnets) needs another egress path: a NAT gateway or a UDR to a hub firewall."
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "enable_telemetry" {
+  description = "Enable Azure Verified Modules usage telemetry."
+  type        = bool
+  default     = true
+}
+
+variable "existing_vnet_id" {
+  description = "alz_spoke: resource ID of the platform-vended spoke VNet the subnets are created in. null = create the VNet (greenfield)."
+  type        = string
+  default     = null
+}
+
+variable "hub_firewall_ip" {
+  description = "alz_spoke: private IP of the hub firewall; every subnet routes 0.0.0.0/0 to it."
+  type        = string
+  default     = null
 }

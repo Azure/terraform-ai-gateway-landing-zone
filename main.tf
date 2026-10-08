@@ -59,7 +59,8 @@ locals {
   is_apim_vnet = contains(["Developer", "Premium"], local.apim_cfg.sku)
 
   # Create private DNS zones when not using existing
-  create_dns_zones = length(local.network_cfg.private_dns_zone_ids) == 0 && local.network_cfg.private_dns_resource_group_name == ""
+  # alz_spoke: the platform owns the private DNS zones.
+  create_dns_zones = length(local.network_cfg.private_dns_zone_ids) == 0 && local.network_cfg.private_dns_resource_group_name == "" && !local.network_cfg.alz_spoke
 }
 
 # =============================================================================
@@ -182,7 +183,7 @@ module "monitoring" {
   # AMPLS (Bicep parity: useAzureMonitorPrivateLinkScope)
   use_azure_monitor_private_link_scope = local.monitoring_cfg.private_link_scope
   ampls_subnet_id                      = local.monitoring_cfg.private_link_scope ? local.network.pe_subnet_id : ""
-  ampls_dns_zone_id_monitor            = local.monitoring_cfg.private_link_scope ? module.private_dns.zone_ids["monitor"] : ""
+  ampls_dns_zone_id_monitor            = local.monitoring_cfg.private_link_scope ? lookup(module.private_dns.zone_ids, "monitor", "") : ""
 }
 
 # =============================================================================
@@ -205,7 +206,7 @@ module "security" {
 
   subnet_id = local.network.pe_subnet_id
 
-  dns_zone_id_key_vault            = module.private_dns.zone_ids["key_vault"]
+  dns_zone_id_key_vault            = lookup(module.private_dns.zone_ids, "key_vault", "")
   dns_zone_group_managed_by_policy = local.network_cfg.zone_groups_managed_by_policy
   enable_telemetry                 = var.enable_telemetry
 
@@ -266,7 +267,7 @@ module "cosmosdb" {
 
   dns_zone_group_managed_by_policy = local.network_cfg.zone_groups_managed_by_policy
   enable_telemetry                 = var.enable_telemetry
-  dns_zone_id                      = module.private_dns.zone_ids["cosmos_db"]
+  dns_zone_id                      = lookup(module.private_dns.zone_ids, "cosmos_db", "")
 
   log_analytics_id = module.monitoring.log_analytics_id
 }
@@ -294,7 +295,7 @@ module "eventhub" {
 
   dns_zone_group_managed_by_policy = local.network_cfg.zone_groups_managed_by_policy
   enable_telemetry                 = var.enable_telemetry
-  dns_zone_id                      = module.private_dns.zone_ids["event_hub"]
+  dns_zone_id                      = lookup(module.private_dns.zone_ids, "event_hub", "")
 
   log_analytics_id = module.monitoring.log_analytics_id
 
@@ -387,7 +388,7 @@ module "redis" {
   minimum_tls_version   = var.redis_minimum_tls_version
 
   subnet_id   = local.network.pe_subnet_id
-  dns_zone_id = module.private_dns.zone_ids["redis"]
+  dns_zone_id = lookup(module.private_dns.zone_ids, "redis", "")
 }
 
 # =============================================================================
@@ -560,7 +561,7 @@ module "apim" {
   # Logging
 
   # DNS
-  dns_zone_id_apim = module.private_dns.zone_ids["apim_gateway"]
+  dns_zone_id_apim = lookup(module.private_dns.zone_ids, "apim_gateway", "")
   # Internal-mode APIM hostname zones; skipped when DNS is managed centrally (BYO zones).
   create_internal_dns = local.create_dns_zones
 
@@ -624,10 +625,10 @@ module "logic_app" {
   subnet_id    = local.network.logic_app_subnet_id
   pe_subnet_id = local.network.pe_subnet_id
 
-  dns_zone_id_blob  = module.private_dns.zone_ids["storage_blob"]
-  dns_zone_id_file  = module.private_dns.zone_ids["storage_file"]
-  dns_zone_id_table = module.private_dns.zone_ids["storage_table"]
-  dns_zone_id_queue = module.private_dns.zone_ids["storage_queue"]
+  dns_zone_id_blob  = lookup(module.private_dns.zone_ids, "storage_blob", "")
+  dns_zone_id_file  = lookup(module.private_dns.zone_ids, "storage_file", "")
+  dns_zone_id_table = lookup(module.private_dns.zone_ids, "storage_table", "")
+  dns_zone_id_queue = lookup(module.private_dns.zone_ids, "storage_queue", "")
 
   # Integrations
   eventhub_endpoint_host      = "${module.eventhub.namespace_name}.servicebus.windows.net"

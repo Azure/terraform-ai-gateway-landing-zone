@@ -170,7 +170,7 @@ resource "azurerm_private_endpoint" "ampls" {
   }
 
   dynamic "private_dns_zone_group" {
-    for_each = var.use_azure_monitor_private_link_scope ? [1] : []
+    for_each = var.use_azure_monitor_private_link_scope && var.ampls_dns_zone_id_monitor != "" ? [1] : []
     content {
       name                 = "ampls-dns-group"
       private_dns_zone_ids = [var.ampls_dns_zone_id_monitor]

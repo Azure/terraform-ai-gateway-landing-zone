@@ -302,3 +302,39 @@ run "greenfield_does_not_probe_for_v1_resources" {
     error_message = "Without adopt_existing_resources no adoption probe (and no import) may run."
   }
 }
+
+run "alz_spoke_creates_subnets_in_the_vended_vnet" {
+  command = plan
+
+  variables {
+    network = {
+      mode                = "alz_spoke"
+      resource_group_name = "rg-spoke-network"
+      vnet_name           = "vnet-spoke"
+      hub_firewall_ip     = "10.0.0.4"
+    }
+  }
+
+  assert {
+    condition     = length(module.networking) == 1 && endswith(module.networking[0].vnet_id, "/virtualNetworks/vnet-hub") && local.network.vnet_id == module.networking[0].vnet_id
+    error_message = "alz_spoke must create the subnets in the vended (looked-up) VNet, not a new VNet."
+  }
+  assert {
+    condition     = module.networking[0].spoke_routes == { apim = "10.0.0.4", pe = "10.0.0.4", logic_app = "10.0.0.4", agent = "10.0.0.4" }
+    error_message = "Every alz_spoke subnet must route 0.0.0.0/0 to the hub firewall."
+  }
+  assert {
+    condition     = !local.network_cfg.default_outbound_access && local.network_cfg.zone_groups_managed_by_policy && !local.create_dns_zones
+    error_message = "alz_spoke: no default outbound access, DNS zones and zone groups owned by the platform."
+  }
+}
+
+run "alz_spoke_needs_hub_firewall_ip" {
+  command = plan
+
+  variables {
+    network = { mode = "alz_spoke", resource_group_name = "rg-spoke-network", vnet_name = "vnet-spoke" }
+  }
+
+  expect_failures = [var.network]
+}

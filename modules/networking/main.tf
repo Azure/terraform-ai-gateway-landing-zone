@@ -1,13 +1,13 @@
 # =============================================================================
-# MODULE: Networking (greenfield)
-# Creates the gateway VNet, subnets, NSGs and the APIM route table. An existing
-# (byo) network is looked up by the root module instead; private DNS lives in
-# modules/private-dns.
+# MODULE: Networking — Azure Verified Modules
+#   greenfield  creates the gateway VNet with its subnets.
+#   alz_spoke   creates the subnets inside the platform-vended spoke VNet
+#               (existing_vnet_id), each with a UDR sending 0.0.0.0/0 to the hub
+#               firewall (hub_firewall_ip).
+# Every subnet gets an NSG (ALZ Deny-Subnet-Without-Nsg). An existing (byo)
+# network is looked up by the root module instead; private DNS lives in
+# modules/private-dns. Existing v1 networks are adopted by the root (adopt.tf).
 # =============================================================================
-
-# -----------------------------------------------------------------------------
-# NEW VNET
-# -----------------------------------------------------------------------------
 
 locals {
   # The ASE v3 subnet needs far more room than the default /24 VNet has left.
@@ -23,155 +23,106 @@ locals {
   vnet_address_space = local.ase_prefix_in_vnet ? [var.vnet_address_prefix] : [var.vnet_address_prefix, var.ase_subnet_prefix]
 }
 
-resource "azurerm_virtual_network" "citadel" {
-  name                = var.vnet_name
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  address_space       = local.vnet_address_space
-  tags                = var.tags
+locals {
+  alz_spoke         = var.existing_vnet_id != null
+  resource_group_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
+
+  apim_rules = merge(
+    var.apim_network_type == "External" && var.is_apim_vnet ? {
+      AllowHTTPS = { priority = 3000, direction = "Inbound", ports = ["443"], source = "Internet", destination = "VirtualNetwork" }
+    } : {},
+    var.is_apim_vnet ? {
+      AllowAPIMManagement = { priority = 3010, direction = "Inbound", ports = ["3443"], source = "ApiManagement", destination = "VirtualNetwork" }
+      AllowLoadBalancer   = { priority = 3020, direction = "Inbound", ports = ["6390"], source = "AzureLoadBalancer", destination = "VirtualNetwork" }
+      AllowStorage        = { priority = 3000, direction = "Outbound", ports = ["443"], source = "VirtualNetwork", destination = "Storage" }
+      AllowSQL            = { priority = 3010, direction = "Outbound", ports = ["1433"], source = "VirtualNetwork", destination = "Sql" }
+      AllowMonitor        = { priority = 3030, direction = "Outbound", ports = ["443", "1886"], source = "VirtualNetwork", destination = "AzureMonitor" }
+    } : {},
+    # Also required for v2 outbound VNet integration.
+    var.is_apim_vnet || var.is_apim_v2 ? {
+      AllowKeyVault = { priority = 3020, direction = "Outbound", ports = ["443"], source = "VirtualNetwork", destination = "AzureKeyVault" }
+    } : {},
+  )
+
+  web_delegation = [{ name = "delegation-web", service_delegation = { name = "Microsoft.Web/serverFarms" } }]
+
+  subnets = merge(
+    {
+      apim = {
+        name              = var.apim_subnet_name
+        prefix            = var.apim_subnet_prefix
+        service_endpoints = ["Microsoft.CognitiveServices"]
+        # v2 SKUs: outbound VNet integration needs a subnet delegated to Microsoft.Web/serverFarms.
+        delegations = var.is_apim_v2 ? [{ name = "delegation-apim-v2", service_delegation = { name = "Microsoft.Web/serverFarms" } }] : null
+        rules       = local.apim_rules
+      }
+      pe = {
+        name              = var.pe_subnet_name
+        prefix            = var.pe_subnet_prefix
+        service_endpoints = ["Microsoft.CognitiveServices"]
+        delegations       = null
+        rules             = {}
+      }
+      logic_app = {
+        name              = var.logic_app_subnet_name
+        prefix            = var.logic_app_subnet_prefix
+        service_endpoints = ["Microsoft.CognitiveServices"]
+        delegations       = local.web_delegation
+        rules             = {}
+      }
+    },
+    var.enable_agent_subnet ? {
+      agent = {
+        name              = var.agent_subnet_name
+        prefix            = var.agent_subnet_prefix
+        service_endpoints = ["Microsoft.CognitiveServices"]
+        delegations       = [{ name = "Microsoft.app/environments", service_delegation = { name = "Microsoft.App/environments" } }]
+        rules             = {}
+      }
+    } : {},
+    # ASE v3: an empty subnet delegated to Microsoft.Web/hostingEnvironments.
+    var.enable_ase_subnet ? {
+      ase = {
+        name              = var.ase_subnet_name
+        prefix            = var.ase_subnet_prefix
+        service_endpoints = null
+        delegations       = [{ name = "Microsoft.Web.hostingEnvironments", service_delegation = { name = "Microsoft.Web/hostingEnvironments" } }]
+        rules             = {}
+      }
+    } : {},
+  )
 }
 
-# -----------------------------------------------------------------------------
-# NSG FOR AGENT SUBNET (if enabled)
-# -----------------------------------------------------------------------------
+module "nsg" {
+  source   = "Azure/avm-res-network-networksecuritygroup/azurerm"
+  version  = "0.6.0"
+  for_each = local.subnets
 
-resource "azurerm_network_security_group" "agent" {
-  count               = var.enable_agent_subnet ? 1 : 0
-  name                = "nsg-${var.agent_subnet_name}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  tags                = var.tags
-}
+  name             = "nsg-${each.value.name}"
+  location         = var.location
+  parent_id        = local.resource_group_id
+  tags             = var.tags
+  enable_telemetry = var.enable_telemetry
 
-# -----------------------------------------------------------------------------
-# NSG FOR APIM SUBNET
-# -----------------------------------------------------------------------------
-
-resource "azurerm_network_security_group" "apim" {
-  name                = "nsg-${var.apim_subnet_name}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  tags                = var.tags
-
-  # Inbound: Allow HTTPS from Internet (External mode)
-  dynamic "security_rule" {
-    for_each = var.apim_network_type == "External" && var.is_apim_vnet ? [1] : []
-    content {
-      name                       = "AllowHTTPS"
-      priority                   = 3000
-      direction                  = "Inbound"
+  # No rules on the non-APIM subnets: the default NSG rules keep v1 behaviour.
+  security_rules = {
+    for name, r in each.value.rules : name => {
+      name                       = name
+      priority                   = r.priority
+      direction                  = r.direction
       access                     = "Allow"
       protocol                   = "Tcp"
       source_port_range          = "*"
-      destination_port_range     = "443"
-      source_address_prefix      = "Internet"
-      destination_address_prefix = "VirtualNetwork"
-    }
-  }
-
-  # Inbound: APIM Management (required for Developer/Premium)
-  dynamic "security_rule" {
-    for_each = var.is_apim_vnet ? [1] : []
-    content {
-      name                       = "AllowAPIMManagement"
-      priority                   = 3010
-      direction                  = "Inbound"
-      access                     = "Allow"
-      protocol                   = "Tcp"
-      source_port_range          = "*"
-      destination_port_range     = "3443"
-      source_address_prefix      = "ApiManagement"
-      destination_address_prefix = "VirtualNetwork"
-    }
-  }
-
-  # Inbound: Azure Load Balancer health probes
-  dynamic "security_rule" {
-    for_each = var.is_apim_vnet ? [1] : []
-    content {
-      name                       = "AllowLoadBalancer"
-      priority                   = 3020
-      direction                  = "Inbound"
-      access                     = "Allow"
-      protocol                   = "Tcp"
-      source_port_range          = "*"
-      destination_port_range     = "6390"
-      source_address_prefix      = "AzureLoadBalancer"
-      destination_address_prefix = "VirtualNetwork"
-    }
-  }
-
-  # Outbound: Storage
-  dynamic "security_rule" {
-    for_each = var.is_apim_vnet ? [1] : []
-    content {
-      name                       = "AllowStorage"
-      priority                   = 3000
-      direction                  = "Outbound"
-      access                     = "Allow"
-      protocol                   = "Tcp"
-      source_port_range          = "*"
-      destination_port_range     = "443"
-      source_address_prefix      = "VirtualNetwork"
-      destination_address_prefix = "Storage"
-    }
-  }
-
-  # Outbound: SQL
-  dynamic "security_rule" {
-    for_each = var.is_apim_vnet ? [1] : []
-    content {
-      name                       = "AllowSQL"
-      priority                   = 3010
-      direction                  = "Outbound"
-      access                     = "Allow"
-      protocol                   = "Tcp"
-      source_port_range          = "*"
-      destination_port_range     = "1433"
-      source_address_prefix      = "VirtualNetwork"
-      destination_address_prefix = "Sql"
-    }
-  }
-
-  # Outbound: Key Vault (also required for V2 VNet integration)
-  dynamic "security_rule" {
-    for_each = var.is_apim_vnet || var.is_apim_v2 ? [1] : []
-    content {
-      name                       = "AllowKeyVault"
-      priority                   = 3020
-      direction                  = "Outbound"
-      access                     = "Allow"
-      protocol                   = "Tcp"
-      source_port_range          = "*"
-      destination_port_range     = "443"
-      source_address_prefix      = "VirtualNetwork"
-      destination_address_prefix = "AzureKeyVault"
-    }
-  }
-
-  # Outbound: Azure Monitor
-  dynamic "security_rule" {
-    for_each = var.is_apim_vnet ? [1] : []
-    content {
-      name                       = "AllowMonitor"
-      priority                   = 3030
-      direction                  = "Outbound"
-      access                     = "Allow"
-      protocol                   = "Tcp"
-      source_port_range          = "*"
-      destination_port_ranges    = ["443", "1886"]
-      source_address_prefix      = "VirtualNetwork"
-      destination_address_prefix = "AzureMonitor"
+      destination_port_range     = length(r.ports) == 1 ? r.ports[0] : null
+      destination_port_ranges    = length(r.ports) > 1 ? toset(r.ports) : null
+      source_address_prefix      = r.source
+      destination_address_prefix = r.destination
     }
   }
 }
-
-# -----------------------------------------------------------------------------
-# ROUTE TABLE FOR APIM (Developer/Premium SKUs only)
-# -----------------------------------------------------------------------------
 
 resource "azurerm_route_table" "apim" {
-  count               = var.is_apim_vnet ? 1 : 0
+  count               = var.is_apim_vnet && !local.alz_spoke ? 1 : 0
   name                = "rt-${var.apim_subnet_name}"
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -184,155 +135,208 @@ resource "azurerm_route_table" "apim" {
   }
 }
 
-# -----------------------------------------------------------------------------
-# SUBNETS (new VNet)
-# -----------------------------------------------------------------------------
+# alz_spoke: every subnet routes 0.0.0.0/0 through the hub firewall. Classic
+# APIM keeps its management route to the ApiManagement service tag.
+resource "azurerm_route_table" "spoke" {
+  for_each = { for k, sn in local.subnets : k => sn.name if local.alz_spoke }
 
-resource "azurerm_subnet" "apim" {
-  name                 = var.apim_subnet_name
-  resource_group_name  = var.resource_group_name
-  virtual_network_name = azurerm_virtual_network.citadel.name
-  address_prefixes     = [var.apim_subnet_prefix]
-  service_endpoints    = ["Microsoft.CognitiveServices"]
+  name                          = "rt-${each.value}"
+  location                      = var.location
+  resource_group_name           = var.resource_group_name
+  tags                          = var.tags
+  bgp_route_propagation_enabled = false
 
-  # V2 SKUs: outbound VNet integration requires a dedicated subnet delegated to Microsoft.Web/serverFarms.
-  dynamic "delegation" {
-    for_each = var.is_apim_v2 ? [1] : []
+  route {
+    name                   = "default-to-hub-firewall"
+    address_prefix         = "0.0.0.0/0"
+    next_hop_type          = "VirtualAppliance"
+    next_hop_in_ip_address = var.hub_firewall_ip
+  }
+
+  dynamic "route" {
+    for_each = each.key == "apim" && var.is_apim_vnet ? [1] : []
     content {
-      name = "delegation-apim-v2"
-      service_delegation {
-        name    = "Microsoft.Web/serverFarms"
-        actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
-      }
+      name           = "apim-management"
+      address_prefix = "ApiManagement"
+      next_hop_type  = "Internet"
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.hub_firewall_ip != null
+      error_message = "network.mode = \"alz_spoke\" needs network.hub_firewall_ip (the hub firewall's private IP)."
     }
   }
 }
 
-resource "azurerm_subnet_network_security_group_association" "apim" {
-  subnet_id                 = azurerm_subnet.apim.id
-  network_security_group_id = azurerm_network_security_group.apim.id
-}
-
-resource "azurerm_subnet_route_table_association" "apim" {
-  count          = var.is_apim_vnet ? 1 : 0
-  subnet_id      = azurerm_subnet.apim.id
-  route_table_id = azurerm_route_table.apim[0].id
-}
-
-resource "azurerm_subnet" "pe" {
-  name                 = var.pe_subnet_name
-  resource_group_name  = var.resource_group_name
-  virtual_network_name = azurerm_virtual_network.citadel.name
-  address_prefixes     = [var.pe_subnet_prefix]
-  service_endpoints    = ["Microsoft.CognitiveServices"]
-}
-
-resource "azurerm_subnet" "logic_app" {
-  name                 = var.logic_app_subnet_name
-  resource_group_name  = var.resource_group_name
-  virtual_network_name = azurerm_virtual_network.citadel.name
-  address_prefixes     = [var.logic_app_subnet_prefix]
-  service_endpoints    = ["Microsoft.CognitiveServices"]
-
-  delegation {
-    name = "delegation-web"
-    service_delegation {
-      name    = "Microsoft.Web/serverFarms"
-      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
+locals {
+  subnet_config = {
+    for k, sn in local.subnets : k => {
+      name                            = sn.name
+      address_prefixes                = [sn.prefix]
+      service_endpoints               = sn.service_endpoints == null ? null : toset(sn.service_endpoints)
+      delegations                     = sn.delegations
+      network_security_group          = { id = module.nsg[k].resource_id }
+      route_table                     = local.alz_spoke ? { id = azurerm_route_table.spoke[k].id } : (k == "apim" && var.is_apim_vnet ? { id = azurerm_route_table.apim[0].id } : null)
+      default_outbound_access_enabled = var.default_outbound_access_enabled
+      # v1 behaviour: NSGs/UDRs don't apply to private endpoints in the subnet.
+      private_endpoint_network_policies = "Disabled"
     }
   }
 }
 
-resource "azurerm_subnet" "agent" {
-  count                = var.enable_agent_subnet ? 1 : 0
-  name                 = var.agent_subnet_name
-  resource_group_name  = var.resource_group_name
-  virtual_network_name = azurerm_virtual_network.citadel.name
-  address_prefixes     = [var.agent_subnet_prefix]
-  service_endpoints    = ["Microsoft.CognitiveServices"]
+module "spoke_subnet" {
+  source   = "Azure/avm-res-network-virtualnetwork/azurerm//modules/subnet"
+  version  = "0.22.2"
+  for_each = { for k, sn in local.subnet_config : k => sn if local.alz_spoke }
 
-  delegation {
-    name = "Microsoft.app/environments"
-    service_delegation {
-      name = "Microsoft.App/environments"
-    }
+  parent_id                         = var.existing_vnet_id
+  name                              = each.value.name
+  address_prefixes                  = each.value.address_prefixes
+  service_endpoints                 = each.value.service_endpoints
+  delegations                       = each.value.delegations
+  network_security_group            = each.value.network_security_group
+  route_table                       = each.value.route_table
+  default_outbound_access_enabled   = each.value.default_outbound_access_enabled
+  private_endpoint_network_policies = each.value.private_endpoint_network_policies
+}
+
+module "vnet" {
+  source  = "Azure/avm-res-network-virtualnetwork/azurerm"
+  version = "0.22.2"
+  count   = local.alz_spoke ? 0 : 1
+
+  name             = var.vnet_name
+  location         = var.location
+  parent_id        = local.resource_group_id
+  address_space    = local.vnet_address_space
+  tags             = var.tags
+  enable_telemetry = var.enable_telemetry
+
+  subnets = local.subnet_config
+}
+
+# -----------------------------------------------------------------------------
+# v1 -> AVM (WP-2.6): the azurerm network resources leave the state without
+# being destroyed; the root (adopt.tf) imports the same Azure resources.
+# -----------------------------------------------------------------------------
+
+removed {
+  from = azurerm_virtual_network.citadel
+  lifecycle {
+    destroy = false
   }
 }
 
-resource "azurerm_subnet_network_security_group_association" "agent" {
-  count                     = var.enable_agent_subnet ? 1 : 0
-  subnet_id                 = azurerm_subnet.agent[0].id
-  network_security_group_id = azurerm_network_security_group.agent[0].id
-}
-
-# -----------------------------------------------------------------------------
-# ASE v3 SUBNET (only when the Logic App is hosted on App Service Environment v3)
-# Must be empty and delegated to Microsoft.Web/hostingEnvironments.
-# -----------------------------------------------------------------------------
-
-resource "azurerm_subnet" "ase" {
-  count                = var.enable_ase_subnet ? 1 : 0
-  name                 = var.ase_subnet_name
-  resource_group_name  = var.resource_group_name
-  virtual_network_name = azurerm_virtual_network.citadel.name
-  address_prefixes     = [var.ase_subnet_prefix]
-
-  delegation {
-    name = "Microsoft.Web.hostingEnvironments"
-    service_delegation {
-      name    = "Microsoft.Web/hostingEnvironments"
-      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
-    }
+removed {
+  from = azurerm_subnet.apim
+  lifecycle {
+    destroy = false
   }
 }
 
-resource "azurerm_network_security_group" "ase" {
-  count               = var.enable_ase_subnet ? 1 : 0
-  name                = "nsg-${var.ase_subnet_name}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  tags                = var.tags
+removed {
+  from = azurerm_subnet.pe
+  lifecycle {
+    destroy = false
+  }
 }
 
-resource "azurerm_subnet_network_security_group_association" "ase" {
-  count                     = var.enable_ase_subnet ? 1 : 0
-  subnet_id                 = azurerm_subnet.ase[0].id
-  network_security_group_id = azurerm_network_security_group.ase[0].id
+removed {
+  from = azurerm_subnet.logic_app
+  lifecycle {
+    destroy = false
+  }
 }
 
-# -----------------------------------------------------------------------------
-# NSGs FOR THE PRIVATE-ENDPOINT AND LOGIC APP SUBNETS (opt-in, Phase 0 draft)
-# Azure Landing Zone policy Deny-Subnet-Without-Nsg requires an NSG on every
-# subnet. Associating an NSG with an existing subnet is allowed, so existing
-# deployments can turn this on in place. The AVM-based network stack (Phase 2,
-# WP-2.6) creates the NSG inline with the subnet, which new ALZ deployments need.
-# No rules are added: the default NSG rules keep today's behaviour.
-# -----------------------------------------------------------------------------
-
-resource "azurerm_network_security_group" "pe" {
-  count               = var.nsg_on_all_subnets ? 1 : 0
-  name                = "nsg-${var.pe_subnet_name}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  tags                = var.tags
+removed {
+  from = azurerm_subnet.agent
+  lifecycle {
+    destroy = false
+  }
 }
 
-resource "azurerm_subnet_network_security_group_association" "pe" {
-  count                     = var.nsg_on_all_subnets ? 1 : 0
-  subnet_id                 = azurerm_subnet.pe.id
-  network_security_group_id = azurerm_network_security_group.pe[0].id
+removed {
+  from = azurerm_subnet.ase
+  lifecycle {
+    destroy = false
+  }
 }
 
-resource "azurerm_network_security_group" "logic_app" {
-  count               = var.nsg_on_all_subnets ? 1 : 0
-  name                = "nsg-${var.logic_app_subnet_name}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  tags                = var.tags
+removed {
+  from = azurerm_network_security_group.apim
+  lifecycle {
+    destroy = false
+  }
 }
 
-resource "azurerm_subnet_network_security_group_association" "logic_app" {
-  count                     = var.nsg_on_all_subnets ? 1 : 0
-  subnet_id                 = azurerm_subnet.logic_app.id
-  network_security_group_id = azurerm_network_security_group.logic_app[0].id
+removed {
+  from = azurerm_network_security_group.agent
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_network_security_group.ase
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_network_security_group.pe
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_network_security_group.logic_app
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_subnet_network_security_group_association.apim
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_subnet_network_security_group_association.agent
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_subnet_network_security_group_association.ase
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_subnet_network_security_group_association.pe
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_subnet_network_security_group_association.logic_app
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_subnet_route_table_association.apim
+  lifecycle {
+    destroy = false
+  }
 }

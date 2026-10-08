@@ -47,35 +47,52 @@ locals {
 locals {
   # Created zones first; supplied IDs (camelCase keys normalised) override per key.
   zone_ids = merge(
-    { for k in keys(local.dns_zone_names) : k => azurerm_private_dns_zone.zones[k].id if var.create_zones },
+    { for k, m in module.zone : k => m.resource_id },
     { for k, v in var.existing_zone_ids : lookup(local.byo_key_map, k, k) => v if v != "" },
   )
 }
 
-resource "azurerm_private_dns_zone" "zones" {
-  for_each            = var.create_zones ? local.dns_zone_names : {}
-  name                = each.value
-  resource_group_name = var.resource_group_name
-  tags                = var.tags
+# Zones to link to the VNet. The Azure Monitor private-link zone
+# (privatelink.monitor.azure.com) is created (AMPLS references it when enabled)
+# but must ONLY be VNet-linked when AMPLS is actually deployed and populates it
+# with private-endpoint records. Linking an empty monitor zone resolves App
+# Insights / Azure Monitor ingestion endpoints to a dead private zone from
+# inside the VNet, blackholing all App Insights telemetry.
+locals {
+  resource_group_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
+  linked_zone_keys  = [for k in keys(local.dns_zone_names) : k if k != "monitor" || var.link_monitor_zone]
 }
 
-# Zones to link to the VNet. The Azure Monitor private-link zone
-# (privatelink.monitor.azure.com) is created above (AMPLS references it when
-# enabled) but must ONLY be VNet-linked when AMPLS is actually deployed and
-# populates it with private-endpoint records. Linking an empty monitor zone
-# resolves App Insights / Azure Monitor ingestion endpoints to a dead private
-# zone from inside the VNet, blackholing all App Insights telemetry.
-locals {
-  linked_zone_names = var.link_monitor_zone ? local.dns_zone_names : {
-    for k, v in local.dns_zone_names : k => v if k != "monitor"
+module "zone" {
+  source   = "Azure/avm-res-network-privatednszone/azurerm"
+  version  = "0.5.0"
+  for_each = var.create_zones ? local.dns_zone_names : {}
+
+  domain_name      = each.value
+  parent_id        = local.resource_group_id
+  tags             = var.tags
+  enable_telemetry = var.enable_telemetry
+
+  virtual_network_links = contains(local.linked_zone_keys, each.key) ? {
+    vnet = {
+      name                 = "link-${each.key}"
+      virtual_network_id   = var.vnet_id
+      registration_enabled = false
+    }
+  } : {}
+}
+
+# v1 -> AVM (WP-2.6): imported by the root (adopt.tf).
+removed {
+  from = azurerm_private_dns_zone.zones
+  lifecycle {
+    destroy = false
   }
 }
 
-resource "azurerm_private_dns_zone_virtual_network_link" "links" {
-  for_each              = var.create_zones ? local.linked_zone_names : {}
-  name                  = "link-${each.key}"
-  resource_group_name   = var.resource_group_name
-  private_dns_zone_name = azurerm_private_dns_zone.zones[each.key].name
-  virtual_network_id    = var.vnet_id
-  registration_enabled  = false
+removed {
+  from = azurerm_private_dns_zone_virtual_network_link.links
+  lifecycle {
+    destroy = false
+  }
 }

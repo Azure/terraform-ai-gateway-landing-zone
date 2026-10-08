@@ -1085,11 +1085,6 @@ variable "embeddings_backend_url" {
   default     = ""
 }
 
-variable "nsg_on_all_subnets" {
-  description = "Attach NSGs to the private-endpoint and Logic App subnets too, so every subnet has one (Azure Landing Zone policy Deny-Subnet-Without-Nsg). Default false keeps existing deployments unchanged."
-  type        = bool
-  default     = false
-}
 
 # =============================================================================
 # DEPRECATED INPUTS
@@ -1174,4 +1169,10 @@ variable "app_insights_log_settings" {
     sampling_percentage     = optional(number, 100)
   })
   default = null
+}
+
+variable "nsg_on_all_subnets" {
+  description = "DEPRECATED, ignored. Every greenfield subnet now has an NSG (WP-2.6, ALZ Deny-Subnet-Without-Nsg)."
+  type        = bool
+  default     = null
 }

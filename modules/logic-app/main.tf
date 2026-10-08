@@ -81,9 +81,12 @@ resource "azurerm_private_endpoint" "storage_blob" {
     subresource_names              = ["blob"]
     is_manual_connection           = false
   }
-  private_dns_zone_group {
-    name                 = "dns-group"
-    private_dns_zone_ids = [var.dns_zone_id_blob]
+  dynamic "private_dns_zone_group" {
+    for_each = var.dns_zone_id_blob != "" ? [1] : []
+    content {
+      name                 = "dns-group"
+      private_dns_zone_ids = [var.dns_zone_id_blob]
+    }
   }
 }
 
@@ -100,9 +103,12 @@ resource "azurerm_private_endpoint" "storage_file" {
     subresource_names              = ["file"]
     is_manual_connection           = false
   }
-  private_dns_zone_group {
-    name                 = "dns-group"
-    private_dns_zone_ids = [var.dns_zone_id_file]
+  dynamic "private_dns_zone_group" {
+    for_each = var.dns_zone_id_file != "" ? [1] : []
+    content {
+      name                 = "dns-group"
+      private_dns_zone_ids = [var.dns_zone_id_file]
+    }
   }
 }
 
@@ -119,9 +125,12 @@ resource "azurerm_private_endpoint" "storage_table" {
     subresource_names              = ["table"]
     is_manual_connection           = false
   }
-  private_dns_zone_group {
-    name                 = "dns-group"
-    private_dns_zone_ids = [var.dns_zone_id_table]
+  dynamic "private_dns_zone_group" {
+    for_each = var.dns_zone_id_table != "" ? [1] : []
+    content {
+      name                 = "dns-group"
+      private_dns_zone_ids = [var.dns_zone_id_table]
+    }
   }
 }
 
@@ -138,9 +147,12 @@ resource "azurerm_private_endpoint" "storage_queue" {
     subresource_names              = ["queue"]
     is_manual_connection           = false
   }
-  private_dns_zone_group {
-    name                 = "dns-group"
-    private_dns_zone_ids = [var.dns_zone_id_queue]
+  dynamic "private_dns_zone_group" {
+    for_each = var.dns_zone_id_queue != "" ? [1] : []
+    content {
+      name                 = "dns-group"
+      private_dns_zone_ids = [var.dns_zone_id_queue]
+    }
   }
 }
 

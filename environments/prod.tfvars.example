@@ -59,6 +59,21 @@ network = {
   }
 }
 
+# Azure Landing Zone spoke (VNet vended and peered by the platform team; this
+# deployment creates its subnets with NSGs and a UDR to the hub firewall;
+# private DNS zone groups are created by the platform's Deploy-Private-DNS-Zones policy):
+# network = {
+#   mode                = "alz_spoke"
+#   resource_group_name = "rg-spoke-network-prod"
+#   vnet_name           = "vnet-spoke-ai-gateway-prod"
+#   hub_firewall_ip     = "10.0.0.4"
+#   subnets = {
+#     apim             = { prefix = "10.180.0.0/26" }
+#     private_endpoint = { prefix = "10.180.0.64/26" }
+#     logic_app        = { prefix = "10.180.0.128/26" }
+#   }
+# }
+
 # Brownfield example (reuse an existing enterprise VNet + private DNS zones):
 # network = {
 #   mode                = "byo"

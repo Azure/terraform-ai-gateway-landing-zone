@@ -7,8 +7,13 @@ mock_provider "azurerm" {
   override_during = plan
 }
 
+mock_provider "azapi" {
+  override_during = plan
+}
+
 variables {
   resource_group_name = "rg-dns"
+  subscription_id     = "00000000-0000-0000-0000-000000000002"
   vnet_id             = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet"
   required_zone_keys  = ["key_vault", "cosmos_db"]
 }
@@ -19,7 +24,7 @@ run "created_zones_cover_required_keys" {
     source = "./modules/private-dns"
   }
   assert {
-    condition     = length(azurerm_private_dns_zone.zones) == 13 && length(azurerm_private_dns_zone_virtual_network_link.links) == 12
+    condition     = length(module.zone) == 13 && length(local.linked_zone_keys) == 12
     error_message = "All 13 zones are created; the monitor zone is not linked without AMPLS."
   }
 }
@@ -34,7 +39,7 @@ run "supplied_zone_ids_accept_bicep_keys" {
     existing_zone_ids = { keyVault = "/zones/kv", cosmos_db = "/zones/cosmos" }
   }
   assert {
-    condition     = output.zone_ids == { key_vault = "/zones/kv", cosmos_db = "/zones/cosmos" } && length(azurerm_private_dns_zone.zones) == 0
+    condition     = output.zone_ids == { key_vault = "/zones/kv", cosmos_db = "/zones/cosmos" } && length(module.zone) == 0
     error_message = "Supplied IDs must be used (camelCase keys normalised) and nothing created."
   }
 }

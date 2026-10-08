@@ -15,6 +15,7 @@ locals {
     nonsensitive(var.entra_client_secret != null) ? "entra_client_secret" : "",
     var.azure_monitor_log_settings != null ? "azure_monitor_log_settings" : "",
     var.app_insights_log_settings != null ? "app_insights_log_settings" : "",
+    var.nsg_on_all_subnets != null ? "nsg_on_all_subnets" : "",
   ])
 }
 
