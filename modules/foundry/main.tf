@@ -102,14 +102,15 @@ module "account" {
   # Private endpoint with all three Foundry DNS zones (Bicep:
   # private-endpoint-multi-dns.bicep). With ALZ Deploy-Private-DNS-Zones the
   # policy owns the zone group.
-  private_endpoints_manage_dns_zone_group = !var.dns_zone_group_managed_by_policy
+  # The zone group is created below (azapi_resource.pe_dns_zone_group): the
+  # module names every zone config after the group, which Azure rejects with
+  # more than one zone ("two child resources with the same name").
+  private_endpoints_manage_dns_zone_group = false
   private_endpoints = {
     account = {
       name                            = "pe-${local.instance_names[count.index]}"
       private_service_connection_name = "psc-${local.instance_names[count.index]}"
       subnet_resource_id              = var.subnet_id
-      private_dns_zone_group_name     = "aif-dns-group"
-      private_dns_zone_resource_ids   = var.dns_zone_group_managed_by_policy ? [] : local.dns_zone_ids_ordered
       tags                            = var.tags
     }
   }
@@ -251,3 +252,24 @@ resource "azapi_resource" "app_insights_connection" {
 }
 
 
+
+# Private DNS zone group of each Foundry private endpoint (all three zones).
+# Skipped when Azure Policy (ALZ Deploy-Private-DNS-Zones) owns the zone groups.
+resource "azapi_resource" "pe_dns_zone_group" {
+  count = var.dns_zone_group_managed_by_policy ? 0 : length(local.instances)
+
+  type      = "Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01"
+  name      = "aif-dns-group"
+  parent_id = module.account[count.index].private_endpoints["account"].id
+
+  body = {
+    properties = {
+      privateDnsZoneConfigs = [
+        for i, zone_id in local.dns_zone_ids_ordered : {
+          name       = ["cognitiveservices", "openai", "ai-services"][i]
+          properties = { privateDnsZoneId = zone_id }
+        }
+      ]
+    }
+  }
+}

@@ -32,6 +32,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | ---- | ---- |
 | [azapi_resource.apim_connection](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.app_insights_connection](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource.pe_dns_zone_group](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.project](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azurerm_monitor_diagnostic_setting.foundry](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_diagnostic_setting) | resource |
 | [azurerm_role_assignment.apim_cognitive_services_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
@@ -55,7 +56,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_apim_service_name"></a> [apim\_service\_name](#input\_apim\_service\_name) | APIM service name (used to construct default connection names). | `string` | `""` | no |
 | <a name="input_app_insights_id"></a> [app\_insights\_id](#input\_app\_insights\_id) | Application Insights resource ID for the Foundry App Insights connection. | `string` | `""` | no |
 | <a name="input_app_insights_instrumentation_key"></a> [app\_insights\_instrumentation\_key](#input\_app\_insights\_instrumentation\_key) | Application Insights instrumentation key used by the Foundry App Insights connection. | `string` | `""` | no |
-| <a name="input_disable_key_auth"></a> [disable\_key\_auth](#input\_disable\_key\_auth) | If true, only Entra ID auth is allowed (disableLocalAuth=true). | `bool` | `false` | no |
+| <a name="input_disable_key_auth"></a> [disable\_key\_auth](#input\_disable\_key\_auth) | If true (default), only Entra ID auth is allowed (disableLocalAuth=true). The gateway reaches Foundry with its managed identity; no key is read. | `bool` | `true` | no |
 | <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoints' DNS zone groups; Terraform leaves them alone. | `bool` | `false` | no |
 | <a name="input_dns_zone_ids"></a> [dns\_zone\_ids](#input\_dns\_zone\_ids) | Map of DNS zone IDs. Expected keys: cognitive\_services, openai, ai\_services. | `map(string)` | `{}` | no |
 | <a name="input_enable_apim_connections"></a> [enable\_apim\_connections](#input\_enable\_apim\_connections) | Create Foundry-project → APIM ApiKey connections. | `bool` | `false` | no |

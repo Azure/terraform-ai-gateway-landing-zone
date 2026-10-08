@@ -113,6 +113,9 @@ resource "azurerm_eventhub_consumer_group" "ai_usage_ingestion" {
   namespace_name      = local.namespace_name
   eventhub_name       = "ai-usage"
   resource_group_name = var.resource_group_name
+
+  # The hubs are created inside the AVM namespace module.
+  depends_on = [module.namespace]
 }
 
 resource "azurerm_eventhub_consumer_group" "pii_usage_ingestion" {
@@ -120,6 +123,9 @@ resource "azurerm_eventhub_consumer_group" "pii_usage_ingestion" {
   namespace_name      = local.namespace_name
   eventhub_name       = "pii-usage"
   resource_group_name = var.resource_group_name
+
+  # The hubs are created inside the AVM namespace module.
+  depends_on = [module.namespace]
 }
 
 # -----------------------------------------------------------------------------

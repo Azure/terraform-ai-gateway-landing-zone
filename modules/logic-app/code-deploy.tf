@@ -39,6 +39,14 @@ resource "azurerm_role_assignment" "deployer_package_writer" {
   depends_on = [module.storage]
 }
 
+# Data-plane RBAC takes a while to propagate after the assignment is created.
+resource "time_sleep" "package_writer_rbac" {
+  count           = local.package_enabled ? 1 : 0
+  create_duration = "120s"
+
+  depends_on = [azurerm_role_assignment.deployer_package_writer]
+}
+
 resource "azurerm_storage_blob" "package" {
   count                  = local.package_enabled ? 1 : 0
   name                   = local.package_blob_name
@@ -48,7 +56,7 @@ resource "azurerm_storage_blob" "package" {
   source                 = data.archive_file.workflow_code[0].output_path
   content_md5            = data.archive_file.workflow_code[0].output_md5
 
-  depends_on = [azurerm_role_assignment.deployer_package_writer]
+  depends_on = [time_sleep.package_writer_rbac]
 }
 
 # Re-sync the workflow triggers once the site runs the new package.

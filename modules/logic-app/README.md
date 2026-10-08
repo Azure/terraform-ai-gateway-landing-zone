@@ -25,6 +25,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="requirement_azapi"></a> [azapi](#requirement\_azapi) | >= 2.9, < 3.0 |
 | <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | >= 4.79, < 5.0 |
 | <a name="requirement_null"></a> [null](#requirement\_null) | >= 3.2, < 4.0 |
+| <a name="requirement_time"></a> [time](#requirement\_time) | >= 0.11, < 1.0 |
 
 ## Providers
 
@@ -35,6 +36,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | >= 4.79, < 5.0 |
 | <a name="provider_null"></a> [null](#provider\_null) | >= 3.2, < 4.0 |
 | <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
+| <a name="provider_time"></a> [time](#provider\_time) | >= 0.11, < 1.0 |
 
 ## Modules
 
@@ -67,6 +69,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | [azurerm_storage_blob.package](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_blob) | resource |
 | [null_resource.publish_workflows](https://registry.terraform.io/providers/hashicorp/null/latest/docs/resources/resource) | resource |
 | [terraform_data.package_version](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [time_sleep.package_writer_rbac](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 | [archive_file.workflow_code](https://registry.terraform.io/providers/hashicorp/archive/latest/docs/data-sources/file) | data source |
 | [azurerm_client_config.current](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/client_config) | data source |
 | [azurerm_storage_account.logic_app](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/storage_account) | data source |

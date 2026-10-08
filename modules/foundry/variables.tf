@@ -18,9 +18,9 @@ variable "foundry_external_access" {
 }
 
 variable "disable_key_auth" {
-  description = "If true, only Entra ID auth is allowed (disableLocalAuth=true)."
+  description = "If true (default), only Entra ID auth is allowed (disableLocalAuth=true). The gateway reaches Foundry with its managed identity; no key is read."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "foundry_project_default_name" {
