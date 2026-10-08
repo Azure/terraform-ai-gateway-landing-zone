@@ -20,16 +20,17 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | >= 4.79, < 5.0 |
 | <a name="provider_time"></a> [time](#provider\_time) | >= 0.11, < 1.0 |
 
+## Modules
+
+| Name | Source | Version |
+| ---- | ------ | ------- |
+| <a name="module_key_vault"></a> [key\_vault](#module\_key\_vault) | Azure/avm-res-keyvault-vault/azurerm | 0.11.0 |
+
 ## Resources
 
 | Name | Type |
 | ---- | ---- |
-| [azurerm_key_vault.citadel](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault) | resource |
 | [azurerm_key_vault_secret.apim_subscription_key](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault_secret) | resource |
-| [azurerm_private_endpoint.key_vault](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
-| [azurerm_role_assignment.deployer_kv_admin](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
-| [azurerm_role_assignment.foundry_kv_secrets_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
-| [azurerm_role_assignment.uami_kv_secrets_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [time_rotating.apim_gateway_key_secret](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/rotating) | resource |
 | [time_sleep.wait_for_kv_acl](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 | [time_sleep.wait_for_kv_rbac](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
@@ -52,6 +53,8 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
 | <a name="input_tenant_id"></a> [tenant\_id](#input\_tenant\_id) | Entra tenant ID for the Key Vault. | `string` | n/a | yes |
 | <a name="input_create_apim_gateway_key_secret"></a> [create\_apim\_gateway\_key\_secret](#input\_create\_apim\_gateway\_key\_secret) | Create a placeholder `apim-gateway-key` secret in Key Vault. Disabled by<br/>default — nothing in the Terraform stack consumes it programmatically<br/>(only notebook samples reference it, and they fetch the key out-of-band<br/>via `az apim`). Creating it requires KV data-plane write access from the<br/>deployer IP and commonly trips the KV firewall on locked-down<br/>environments. Set to `true` only if you have downstream tooling that<br/>reads `apim-gateway-key` from KV directly. | `bool` | `false` | no |
+| <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone. | `bool` | `false` | no |
+| <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_foundry_principal_count"></a> [foundry\_principal\_count](#input\_foundry\_principal\_count) | Number of Foundry principals — must be known at plan time so `count` works. Caller should pass `length(var.ai_foundry_instances)` (or 0 when Foundry disabled). | `number` | `0` | no |
 | <a name="input_foundry_principal_ids"></a> [foundry\_principal\_ids](#input\_foundry\_principal\_ids) | System-assigned principal IDs of AI Foundry accounts for KV Secrets User grant (Bicep: keyvault-rbac.bicep). | `list(string)` | `[]` | no |
 | <a name="input_ip_rules"></a> [ip\_rules](#input\_ip\_rules) | Optional list of public IPs / CIDRs to add to Key Vault network\_acls.ip\_rules (for bootstrap/data-plane writes from the deployer). | `list(string)` | `[]` | no |

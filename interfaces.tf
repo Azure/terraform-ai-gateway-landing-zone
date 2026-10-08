@@ -56,7 +56,8 @@ variable "network" {
       address_space   Greenfield VNet address space.
       subnets         Name/prefix per subnet (prefixes are used in greenfield only).
       private_dns     resource_group_name + zone_ids empty = create the private DNS zones;
-                      otherwise use the zone IDs supplied.
+                      otherwise use the zone IDs supplied. zone_groups_managed_by_policy = true
+                      leaves private endpoint DNS zone groups to Azure Policy (ALZ).
   EOT
   type = object({
     mode                = optional(string, "greenfield")
@@ -89,6 +90,9 @@ variable "network" {
     private_dns = optional(object({
       resource_group_name = optional(string)
       zone_ids            = optional(map(string), {})
+      # ALZ: Azure Policy (Deploy-Private-DNS-Zones) creates the private endpoint
+      # DNS zone groups; Terraform must not create or remove them.
+      zone_groups_managed_by_policy = optional(bool, false)
     }), {})
   })
   default  = {}
@@ -270,6 +274,7 @@ locals {
     }
     private_dns_resource_group_name = coalesce(var.dns_zone_rg, var.network.private_dns.resource_group_name, "-") == "-" ? "" : coalesce(var.dns_zone_rg, var.network.private_dns.resource_group_name)
     private_dns_zone_ids            = var.existing_private_dns_zones != null ? var.existing_private_dns_zones : var.network.private_dns.zone_ids
+    zone_groups_managed_by_policy   = var.network.private_dns.zone_groups_managed_by_policy
   }
 
   cfg_flat_features = {

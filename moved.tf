@@ -393,3 +393,61 @@ moved {
   from = module.monitoring.azurerm_application_insights.foundry
   to   = module.monitoring.module.app_insights["foundry"].azurerm_application_insights.this
 }
+
+# --- WP-2.2: Key Vault on the Azure Verified Module ---
+moved {
+  from = module.security.azurerm_key_vault.citadel
+  to   = module.security.module.key_vault.azurerm_key_vault.this
+}
+moved {
+  from = module.security.azurerm_role_assignment.deployer_kv_admin
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["deployer_kv_admin"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.uami_kv_secrets_user
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["uami_kv_secrets_user"]
+}
+moved {
+  from = module.security.azurerm_private_endpoint.key_vault
+  to   = module.security.module.key_vault.azurerm_private_endpoint.this["vault"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[0]
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_0"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[1]
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_1"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[2]
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_2"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[3]
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_3"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[4]
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_4"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[5]
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_5"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[6]
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_6"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[7]
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_7"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[8]
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_8"]
+}
+moved {
+  from = module.security.azurerm_role_assignment.foundry_kv_secrets_user[9]
+  to   = module.security.module.key_vault.azurerm_role_assignment.this["foundry_kv_secrets_user_9"]
+}

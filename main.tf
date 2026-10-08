@@ -205,7 +205,9 @@ module "security" {
 
   subnet_id = local.network.pe_subnet_id
 
-  dns_zone_id_key_vault = module.private_dns.zone_ids["key_vault"]
+  dns_zone_id_key_vault            = module.private_dns.zone_ids["key_vault"]
+  dns_zone_group_managed_by_policy = local.network_cfg.zone_groups_managed_by_policy
+  enable_telemetry                 = var.enable_telemetry
 
   # Bicep parity: grant each Foundry system-assigned MI KV Secrets User
   foundry_principal_ids   = module.foundry.foundry_principal_ids
