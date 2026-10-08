@@ -95,7 +95,38 @@ resource "azapi_resource" "policy" {
     }
   }
 
+  # APIM reformats the stored XML (line endings, indentation, rawxml -> xml), so
+  # the read-back body never matches; content changes go through
+  # azapi_resource_action.policy_update instead.
+  lifecycle {
+    ignore_changes = [body]
+  }
+
   depends_on = [var.policy_depends_on]
+}
+
+resource "terraform_data" "policy_hash" {
+  count = length(azapi_resource.policy)
+  input = sha256(var.api.policy_xml)
+}
+
+# Idempotent PUT of the policy whenever its XML changes (never a delete/recreate).
+resource "azapi_resource_action" "policy_update" {
+  count       = length(azapi_resource.policy)
+  type        = "Microsoft.ApiManagement/service/apis/policies@2024-06-01-preview"
+  resource_id = azapi_resource.policy[0].id
+  method      = "PUT"
+
+  body = {
+    properties = {
+      format = "rawxml"
+      value  = var.api.policy_xml
+    }
+  }
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.policy_hash]
+  }
 }
 
 # --- Operation policies --------------------------------------------------------
@@ -129,10 +160,38 @@ resource "azapi_resource" "operation_policy" {
     }
   }
 
+  # See azapi_resource.policy: content changes go through operation_policy_update.
+  lifecycle {
+    ignore_changes = [body]
+  }
+
   depends_on = [
     azurerm_api_management_api.this,
     var.policy_depends_on,
   ]
+}
+
+resource "terraform_data" "operation_policy_hash" {
+  for_each = var.azapi_operation_policies
+  input    = sha256(each.value)
+}
+
+resource "azapi_resource_action" "operation_policy_update" {
+  for_each    = var.azapi_operation_policies
+  type        = "Microsoft.ApiManagement/service/apis/operations/policies@2024-06-01-preview"
+  resource_id = azapi_resource.operation_policy[each.key].id
+  method      = "PUT"
+
+  body = {
+    properties = {
+      format = "rawxml"
+      value  = each.value
+    }
+  }
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.operation_policy_hash[each.key]]
+  }
 }
 
 # --- Diagnostics ---------------------------------------------------------------

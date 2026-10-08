@@ -48,7 +48,8 @@ module "service" {
   sku_name            = local.apim_sku_string
   tags                = var.tags
   enable_telemetry    = var.enable_telemetry
-  min_api_version     = local.is_apim_v2 ? "2024-05-01" : "2021-08-01"
+  # v2 SKUs ignore apiVersionConstraint (always read back empty).
+  min_api_version = local.is_apim_v2 ? null : "2021-08-01"
 
   # Bicep parity: availability zones (Premium + skuCount>1; []/null otherwise).
   zones = length(var.apim_zones) > 0 ? var.apim_zones : null

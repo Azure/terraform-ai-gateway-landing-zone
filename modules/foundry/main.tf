@@ -183,9 +183,11 @@ resource "azapi_resource" "project" {
 # Bicep: aiProjectManagerRoleAssignment
 # -----------------------------------------------------------------------------
 resource "azurerm_role_assignment" "deployer_project_manager" {
-  count              = length(local.instances)
-  scope              = local.account_ids[count.index]
-  role_definition_id = "/providers/Microsoft.Authorization/roleDefinitions/${local.ai_project_manager_role_id}"
+  count = length(local.instances)
+  scope = local.account_ids[count.index]
+  # Subscription-scoped ID: Azure returns it in that form; the tenant-scoped
+  # form forces a replacement on every plan.
+  role_definition_id = "${regex("^/subscriptions/[^/]+", var.resource_group_id)}/providers/Microsoft.Authorization/roleDefinitions/${local.ai_project_manager_role_id}"
   principal_id       = var.deployer_object_id
 }
 
@@ -236,7 +238,7 @@ resource "azapi_resource" "app_insights_connection" {
       category                    = "AppInsights"
       target                      = var.app_insights_id
       useWorkspaceManagedIdentity = false
-      isSharedToAll               = false
+      isSharedToAll               = true # Azure always stores the App Insights connection as shared
       sharedUserList              = []
       peRequirement               = "NotRequired"
       peStatus                    = "NotApplicable"
