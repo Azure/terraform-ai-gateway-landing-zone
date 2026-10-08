@@ -645,7 +645,6 @@ If the named values reference Key Vault but still fail, check the named value's 
 | Script | Purpose |
 |--------|---------|
 | `scripts/deploy.sh` / `scripts/deploy.ps1` | Initialize, plan, and apply Terraform |
-| `scripts/import-existing.sh` / `scripts/import-existing.ps1` | Import pre-existing APIM resources into Terraform state |
 | `scripts/test.sh` / `scripts/test.ps1` | Test deployed backends via the APIM gateway |
 
 ### Deploy Script Options
@@ -709,17 +708,16 @@ PowerShell (`test.ps1`):
 llm-backend-onboarding/
 ├── main.tf                    # Backends, pools, policy fragments
 ├── variables.tf               # Input variables
+├── imports.tf                 # import {} blocks that adopt existing APIM backends, fragments and named values
 ├── outputs.tf                 # Output values
 ├── terraform.tf               # Terraform & provider versions
 ├── tests/unit/                # Mocked unit tests (terraform test -test-directory=tests/unit)
 ├── providers.tf               # Provider configuration
 ├── terraform.tfvars.example   # Example configuration
-├── (policies)                 # Fragment XML is read from ../modules/apim/policies (single copy, shared)
+├── (policies)                 # Fragment XML is read from ../policies/fragments and ../modules/llm-routing/templates (single copy, shared)
 ├── scripts/
 │   ├── deploy.sh              # Deployment automation (Bash)
 │   ├── deploy.ps1             # Deployment automation (PowerShell)
-│   ├── import-existing.sh     # Import existing APIM resources (Bash)
-│   ├── import-existing.ps1    # Import existing APIM resources (PowerShell)
 │   ├── test.sh                # Backend testing (Bash)
 │   └── test.ps1               # Backend testing (PowerShell)
 └── README.md

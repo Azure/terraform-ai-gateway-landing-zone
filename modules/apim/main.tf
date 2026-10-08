@@ -45,12 +45,6 @@ locals {
   # Inbound stays public / private endpoint; apim_network_type is ignored for V2.
   is_vnet_integration  = var.is_apim_v2
   virtual_network_type = local.is_vnet_injection ? var.apim_network_type : (local.is_vnet_integration ? "External" : "None")
-
-  # APIM logger `endpointAddress` expects hostname (optionally with :port), not a
-  # URL. Bicep does: replace(eventHubEndpoint, 'https://', ''). Terraform's
-  # azurerm_api_management_logger.eventhub.endpoint_uri is forwarded verbatim,
-  # so we strip the scheme + any trailing slash/port suffix here.
-  eventhub_hostname = replace(replace(var.eventhub_endpoint_uri, "https://", ""), "/", "")
 }
 
 resource "azurerm_api_management" "citadel" {
@@ -78,6 +72,32 @@ resource "azurerm_api_management" "citadel" {
 
   lifecycle {
     ignore_changes = [public_network_access_enabled]
+
+    # SKU x network matrix (review 7.5.4.1) and scale rules.
+    precondition {
+      condition     = contains(["Developer", "Premium", "StandardV2", "PremiumV2"], var.sku_name)
+      error_message = "APIM sku must be Developer, Premium, StandardV2 or PremiumV2."
+    }
+    precondition {
+      condition     = var.is_apim_v2 == contains(["StandardV2", "PremiumV2"], var.sku_name)
+      error_message = "is_apim_v2 must be true exactly for StandardV2/PremiumV2."
+    }
+    precondition {
+      condition     = var.is_apim_v2 || var.apim_network_type == "None" || var.apim_subnet_id != ""
+      error_message = "Classic VNet injection (External/Internal) needs apim_subnet_id."
+    }
+    precondition {
+      condition     = !var.is_apim_v2 || var.apim_v2_public_network_access || var.apim_v2_use_private_endpoint
+      error_message = "Disabling public network access on a v2 SKU requires the private endpoint (apim.private_endpoint = true); otherwise the gateway is unreachable."
+    }
+    precondition {
+      condition     = var.sku_name != "Developer" || var.sku_capacity == 1
+      error_message = "The Developer SKU can't scale out: apim.capacity must be 1."
+    }
+    precondition {
+      condition     = length(var.apim_zones) == 0 || (var.sku_name == "Premium" && var.sku_capacity >= length(var.apim_zones))
+      error_message = "Availability zones need the Premium SKU and at least one unit per zone (capacity >= number of zones)."
+    }
   }
 
   # Bicep parity: UserAssigned only (system-assigned identity dropped upstream;
@@ -178,229 +198,6 @@ resource "azapi_update_resource" "apim_public_network_access" {
 }
 
 # -----------------------------------------------------------------------------
-# APIM LOGGER: Application Insights
-# -----------------------------------------------------------------------------
-
-resource "azurerm_api_management_logger" "app_insights" {
-  name                = "appinsights-logger"
-  api_management_name = azurerm_api_management.citadel.name
-  resource_group_name = var.resource_group_name
-  resource_id         = var.app_insights_id
-
-  application_insights {
-    # Bicep parity: prefer connection_string (correlates region+resource) when
-    # available; fall back to instrumentation_key.
-    connection_string   = var.app_insights_connection_string != "" ? var.app_insights_connection_string : null
-    instrumentation_key = var.app_insights_connection_string == "" ? var.app_insights_instrumentation_key : null
-  }
-}
-
-# -----------------------------------------------------------------------------
-# APIM LOGGER: Azure Monitor (Bicep parity — required for `azureMonitor`
-# diagnostic destination on inference APIs). Not exposed by azurerm provider.
-#
-# We used to manage this with `azapi_resource`, but azapi does a GET-before-
-# create and aborts with "already exists" whenever the logger is present in
-# Azure but missing from local state (e.g. after a state reset, soft-deleted
-# APIM rehydration, or when APIM auto-materialises the logger server-side).
-# An ARM PUT is natively idempotent (exists → update, missing → create), so
-# we drive it via `az rest` through a `terraform_data` that re-runs only when
-# the parent APIM service or the logger body changes. This removes the
-# "already exists" failure mode entirely without needing terraform import.
-# -----------------------------------------------------------------------------
-
-locals {
-  azure_monitor_logger_body = jsonencode({
-    properties = {
-      loggerType  = "azureMonitor"
-      description = "Azure Monitor logger for gateway diagnostics"
-    }
-  })
-
-  # OS detection for cross-platform local-exec dispatch:
-  # Windows abspaths look like `C:\...` (drive letter + `:`), Unix look like
-  # `/...`. We pick a PowerShell interpreter on Windows and /bin/sh elsewhere.
-  tf_is_windows = length(regexall("^[A-Za-z]:[\\\\/]", abspath(path.root))) > 0
-
-  azure_monitor_logger_url = "https://management.azure.com${azurerm_api_management.citadel.id}/loggers/azuremonitor?api-version=2024-05-01"
-}
-
-# --- POSIX (bash/sh) variant — Linux & macOS --------------------------------
-resource "terraform_data" "azure_monitor_logger_posix" {
-  count = local.tf_is_windows ? 0 : 1
-
-  triggers_replace = [
-    azurerm_api_management.citadel.id,
-    local.azure_monitor_logger_body,
-  ]
-
-  provisioner "local-exec" {
-    interpreter = ["/bin/bash", "-c"]
-    environment = {
-      APIM_ID     = azurerm_api_management.citadel.id
-      LOGGER_BODY = local.azure_monitor_logger_body
-      LOGGER_URL  = local.azure_monitor_logger_url
-    }
-    command = <<-EOT
-      set -eu
-      az rest --method PUT \
-        --url "$${LOGGER_URL}" \
-        --body "$${LOGGER_BODY}" \
-        --headers "Content-Type=application/json" \
-        > /dev/null
-      echo "[apim] azuremonitor logger upserted on $${APIM_ID}"
-    EOT
-  }
-}
-
-# --- Windows (PowerShell) variant -------------------------------------------
-resource "terraform_data" "azure_monitor_logger_windows" {
-  count = local.tf_is_windows ? 1 : 0
-
-  triggers_replace = [
-    azurerm_api_management.citadel.id,
-    local.azure_monitor_logger_body,
-  ]
-
-  provisioner "local-exec" {
-    interpreter = ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
-    environment = {
-      APIM_ID     = azurerm_api_management.citadel.id
-      LOGGER_BODY = local.azure_monitor_logger_body
-      LOGGER_URL  = local.azure_monitor_logger_url
-    }
-    command = <<-EOT
-      $ErrorActionPreference = 'Stop'
-      $tmp = New-TemporaryFile
-      [System.IO.File]::WriteAllText($tmp, $env:LOGGER_BODY)
-      try {
-        az rest --method PUT `
-          --url "$env:LOGGER_URL" `
-          --body "@$tmp" `
-          --headers "Content-Type=application/json" `
-          | Out-Null
-      } finally {
-        Remove-Item $tmp -ErrorAction SilentlyContinue
-      }
-      Write-Host "[apim] azuremonitor logger upserted on $env:APIM_ID"
-    EOT
-  }
-}
-
-# -----------------------------------------------------------------------------
-# APIM LOGGER: Event Hub (for usage streaming)
-# -----------------------------------------------------------------------------
-
-resource "azurerm_api_management_logger" "eventhub" {
-  name                = "usage-eventhub-logger"
-  api_management_name = azurerm_api_management.citadel.name
-  resource_group_name = var.resource_group_name
-
-  eventhub {
-    name                             = var.eventhub_usage_hub_name
-    endpoint_uri                     = local.eventhub_hostname
-    user_assigned_identity_client_id = var.managed_identity_client_id
-  }
-}
-
-resource "azurerm_api_management_logger" "pii_eventhub" {
-  count               = var.enable_pii_redaction ? 1 : 0
-  name                = "pii-usage-eventhub-logger"
-  api_management_name = azurerm_api_management.citadel.name
-  resource_group_name = var.resource_group_name
-
-  eventhub {
-    name                             = var.eventhub_pii_hub_name
-    endpoint_uri                     = local.eventhub_hostname
-    user_assigned_identity_client_id = var.managed_identity_client_id
-  }
-}
-
-# -----------------------------------------------------------------------------
-# APIM DIAGNOSTIC SETTINGS (API-level logging verbosity)
-# -----------------------------------------------------------------------------
-
-resource "azurerm_api_management_diagnostic" "global" {
-  identifier               = "applicationinsights"
-  resource_group_name      = var.resource_group_name
-  api_management_name      = azurerm_api_management.citadel.name
-  api_management_logger_id = azurerm_api_management_logger.app_insights.id
-
-  sampling_percentage   = 100
-  always_log_errors     = true
-  log_client_ip         = true
-  verbosity             = var.log_verbosity
-  operation_name_format = "Url"
-
-  frontend_request {
-    body_bytes = var.log_body_bytes
-    headers_to_log = [
-      "Content-Type", "User-Agent", "x-ms-client-request-id"
-    ]
-  }
-
-  frontend_response {
-    body_bytes     = var.log_body_bytes
-    headers_to_log = ["Content-Type", "x-ms-request-id"]
-  }
-
-  backend_request {
-    body_bytes = var.log_body_bytes
-  }
-
-  backend_response {
-    body_bytes = var.log_body_bytes
-  }
-}
-
-# -----------------------------------------------------------------------------
-# Bicep parity: apim.bicep sets `metrics: true` on the service-level
-# applicationinsights diagnostic. The azurerm provider does not expose this
-# property, so we PATCH it here. Without this flag, `<emit-metric>` and
-# `<llm-emit-token-metric>` policies execute successfully but APIM drops the
-# samples before forwarding them to App Insights (no customMetrics emitted).
-# -----------------------------------------------------------------------------
-resource "azapi_update_resource" "global_appinsights_metrics" {
-  type        = "Microsoft.ApiManagement/service/diagnostics@2024-05-01"
-  resource_id = "${azurerm_api_management.citadel.id}/diagnostics/applicationinsights"
-
-  body = {
-    properties = {
-      metrics = true
-    }
-  }
-
-  depends_on = [azurerm_api_management_diagnostic.global]
-}
-
-# -----------------------------------------------------------------------------
-# DIAGNOSTIC SETTINGS
-#
-# Azure Policy (DeployIfNotExists) auto-creates a diagnostic setting named
-# `diag-<apim>` on APIM instances. Using azapi_resource_action with PUT sends
-# an ARM "Create or Update" that succeeds whether the resource exists or not.
-# -----------------------------------------------------------------------------
-
-resource "azapi_resource_action" "apim_diagnostics" {
-  type        = "Microsoft.Insights/diagnosticSettings@2021-05-01-preview"
-  resource_id = "${azurerm_api_management.citadel.id}/providers/Microsoft.Insights/diagnosticSettings/diag-${var.apim_name}"
-  method      = "PUT"
-
-  body = {
-    properties = {
-      workspaceId                 = var.log_analytics_id
-      logAnalyticsDestinationType = "Dedicated"
-      logs = [
-        { categoryGroup = "AllLogs", enabled = true }
-      ]
-      metrics = [
-        { category = "AllMetrics", enabled = true }
-      ]
-    }
-  }
-}
-
-# -----------------------------------------------------------------------------
 # NAMED VALUES (configuration pushed into APIM policies)
 # -----------------------------------------------------------------------------
 
@@ -476,112 +273,8 @@ resource "azurerm_api_management_named_value" "entra_auth_flag" {
   secret              = false
 }
 
-# -----------------------------------------------------------------------------
-# UNIVERSAL LLM API (sub-module)
-# Bicep parity: ./inference-api.bicep called from apim.bicep with
-# inferenceAPIType='OpenAIV1' (upstream default). The submodule imports the
-# matching OpenAPI spec so all operations from the Bicep deployment are present.
-# -----------------------------------------------------------------------------
-
-locals {
-  # Bicep parity: inference-api.bicep endpointPath + spec selection.
-  universal_llm_api_path = (
-    var.inference_api_type == "AzureOpenAI" ? "openai" :
-    var.inference_api_type == "AzureAI" ? "inference" :
-    var.inference_api_type == "OpenAI" ? "openai" :
-    var.inference_api_type == "OpenAIV1" ? "models" : "models"
-  )
-  universal_llm_spec_path = (
-    var.inference_api_type == "AzureOpenAI" ? "${path.module}/azure-openai-api/AIFoundryOpenAI.json" :
-    var.inference_api_type == "AzureAI" ? "${path.module}/universal-llm-api/AIFoundryAzureAI.json" :
-    var.inference_api_type == "OpenAI" ? "${path.module}/universal-llm-api/AIFoundryAzureAI.json" :
-    var.inference_api_type == "OpenAIV1" ? "${path.module}/universal-llm-api/AIFoundryOpenAIV1.json" :
-    "${path.module}/universal-llm-api/PassThrough.json"
-  )
-}
-
-module "universal_llm" {
-  source = "./universal-llm-api"
-
-  apim_name             = azurerm_api_management.citadel.name
-  resource_group_name   = var.resource_group_name
-  subscription_required = !var.entra_auth_enabled
-  has_llm_backends      = length(var.llm_backend_config) > 0
-
-  # Bicep parity: inferenceAPIType (apim.bicep default 'OpenAIV1'). Selects the
-  # OpenAPI spec + base path. OpenAIV1 -> AIFoundryOpenAIV1.json + 'models';
-  # AzureAI -> AIFoundryAzureAI.json + 'inference'.
-  inference_api_type = var.inference_api_type
-  api_path           = local.universal_llm_api_path
-  openapi_spec_path  = local.universal_llm_spec_path
-
-  policy_xml_path                       = "${path.module}/policies/universal-llm-api-policy-v2.xml"
-  deployments_op_policy_xml_path        = "${path.module}/policies/universal-llm-api-deployments-policy.xml"
-  deployment_by_name_op_policy_xml_path = "${path.module}/policies/universal-llm-api-deployment-by-name-policy.xml"
-  # OpenAIV1-only operations (listModels / retrieveModel)
-  list_models_op_policy_xml_path    = "${path.module}/policies/universal-llm-api-deployments-policy.xml"
-  retrieve_model_op_policy_xml_path = "${path.module}/policies/universal-llm-api-deployment-by-name-policy.xml"
-
-  app_insights_logger_id = azurerm_api_management_logger.app_insights.id
-  # Azure Monitor logger is created via az-rest (terraform_data); construct
-  # its ARM resource ID deterministically and depend on the upsert below.
-  azure_monitor_logger_id = "${azurerm_api_management.citadel.id}/loggers/azuremonitor"
-
-  policy_dependencies = [
-    azurerm_api_management_policy_fragment.static,
-    azurerm_api_management_policy_fragment.set_backend_pools,
-    azurerm_api_management_policy_fragment.get_available_models,
-    azurerm_api_management_policy_fragment.metadata_config,
-    azurerm_api_management_named_value.uami_client_id,
-    azurerm_api_management_named_value.entra_tenant_id,
-    azurerm_api_management_named_value.entra_client_id,
-    azurerm_api_management_named_value.entra_audience,
-    azurerm_api_management_named_value.entra_auth_flag,
-    terraform_data.azure_monitor_logger_posix,
-    terraform_data.azure_monitor_logger_windows,
-  ]
-}
-
-# -----------------------------------------------------------------------------
-# AZURE OPENAI COMPATIBILITY API (sub-module)
-# Bicep parity: ./inference-api.bicep called from apim.bicep with
-# inferenceAPIType='AzureOpenAI'. The submodule imports AIFoundryOpenAI.json
-# so the full Azure OpenAI surface is present (deployments, deployment-by-name,
-# completions, embeddings, chat/completions, audio/*, images/generations, ...).
-# -----------------------------------------------------------------------------
-
-module "azure_openai" {
-  source = "./azure-openai-api"
-
-  apim_name             = azurerm_api_management.citadel.name
-  resource_group_name   = var.resource_group_name
-  subscription_required = !var.entra_auth_enabled
-  has_llm_backends      = length(var.llm_backend_config) > 0
-
-  # Bicep loads the OpenAPI spec via loadJsonContent('./universal-llm-api/AIFoundryOpenAI.json'),
-  # so the spec lives next to the universal-llm submodule's specs.
-  openapi_spec_path                     = "${path.module}/azure-openai-api/AIFoundryOpenAI.json"
-  policy_xml_path                       = "${path.module}/policies/azure-open-ai-api-policy.xml"
-  deployments_op_policy_xml_path        = "${path.module}/policies/universal-llm-api-deployments-policy.xml"
-  deployment_by_name_op_policy_xml_path = "${path.module}/policies/universal-llm-api-deployment-by-name-policy.xml"
-
-  app_insights_logger_id  = azurerm_api_management_logger.app_insights.id
-  azure_monitor_logger_id = "${azurerm_api_management.citadel.id}/loggers/azuremonitor"
-
-  policy_dependencies = [
-    azurerm_api_management_policy_fragment.static,
-    azurerm_api_management_policy_fragment.set_backend_pools,
-    azurerm_api_management_policy_fragment.get_available_models,
-    azurerm_api_management_policy_fragment.metadata_config,
-    azurerm_api_management_named_value.uami_client_id,
-    azurerm_api_management_named_value.entra_tenant_id,
-    azurerm_api_management_named_value.entra_client_id,
-    azurerm_api_management_named_value.entra_audience,
-    azurerm_api_management_named_value.entra_auth_flag,
-    terraform_data.azure_monitor_logger_posix,
-    terraform_data.azure_monitor_logger_windows,
-  ]
-}
+# APIs (Universal LLM, Azure OpenAI, Unified AI, service APIs, MCP servers) are
+# published by modules/gateway-api from the root apis.tf.
 
 # -----------------------------------------------------------------------------
 # PRODUCTS (use-case access contracts)
@@ -599,14 +292,14 @@ resource "azurerm_api_management_product" "default_contract" {
 }
 
 resource "azurerm_api_management_product_api" "universal_llm_default" {
-  api_name            = module.universal_llm.api_name
+  api_name            = var.default_product_api_names.universal_llm
   product_id          = azurerm_api_management_product.default_contract.product_id
   api_management_name = azurerm_api_management.citadel.name
   resource_group_name = var.resource_group_name
 }
 
 resource "azurerm_api_management_product_api" "openai_default" {
-  api_name            = module.azure_openai.api_name
+  api_name            = var.default_product_api_names.azure_openai
   product_id          = azurerm_api_management_product.default_contract.product_id
   api_management_name = azurerm_api_management.citadel.name
   resource_group_name = var.resource_group_name

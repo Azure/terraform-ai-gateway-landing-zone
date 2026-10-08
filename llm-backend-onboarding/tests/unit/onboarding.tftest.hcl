@@ -55,8 +55,8 @@ run "fragments_come_from_the_single_shared_copy" {
   command = plan
 
   assert {
-    condition     = azurerm_api_management_policy_fragment.static["validate-model-access"].value == file("${path.module}/../modules/apim/policies/frag-validate-model-access.xml")
-    error_message = "Static fragments must be read from modules/apim/policies (no duplicated copies)."
+    condition     = azurerm_api_management_policy_fragment.static["validate-model-access"].value == file("${path.module}/../policies/fragments/frag-validate-model-access.xml")
+    error_message = "Static fragments must be read from policies/fragments (no duplicated copies)."
   }
 }
 
@@ -78,4 +78,51 @@ run "plaintext_backend_secret_is_reported" {
   }
 
   expect_failures = [check.no_plaintext_backend_secrets]
+}
+
+# imports.tf: only objects that exist under the APIM service are adopted.
+run "existing_objects_are_adopted" {
+  command = plan
+
+  override_data {
+    target = data.azapi_resource_list.backends
+    values = { output = { names = ["east", "gpt-41-backend-pool", "unrelated"] } }
+  }
+  override_data {
+    target = data.azapi_resource_list.policy_fragments
+    values = { output = { names = ["set-backend-pools", "set-llm-usage"] } }
+  }
+  override_data {
+    target = data.azapi_resource_list.named_values
+    values = { output = { names = ["aws-region"] } }
+  }
+  # Mock providers can't import; stand in for the adopted objects.
+  override_resource {
+    target = azapi_resource.llm_backend
+  }
+  override_resource {
+    target = azapi_resource.llm_backend_pool
+  }
+  override_resource {
+    target = azurerm_api_management_policy_fragment.set_backend_pools
+  }
+  override_resource {
+    target = azurerm_api_management_policy_fragment.static
+  }
+  override_resource {
+    target = azurerm_api_management_named_value.aws_region
+  }
+
+  assert {
+    condition     = local.importable_backend_keys == ["east"]
+    error_message = "Only configured backends that exist must be imported."
+  }
+  assert {
+    condition     = contains(local.existing_backends, "gpt-41-backend-pool") && contains(keys(local.pool_configs), "gpt-41-backend-pool")
+    error_message = "An existing pool that is configured must be importable."
+  }
+  assert {
+    condition     = contains(local.existing_fragments, "set-backend-pools") && !contains(local.existing_fragments, "metadata-config")
+    error_message = "Fragment existence must come from the APIM listing."
+  }
 }

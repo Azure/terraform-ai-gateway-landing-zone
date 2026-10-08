@@ -279,19 +279,13 @@ plan_and_apply() {
   local APPLY_EXIT=${PIPESTATUS[0]}
   set -e
 
-  # Auto-import on "already exists" errors
+  # Objects that already exist in Azure are adopted declaratively: print the
+  # matching import {} blocks to paste into imports.tf, then re-run.
   if [[ $APPLY_EXIT -ne 0 ]] && grep -q "already exists" "$APPLY_LOG"; then
-    warn "Apply failed with 'already exists' errors. Attempting auto-import..."
-    local RUN_IMPORT="yes"
-    if [[ -z "$AUTO_APPROVE" ]]; then
-      read -rp "Auto-import existing resources and retry apply? (Y/n): " ANS
-      [[ "$ANS" =~ ^[Nn]$ ]] && RUN_IMPORT="no"
-    fi
-    if [[ "$RUN_IMPORT" == "yes" ]] && [[ -x "${SCRIPT_DIR}/import-existing.sh" ]]; then
-      if "${SCRIPT_DIR}/import-existing.sh" "$ENVIRONMENT"; then
-        APPLY_EXIT=0
-      fi
-    fi
+    warn "Apply failed because some objects already exist in Azure. Add these import blocks to imports.tf,"
+    warn "re-run the deployment (the plan shows each import) and remove the blocks afterwards:"
+    "$PYTHON_BIN" "${SCRIPT_DIR}/import-blocks-from-log.py" "$APPLY_LOG" || true
+    warn "Runbook: docs/operations/adopting-existing-resources.md"
   fi
 
   rm -f "$APPLY_LOG"

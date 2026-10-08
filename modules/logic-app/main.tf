@@ -9,7 +9,7 @@
 # -----------------------------------------------------------------------------
 
 resource "azurerm_storage_account" "logic_app" {
-  name                     = "stla${var.random_suffix}"
+  name                     = var.names.storage_account
   location                 = var.location
   resource_group_name      = var.resource_group_name
   account_tier             = "Standard"
@@ -37,9 +37,9 @@ moved {
 
 locals {
   use_ase        = var.hosting_model == "AppServiceEnvironmentV3"
-  logic_app_name = "logic-usage-${var.environment_name}-${var.random_suffix}"
+  logic_app_name = var.names.logic_app
 
-  content_share = var.content_share_name != "" ? var.content_share_name : "logic-content-${var.random_suffix}"
+  content_share = var.content_share_name != "" ? var.content_share_name : var.names.content_share
   storage_key   = azurerm_storage_account.logic_app.primary_access_key
 }
 
@@ -132,7 +132,7 @@ resource "azurerm_private_endpoint" "storage_queue" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_service_plan" "logic_app" {
-  name                         = "asp-logic-${var.environment_name}"
+  name                         = var.names.app_service_plan
   location                     = var.location
   resource_group_name          = var.resource_group_name
   os_type                      = "Windows"
@@ -450,10 +450,6 @@ resource "azurerm_role_assignment" "storage_account_contributor" {
 # - Monitor Logs Reader (RG scope — for azuremonitorlogs workflows)
 # -----------------------------------------------------------------------------
 
-data "azurerm_resource_group" "this" {
-  name = var.resource_group_name
-}
-
 resource "azurerm_cosmosdb_sql_role_assignment" "logic_app_system_mi" {
   count               = var.enable_cosmos_role_assignment ? 1 : 0
   resource_group_name = var.resource_group_name
@@ -464,14 +460,14 @@ resource "azurerm_cosmosdb_sql_role_assignment" "logic_app_system_mi" {
 }
 
 resource "azurerm_role_assignment" "logic_app_system_eh_owner" {
-  scope                = data.azurerm_resource_group.this.id
+  scope                = var.resource_group_id
   role_definition_name = "Azure Event Hubs Data Owner"
   principal_id         = local.logic_app_principal_id
   principal_type       = "ServicePrincipal"
 }
 
 resource "azurerm_role_assignment" "logic_app_system_monitor_reader" {
-  scope                = data.azurerm_resource_group.this.id
+  scope                = var.resource_group_id
   role_definition_name = "Log Analytics Reader"
   principal_id         = local.logic_app_principal_id
   principal_type       = "ServicePrincipal"

@@ -38,6 +38,18 @@ mock_provider "azapi" {
 }
 mock_provider "azuread" {
   override_during = plan
+
+  mock_data "azuread_application_published_app_ids" {
+    defaults = {
+      result = { MicrosoftGraph = "00000003-0000-0000-c000-000000000000" }
+    }
+  }
+  mock_data "azuread_service_principal" {
+    defaults = {
+      oauth2_permission_scope_ids = { "User.Read" = "e1fe6dd8-ba31-4d61-89e7-88639da4683d" }
+      app_role_ids                = {}
+    }
+  }
 }
 mock_provider "random" {
   override_during = plan
@@ -69,15 +81,15 @@ run "naming_is_deterministic" {
   command = plan
 
   assert {
-    condition     = local.resource_token == substr(sha256("rg-citadel-test-citadel-test-00000000-0000-0000-0000-000000000002"), 0, 10)
+    condition     = module.naming.resource_token == substr(sha256("rg-citadel-test-citadel-test-00000000-0000-0000-0000-000000000002"), 0, 10)
     error_message = "resource_token must be sha256(<rg>-<env>-<subscription>)[0:10]."
   }
   assert {
-    condition     = local.apim_service_name == "apim-${local.resource_token}"
+    condition     = local.apim_service_name == "apim-${module.naming.resource_token}"
     error_message = "Default APIM name must be apim-<resource_token>."
   }
   assert {
-    condition     = local.key_vault_name == "kv-${local.resource_token}" && local.cosmos_db_name == "cosmos-${local.resource_token}" && local.eventhub_ns_name == "evhns-${local.resource_token}"
+    condition     = local.key_vault_name == "kv-${module.naming.resource_token}" && local.cosmos_db_name == "cosmos-${module.naming.resource_token}" && local.eventhub_ns_name == "evhns-${module.naming.resource_token}"
     error_message = "Default Key Vault / Cosmos / Event Hubs names changed."
   }
   assert {
@@ -90,7 +102,7 @@ run "explicit_names_win" {
   command = plan
 
   variables {
-    apim_service_name      = "apim-custom"
+    apim                   = { name = "apim-custom" }
     key_vault_name         = "kv-custom"
     cosmos_db_account_name = "cosmos-custom"
   }
@@ -122,14 +134,14 @@ run "optional_features_default_state" {
 
   assert {
     condition     = length(module.redis) == 0
-    error_message = "Redis must be opt-in (enable_redis_cache defaults to false)."
+    error_message = "Redis must be opt-in (features.semantic_cache defaults to false)."
   }
   assert {
     condition     = length(module.entra_id) == 0
     error_message = "Entra ID setup must be opt-in (enable_entra_id_setup defaults to false)."
   }
   assert {
-    condition     = module.networking.subnet_nsg_names.pe == null && module.networking.subnet_nsg_names.logic_app == null
+    condition     = module.networking[0].subnet_nsg_names.pe == null && module.networking[0].subnet_nsg_names.logic_app == null
     error_message = "NSGs on the PE / Logic App subnets must stay opt-in (nsg_on_all_subnets = false) so existing deployments don't change."
   }
 }
@@ -138,14 +150,14 @@ run "redis_and_entra_toggle_on" {
   command = plan
 
   variables {
-    enable_redis_cache                = true
+    features                          = { semantic_cache = true }
     enable_entra_id_setup             = true
     entra_client_secret_rotation_days = 60 # <= 90 keeps the ALZ check quiet
   }
 
   assert {
     condition     = length(module.redis) == 1 && length(module.entra_id) == 1
-    error_message = "enable_redis_cache / enable_entra_id_setup must create their modules."
+    error_message = "features.semantic_cache / enable_entra_id_setup must create their modules."
   }
   # Regression test: this plan used to fail with "Invalid count argument"
   # because the APIM cache count depended on the Redis connection string.
@@ -159,7 +171,7 @@ run "nsg_on_all_subnets_adds_two_nsgs" {
   }
 
   assert {
-    condition     = module.networking.subnet_nsg_names.pe != null && module.networking.subnet_nsg_names.logic_app != null
+    condition     = module.networking[0].subnet_nsg_names.pe != null && module.networking[0].subnet_nsg_names.logic_app != null
     error_message = "nsg_on_all_subnets = true must associate NSGs with the PE and Logic App subnets."
   }
 }
@@ -168,7 +180,7 @@ run "apim_sku_family" {
   command = plan
 
   variables {
-    apim_sku = "StandardV2"
+    apim = { sku = "StandardV2" }
   }
 
   assert {
@@ -181,7 +193,7 @@ run "apim_sku_family_classic" {
   command = plan
 
   variables {
-    apim_sku = "Developer"
+    apim = { sku = "Developer" }
   }
 
   assert {
@@ -225,11 +237,11 @@ run "llm_backends_pools_for_shared_models" {
   }
 
   assert {
-    condition     = toset(keys(module.apim.llm_backend_ids)) == toset(["east", "west"])
+    condition     = toset(keys(module.llm_routing.backend_ids)) == toset(["east", "west"])
     error_message = "One APIM backend must be created per llm_backend_config entry."
   }
   assert {
-    condition     = toset(keys(module.apim.llm_backend_pool_ids)) == toset(["gpt-41-backend-pool"])
+    condition     = toset(keys(module.llm_routing.pool_ids)) == toset(["gpt-41-backend-pool"])
     error_message = "Only models served by 2+ backends get a pool, named <model without dots>-backend-pool."
   }
 }
@@ -249,11 +261,11 @@ run "llm_backends_auto_derived_from_foundry" {
   }
 
   assert {
-    condition     = toset(keys(module.apim.llm_backend_ids)) == toset(["foundry-swedencentral-0", "foundry-westeurope-1"])
+    condition     = toset(keys(module.llm_routing.backend_ids)) == toset(["foundry-swedencentral-0", "foundry-westeurope-1"])
     error_message = "With llm_backend_config = [] one backend per Foundry instance must be derived (foundry-<location>-<index>)."
   }
   assert {
-    condition     = toset(keys(module.apim.llm_backend_pool_ids)) == toset(["gpt-41-backend-pool"])
+    condition     = toset(keys(module.llm_routing.pool_ids)) == toset(["gpt-41-backend-pool"])
     error_message = "A model deployed on both Foundry instances must get a backend pool."
   }
 }
@@ -269,4 +281,17 @@ run "deprecated_input_is_reported" {
   }
 
   expect_failures = [check.deprecated_inputs]
+}
+
+run "name_overrides_apply_when_dedicated_inputs_unset" {
+  command = plan
+
+  variables {
+    name_overrides = { key_vault = "kv-override", apim = "apim-override" }
+  }
+
+  assert {
+    condition     = local.key_vault_name == "kv-override" && local.apim_service_name == "apim-override"
+    error_message = "name_overrides must apply when the dedicated *_name input is unset."
+  }
 }

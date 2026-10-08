@@ -11,16 +11,16 @@ variable "tags" {
   type        = map(string)
 }
 variable "log_analytics_name" {
-  description = "Name of the Log Analytics workspace to create (ignored when use_existing_log_analytics = true)."
+  description = "Name of the Log Analytics workspace to create (ignored when existing_log_analytics_workspace is set)."
   type        = string
 }
-variable "use_existing_log_analytics" {
-  description = "Use an existing Log Analytics workspace"
-  type        = bool
-}
-variable "existing_log_analytics_id" {
-  description = "Resource ID of existing Log Analytics workspace"
-  type        = string
+variable "existing_log_analytics_workspace" {
+  description = "Existing (BYO) Log Analytics workspace: resource id and workspace (customer) id. null = create one named log_analytics_name. The caller looks the workspace up."
+  type = object({
+    id           = string
+    workspace_id = string
+  })
+  default = null
 }
 variable "environment_name" {
   description = "Environment name used for resource naming (e.g., citadel-dev, citadel-prod)"

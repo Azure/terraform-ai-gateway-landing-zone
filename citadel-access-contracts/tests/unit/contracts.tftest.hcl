@@ -95,3 +95,30 @@ run "no_keys_in_outputs_without_key_vault" {
     error_message = "Subscription keys must never be returned as outputs."
   }
 }
+
+# imports.tf: only objects that exist under the APIM service are adopted.
+run "existing_contract_objects_are_adopted" {
+  command = plan
+
+  override_data {
+    target = data.azapi_resource_list.products
+    values = { output = { names = ["LLM-hr-chatagent-dev", "OTHER-product"] } }
+  }
+  override_data {
+    target = data.azapi_resource_list.subscriptions
+    values = { output = { names = [] } }
+  }
+  # Mock providers can't import; stand in for the adopted product.
+  override_resource {
+    target = azurerm_api_management_product.service
+    values = {
+      id         = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-test/providers/Microsoft.ApiManagement/service/apim-test/products/LLM-hr-chatagent-dev"
+      product_id = "LLM-hr-chatagent-dev"
+    }
+  }
+
+  assert {
+    condition     = local.existing_service_products == { LLM = "LLM-hr-chatagent-dev" }
+    error_message = "Only the use case's products that exist must be adopted."
+  }
+}

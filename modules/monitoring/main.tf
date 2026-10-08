@@ -3,15 +3,9 @@
 # Log Analytics Workspace + Application Insights
 # =============================================================================
 
-# -----------------------------------------------------------------------------
-# EXISTING LOG ANALYTICS DATA SOURCE
-# -----------------------------------------------------------------------------
-
-data "azurerm_log_analytics_workspace" "existing" {
-  provider            = azurerm.loganalytics
-  count               = var.use_existing_log_analytics ? 1 : 0
-  name                = split("/", var.existing_log_analytics_id)[8]
-  resource_group_name = split("/", var.existing_log_analytics_id)[4]
+locals {
+  byo_workspace    = var.existing_log_analytics_workspace != null
+  log_analytics_id = local.byo_workspace ? var.existing_log_analytics_workspace.id : azurerm_log_analytics_workspace.citadel[0].id
 }
 
 # -----------------------------------------------------------------------------
@@ -19,7 +13,7 @@ data "azurerm_log_analytics_workspace" "existing" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_log_analytics_workspace" "citadel" {
-  count               = var.use_existing_log_analytics ? 0 : 1
+  count               = local.byo_workspace ? 0 : 1
   name                = var.log_analytics_name
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -40,7 +34,7 @@ resource "azurerm_application_insights" "apim" {
   name                = "appi-apim-${var.environment_name}"
   location            = var.location
   resource_group_name = var.resource_group_name
-  workspace_id        = var.use_existing_log_analytics ? var.existing_log_analytics_id : azurerm_log_analytics_workspace.citadel[0].id
+  workspace_id        = local.log_analytics_id
   application_type    = "web"
   tags                = var.tags
 }
@@ -53,7 +47,7 @@ resource "azurerm_application_insights" "logic_app" {
   name                = "appi-logic-${var.environment_name}"
   location            = var.location
   resource_group_name = var.resource_group_name
-  workspace_id        = var.use_existing_log_analytics ? var.existing_log_analytics_id : azurerm_log_analytics_workspace.citadel[0].id
+  workspace_id        = local.log_analytics_id
   application_type    = "web"
   tags                = var.tags
 }
@@ -66,7 +60,7 @@ resource "azurerm_application_insights" "foundry" {
   name                = "appi-aif-${var.environment_name}"
   location            = var.location
   resource_group_name = var.resource_group_name
-  workspace_id        = var.use_existing_log_analytics ? var.existing_log_analytics_id : azurerm_log_analytics_workspace.citadel[0].id
+  workspace_id        = local.log_analytics_id
   application_type    = "web"
   tags                = var.tags
 }
@@ -126,7 +120,7 @@ resource "azurerm_monitor_private_link_scope" "ampls" {
 }
 
 resource "azurerm_monitor_private_link_scoped_service" "law" {
-  count               = var.use_azure_monitor_private_link_scope && !var.use_existing_log_analytics ? 1 : 0
+  count               = var.use_azure_monitor_private_link_scope && !local.byo_workspace ? 1 : 0
   name                = "scoped-law"
   resource_group_name = var.resource_group_name
   scope_name          = azurerm_monitor_private_link_scope.ampls[0].name

@@ -37,11 +37,10 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_api_center_name"></a> [api\_center\_name](#input\_api\_center\_name) | Name of the API Center service. | `string` | n/a | yes |
 | <a name="input_api_center_sku"></a> [api\_center\_sku](#input\_api\_center\_sku) | SKU for API Center service. Free tier is 'Free', paid tier is 'Standard'. | `string` | n/a | yes |
 | <a name="input_apic_location"></a> [apic\_location](#input\_apic\_location) | Azure region for API Center (API Center isn't available in every region). | `string` | n/a | yes |
 | <a name="input_enable_api_center"></a> [enable\_api\_center](#input\_enable\_api\_center) | Deploy API Center as AI Registry | `bool` | n/a | yes |
-| <a name="input_environment_name"></a> [environment\_name](#input\_environment\_name) | Environment name used for resource naming (e.g., citadel-dev, citadel-prod) | `string` | n/a | yes |
-| <a name="input_random_suffix"></a> [random\_suffix](#input\_random\_suffix) | Random suffix appended to globally unique resource names. | `string` | n/a | yes |
 | <a name="input_resource_group_id"></a> [resource\_group\_id](#input\_resource\_group\_id) | Resource ID of the resource group the module deploys into. | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
 

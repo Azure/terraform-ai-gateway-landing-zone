@@ -24,3 +24,10 @@ check "deprecated_inputs" {
     error_message = "These inputs are deprecated and ignored (see the DEPRECATED INPUTS section of variables.tf): ${join(", ", local.deprecated_inputs_set)}. Remove them from your tfvars."
   }
 }
+
+check "deprecated_flat_inputs" {
+  assert {
+    condition     = length([for k, set in local.deprecated_flat_inputs : k if set]) == 0
+    error_message = "These flat inputs are deprecated and will be removed in the next major release; move them to the typed objects (interfaces.tf) — old -> new: ${join(", ", [for k, set in local.deprecated_flat_inputs : k if set])}."
+  }
+}

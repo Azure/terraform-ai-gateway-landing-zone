@@ -19,15 +19,6 @@ variable "tags" {
   description = "Tags applied to every resource the module creates."
   type        = map(string)
 }
-variable "environment_name" {
-  description = "Environment name used for resource naming (e.g., citadel-dev, citadel-prod)"
-  type        = string
-}
-variable "random_suffix" {
-  description = "Random suffix appended to globally unique resource names."
-  type        = string
-}
-
 variable "foundry_external_access" {
   description = "If true, publicNetworkAccess=Enabled on Foundry accounts."
   type        = bool
@@ -182,4 +173,9 @@ variable "apim_connections" {
     custom_headers         = optional(map(string), {})
   }))
   default = []
+}
+
+variable "account_names" {
+  description = "Foundry (AI Services) account names, one per entry in foundry_instances (from modules/naming)."
+  type        = list(string)
 }

@@ -15,10 +15,8 @@ locals {
   # Built-in role: Azure AI Project Manager
   ai_project_manager_role_id = "eadc314b-1a2d-4efa-be10-5d325db5065e"
 
-  instance_names = [
-    for i, c in local.instances :
-    c.name != "" ? c.name : "aif-${var.environment_name}-${i}-${var.random_suffix}"
-  ]
+  # Names come from modules/naming (explicit name, else aif-<env>-<index>-<suffix>).
+  instance_names = var.account_names
 
   instance_subdomains = [
     for i, c in local.instances :

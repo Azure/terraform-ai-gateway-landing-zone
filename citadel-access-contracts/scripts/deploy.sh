@@ -84,9 +84,8 @@ info "Using subscription: $ACCOUNT_NAME ($SUBSCRIPTION)"
 info "Initializing Terraform..."
 terraform init
 
-# --- Import existing resources (handles re-onboarding / idempotent re-runs) ---
-info "Checking for existing resources to import into state..."
-bash "$SCRIPT_DIR/import-existing.sh" --var-file "$VAR_FILE"
+# Existing products, policies, subscriptions and API links are adopted by the
+# import {} blocks in imports.tf (idempotent re-runs).
 
 # --- Terraform action ---
 if [[ -n "$DESTROY" ]]; then

@@ -1,11 +1,11 @@
 output "log_analytics_id" {
   description = "Resource ID of the Log Analytics workspace (created or existing)."
-  value       = var.use_existing_log_analytics ? var.existing_log_analytics_id : azurerm_log_analytics_workspace.citadel[0].id
+  value       = local.log_analytics_id
 }
 
 output "log_analytics_workspace_id" {
   description = "Workspace (customer) ID of the Log Analytics workspace."
-  value       = var.use_existing_log_analytics ? data.azurerm_log_analytics_workspace.existing[0].workspace_id : azurerm_log_analytics_workspace.citadel[0].workspace_id
+  value       = local.byo_workspace ? var.existing_log_analytics_workspace.workspace_id : azurerm_log_analytics_workspace.citadel[0].workspace_id
 }
 
 output "app_insights_id" {

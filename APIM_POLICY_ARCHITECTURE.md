@@ -7,9 +7,13 @@
 > (including the `citadel-access-contracts` add-on), and the MCP sample APIs.
 >
 > **Related files:**
-> [modules/apim/policy-fragments.tf](modules/apim/policy-fragments.tf) ·
+> [policy-fragments.tf](policy-fragments.tf) ·
+> [apis.tf](apis.tf) ·
+> [modules/apim-policy-fragments/](modules/apim-policy-fragments/README.md) ·
+> [modules/llm-routing/main.tf](modules/llm-routing/main.tf) ·
+> [modules/gateway-api/](modules/gateway-api/README.md) ·
+> [modules/apim-telemetry/](modules/apim-telemetry/README.md) ·
 > [modules/apim/main.tf](modules/apim/main.tf) ·
-> [modules/apim/extra-apis.tf](modules/apim/extra-apis.tf) ·
 > [modules/apim/named-values-extras.tf](modules/apim/named-values-extras.tf) ·
 > [modules/apim/backends.tf](modules/apim/backends.tf) ·
 > [citadel-access-contracts/main.tf](citadel-access-contracts/main.tf) ·
@@ -54,55 +58,80 @@ this via `depends_on`.
 
 Terraform automatically loads **every `.tf` file in a module directory** and
 merges them into one configuration — there is no `include` or `import`
-directive, and file names are purely organizational. For the APIM module,
-these files are all parsed together as one unit:
+directive, and file names are purely organizational. The APIM policy model
+is split across the root module and several focused child modules:
 
 ```
-modules/apim/
-  main.tf                      # APIM service, loggers, diagnostic, named values, universal-llm + azure-openai APIs
-  policy-fragments.tf          # ~25 fragments (static + dynamic)
-  backends.tf                  # LLM backends, pools, content safety, AI search, embeddings
-  extra-apis.tf                # unified-ai, ai-search, doc-intel, ai-model-inference, openai-realtime, weather, MCP
-  named-values-extras.tf       # JWT-* named values, PII key, operation policies
-  api-center-onboarding.tf     # API Center registration (optional)
-  foundry-subscription.tf      # Dedicated APIM subscription for Foundry (optional)
+<repo root>/
+  policy-fragments.tf          # Fragment catalogue (static, unified-AI, PII) → module "policy_fragments"
+  apis.tf                      # API catalogue (gateway_apis_raw / dependent_apis_raw) → module "api" / "api_dependent"
+  api-center-registration.tf   # API Center registration of the enabled APIs (optional)
+  main.tf                      # module "apim", "apim_telemetry", "llm_routing", ... calls
+  policies/fragments/          # frag-*.xml bodies of the catalogue fragments
+  apis/<api>/                  # Per-API OpenAPI specs + policy XML (apis/shared/ = shared operation/MCP policies)
+
+modules/
+  apim/                        # APIM service, PE, named values, non-LLM backends, default product, Foundry subscription
+    main.tf                    #   service, private endpoint, public-access flip, core named values, default product, Redis cache
+    named-values-extras.tf     #   JWT-* and aws-* named values
+    backends.tf                #   content safety, AI search, embeddings, ms-learn MCP backends
+    foundry-subscription.tf    #   dedicated APIM subscription for Foundry (optional)
+    internal-dns.tf            #   internal-mode DNS records
+  apim-policy-fragments/       # Generic: deploys a map of fragments (azurerm, or azapi for the PII set)
+  llm-routing/                 # LLM backends, backend pools + the 4 generated routing fragments
+    templates/                 #   frag-set-backend-pools.xml, frag-get-available-models.xml, ...
+  gateway-api/                 # Generic API: http / websocket / mcp, operation policies, diagnostics, optional product
+  apim-telemetry/              # APIM loggers (App Insights, Azure Monitor, Event Hub) + global diagnostics
 ```
 
-The resources in `policy-fragments.tf` plug into the dependency graph via:
+These pieces plug into the dependency graph via:
 
-1. **Shared `local.*` blocks** — e.g. `local.all_pools` defined in
-   [backends.tf](modules/apim/backends.tf) is consumed by
-   `local.backend_pools_code` in
-   [policy-fragments.tf](modules/apim/policy-fragments.tf).
-2. **Direct resource references** — e.g. `azurerm_api_management.citadel.id`
-   in the fragment resource's `api_management_id`.
-3. **Explicit `depends_on`** — every `azurerm_api_management_api_policy`
-   that uses `<include-fragment>` lists the fragment resources in its
-   `depends_on` so APIM's server-side validation finds them.
+1. **Module outputs** — e.g. `local.all_pools` is computed inside
+   [modules/llm-routing](modules/llm-routing/main.tf) from
+   `var.llm_backend_config` and consumed there by `local.backend_pools_code`;
+   `module.apim.apim_id` feeds every fragment / API module's
+   `api_management_id`.
+2. **Explicit dependency lists** — `module.policy_fragments` receives
+   `depends_on_ids = module.apim.named_value_ids`, and every API created
+   through [modules/gateway-api](modules/gateway-api/README.md) receives
+   `policy_depends_on = local.api_policy_depends_on` (all fragment IDs from
+   `module.policy_fragments` + `module.llm_routing`, the named values, and
+   the `module.apim_telemetry` loggers) so APIM's server-side validation
+   finds every `<include-fragment>`, `{{named-value}}` and logger reference.
 
 ---
 
 ## 3. Fragments (the reusable building blocks)
 
-All fragments are declared in
-[modules/apim/policy-fragments.tf](modules/apim/policy-fragments.tf) and
-their XML bodies live in [modules/apim/policies/](modules/apim/policies/)
-prefixed with `frag-`. There are three kinds.
+The reusable fragments are catalogued in the root
+[policy-fragments.tf](policy-fragments.tf) and deployed by
+[modules/apim-policy-fragments](modules/apim-policy-fragments/README.md);
+their XML bodies live in [policies/fragments/](policies/fragments/)
+prefixed with `frag-` (a single copy, also read by
+[llm-backend-onboarding/](llm-backend-onboarding/)). The generated routing
+fragments are owned by [modules/llm-routing](modules/llm-routing/main.tf).
+There are three kinds.
 
 ### 3.1 Static fragments (unconditional)
 
-Mirrored from Bicep's `policy-fragments.bicep`. Declared as a map and
-created with `for_each`:
+Mirrored from Bicep's `policy-fragments.bicep`. Declared as a catalogue map
+(`name → { description, file }`) and passed to the generic fragments module,
+which creates them with `for_each`:
 
 ```hcl
-resource "azurerm_api_management_policy_fragment" "static" {
-  for_each          = local.all_static_fragments
-  api_management_id = azurerm_api_management.citadel.id
-  name              = each.key
-  format            = "rawxml"
-  description       = each.value.description
-  value             = file("${path.module}/policies/${each.value.file}")
-  depends_on        = [ /* all named values */ ]
+module "policy_fragments" {
+  source            = "./modules/apim-policy-fragments"
+  api_management_id = module.apim.apim_id
+
+  fragments = {
+    for k, f in local.all_static_fragments : k => {
+      xml         = file("${local.fragments_dir}/${f.file}")   # policies/fragments/
+      description = f.description
+    }
+  }
+  azapi_fragments = { /* local.pii_fragments, same shape */ }
+
+  depends_on_ids = module.apim.named_value_ids
 }
 ```
 
@@ -111,15 +140,16 @@ The map `local.all_static_fragments = merge(local.static_fragments, local.unifie
 | Sub-map | Always on? | Fragment IDs |
 |---|---|---|
 | `static_fragments` | Yes | `set-backend-authorization`, `set-target-backend-pool`, `set-llm-usage`, `set-llm-requested-model`, `validate-model-access`, `ai-usage`, `raise-throttling-events`, `throttling-events`, `security-handler`, `entra-auth`, `aad-auth`, `aad-auth-custom`, `ai-foundry-deployments`, `llm-usage`, `openai-usage`, `openai-usage-streaming`, `ai-foundry-compatibility`, `set-response-headers`, `responses-id-security`, `responses-id-cache-store`, `strip-backend-headers` |
-| `unified_ai_fragments` | `var.enable_unified_ai_api = true` | `central-cache-manager`, `request-processor`, `path-builder` |
+| `unified_ai_fragments` | `features.unified_ai_api = true` | `central-cache-manager`, `request-processor`, `path-builder` |
 
-> **PII fragments are no longer part of this `for_each` merge.** The
+> **PII fragments are not part of this `for_each` merge.** The
 > `pii-anonymization` / `pii-deanonymization` / `pii-state-saving`
-> fragments (gated on `var.enable_pii_anonymization`) are now managed by
-> `azapi_resource.pii_fragment` (a direct idempotent PUT) because the
-> `azurerm` fragment resource hit an LRO polling bug (404 *PolicyFragment
-> not found* during `CreateOrUpdate`). `scripts/migrate-pii-fragments.sh`
-> drops the old `azurerm` state entries without destroying the fragments.
+> fragments (`local.pii_fragments`, gated on `features.pii_anonymization`)
+> are passed as `azapi_fragments` and created by
+> `azapi_resource.this` in
+> [modules/apim-policy-fragments](modules/apim-policy-fragments/main.tf)
+> (a direct idempotent PUT) because the `azurerm` fragment resource hit an
+> LRO polling bug (404 *PolicyFragment not found* during `CreateOrUpdate`).
 
 > **`responses-id-security` / `responses-id-cache-store`** enforce
 > per-subscription ownership of Responses API objects; **`strip-backend-headers`**
@@ -128,12 +158,15 @@ The map `local.all_static_fragments = merge(local.static_fragments, local.unifie
 
 ### 3.2 Dynamic fragments (computed from `var.llm_backend_config` + `var.model_aliases`)
 
-Mirrored from Bicep's `llm-policy-fragments.bicep`. Each one takes a
+Mirrored from Bicep's `llm-policy-fragments.bicep`. Owned by
+[modules/llm-routing](modules/llm-routing/README.md) (called as
+`module "llm_routing"` from the root [main.tf](main.tf)). Each one takes a
 placeholder-based XML template from
-[modules/apim/policies/](modules/apim/policies/) and injects generated code
-into it at plan time via `replace()`. They are **always created** (even
-when `llm_backend_config` is empty) because the core API policies reference
-them unconditionally and APIM validates fragment IDs at policy-save time.
+[modules/llm-routing/templates/](modules/llm-routing/templates/) and injects
+generated code into it at plan time via `replace()`. They are **always
+created** (even when `llm_backend_config` is empty) because the core API
+policies reference them unconditionally and APIM validates fragment IDs at
+policy-save time.
 
 | Fragment | Source XML | Placeholder | Injected content |
 |---|---|---|---|
@@ -142,12 +175,13 @@ them unconditionally and APIM validates fragment IDs at policy-save time.
 | `metadata-config` | `frag-metadata-config.xml` | `//{modelsConfigCode}` / `//{modelAliasesCode}` | JSON mapping `model → {pool, apiVersion, timeout}` + alias-to-model mappings |
 | `resolve-model-alias` | `frag-resolve-model-alias.xml` | `//{inlineAliasesCode}` | C# alias→underlying-model lookup generated from `var.model_aliases` (own resource `azurerm_api_management_policy_fragment.resolve_model_alias`, always created) |
 
-The generators live in `locals { … }` blocks at the top of
-[policy-fragments.tf](modules/apim/policy-fragments.tf):
+The generators live in `locals { … }` blocks in
+[modules/llm-routing/main.tf](modules/llm-routing/main.tf), which also
+creates the LLM backends (`azapi_resource.llm_backend`) and backend pools
+(`azapi_resource.llm_backend_pool`):
 
-- `local.backend_pools_code` iterates `local.all_pools` (which is derived in
-  [backends.tf](modules/apim/backends.tf) by grouping
-  `var.llm_backend_config` by supported model).
+- `local.backend_pools_code` iterates `local.all_pools` (derived in the
+  same file by grouping `var.llm_backend_config` by supported model).
 - `local.model_deployments_code` iterates a flattened list of all models
   across all backends.
 - `local.metadata_models_code` produces a `model → pool` lookup using the
@@ -179,8 +213,9 @@ via the APIM user-assigned identity) to satisfy the Azure Policy *API
 Management secret named values should be stored in Azure Key Vault*; the
 sole exception is the testing-only `backend_api_key` `secret_value` path.
 
-Every static-fragment resource declares `depends_on` on **all** named
-values above so APIM can resolve `{{…}}` tokens at fragment-create time.
+Every catalogue fragment depends on **all** named values above
+(`module.apim.named_value_ids` → `depends_on_ids`) so APIM can resolve
+`{{…}}` tokens at fragment-create time.
 
 ---
 
@@ -188,58 +223,68 @@ values above so APIM can resolve `{{…}}` tokens at fragment-create time.
 
 ### 4.1 API-level policies
 
-Each API loads a full policy document and wires in behavior by
-`<include-fragment>`ing the fragments above.
+Each API is one entry in the API catalogue in [apis.tf](apis.tf)
+(`local.gateway_apis_raw`, plus `local.dependent_apis_raw` for APIs that must
+be created after another API or backend) and is deployed by the generic
+[modules/gateway-api](modules/gateway-api/README.md) module
+(`module.api["<name>"]` / `module.api_dependent["<name>"]`). Each API loads a
+full policy document from `apis/<api>/` and wires in behavior by
+`<include-fragment>`ing the fragments above. Only APIs whose `features.*`
+flag is on are in the catalogue.
 
-| API resource | Policy XML | Uses fragments |
+| API (catalogue key) | Policy XML | Uses fragments |
 |---|---|---|
-| `azurerm_api_management_api_policy.universal_llm` ([main.tf](modules/apim/main.tf)) | [policies/universal-llm-api-policy-v2.xml](modules/apim/policies/universal-llm-api-policy-v2.xml) | `security-handler`, `set-llm-requested-model`, `validate-model-access`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `set-llm-usage`, `ai-foundry-compatibility`, `set-response-headers`, `raise-throttling-events` |
-| `azurerm_api_management_api_policy.azure_openai` ([main.tf](modules/apim/main.tf)) | [policies/azure-open-ai-api-policy.xml](modules/apim/policies/azure-open-ai-api-policy.xml) | `security-handler`, `set-llm-requested-model`, `validate-model-access`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `set-llm-usage`, `set-response-headers`, `raise-throttling-events` |
-| `azurerm_api_management_api_policy.unified_ai` ([extra-apis.tf](modules/apim/extra-apis.tf)) | [policies/unified-ai-api-policy.xml](modules/apim/policies/unified-ai-api-policy.xml) | `security-handler`, `central-cache-manager`, `request-processor`, `path-builder`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `set-response-headers` |
-| `azurerm_api_management_api_policy.ai_search` | [policies/ai-search-index-api-policy.xml](modules/apim/policies/ai-search-index-api-policy.xml) | `security-handler`, `ai-usage` |
-| `azurerm_api_management_api_policy.doc_intelligence_legacy` + `doc_intelligence` | [policies/doc-intelligence-api-policy.xml](modules/apim/policies/doc-intelligence-api-policy.xml) | `security-handler`, `ai-usage` |
-| `azurerm_api_management_api_policy.ai_model_inference` | [policies/ai-model-inference-api-policy.xml](modules/apim/policies/ai-model-inference-api-policy.xml) | `security-handler`, `ai-usage` |
-| `azapi_resource.openai_realtime_policy` | [policies/openai-realtime-policy.xml](modules/apim/policies/openai-realtime-policy.xml) | WebSocket auth only |
-| `azurerm_api_management_api_policy.weather` | [sample/weather/policy.xml](modules/apim/sample/weather/policy.xml) | None (sample) |
-| `azapi_resource.weather_mcp_policy` + `ms_learn_mcp_policy` | [policies/mcp-default-policy.xml](modules/apim/policies/mcp-default-policy.xml) | MCP default auth |
+| `universal-llm-api` (`module.api`) | [apis/universal-llm-api/universal-llm-api-policy-v2.xml](apis/universal-llm-api/universal-llm-api-policy-v2.xml) | `security-handler`, `set-llm-requested-model`, `validate-model-access`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `set-llm-usage`, `ai-foundry-compatibility`, `set-response-headers`, `raise-throttling-events` |
+| `azure-openai-api` (`module.api`) | [apis/azure-openai-api/azure-open-ai-api-policy.xml](apis/azure-openai-api/azure-open-ai-api-policy.xml) | `security-handler`, `set-llm-requested-model`, `validate-model-access`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `set-llm-usage`, `set-response-headers`, `raise-throttling-events` |
+| `unified-ai-api` (`module.api`) | [apis/unified-ai-api/unified-ai-api-policy.xml](apis/unified-ai-api/unified-ai-api-policy.xml) | `security-handler`, `central-cache-manager`, `request-processor`, `path-builder`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `set-response-headers` |
+| `azure-ai-search-index-api` (`module.api`) | [apis/azure-ai-search-index-api/ai-search-index-api-policy.xml](apis/azure-ai-search-index-api/ai-search-index-api-policy.xml) | `security-handler`, `ai-usage` |
+| `document-intelligence-api-legacy` (`module.api`) + `document-intelligence-api` (`module.api_dependent`) | [apis/document-intelligence-api/doc-intelligence-api-policy.xml](apis/document-intelligence-api/doc-intelligence-api-policy.xml) | `security-handler`, `ai-usage` |
+| `ai-model-inference-api` (`module.api`) | [apis/ai-model-inference-api/ai-model-inference-api-policy.xml](apis/ai-model-inference-api/ai-model-inference-api-policy.xml) | `security-handler`, `ai-usage` |
+| `openai-realtime-ws-api` (`module.api`, `type = "websocket"`) | [apis/openai-realtime-ws-api/openai-realtime-policy.xml](apis/openai-realtime-ws-api/openai-realtime-policy.xml) — **not attached**: WebSocket APIs don't accept an API-scope policy (it belongs on the upgraded WebSocket operation) | WebSocket auth only |
+| `weather-api` (`module.api`) | [apis/weather-api/policy.xml](apis/weather-api/policy.xml) | None (sample) |
+| `weather-mcp` + `ms-learn-mcp` (`module.api_dependent`, `type = "mcp"`) | [apis/shared/mcp-default-policy.xml](apis/shared/mcp-default-policy.xml) | MCP default auth |
 
-Every one of these API-policy resources declares:
+Every API instance receives:
 
 ```hcl
-depends_on = [
-  azurerm_api_management_policy_fragment.static,
-  azurerm_api_management_policy_fragment.set_backend_pools,
-  azurerm_api_management_policy_fragment.get_available_models,
-  azurerm_api_management_policy_fragment.metadata_config,
-]
+policy_depends_on = local.api_policy_depends_on   # apis.tf
+# = concat(values(module.policy_fragments.ids),
+#          values(module.llm_routing.fragment_ids),
+#          module.apim.named_value_ids,
+#          module.apim_telemetry.dependency_ids)
 ```
 
-so APIM finds every `<include-fragment>` target at validation time.
+so APIM finds every `<include-fragment>` target, named value and logger at
+validation time.
 
 ### 4.2 Operation-level policies
 
-Declared in [named-values-extras.tf](modules/apim/named-values-extras.tf).
+Declared per catalogue entry in [apis.tf](apis.tf) (`operation_policies` /
+`azapi_operation_policies`) and applied by
+[modules/gateway-api](modules/gateway-api/README.md). Policies shared by
+several APIs live in [apis/shared/](apis/shared/).
 
 | Operation | API | Policy XML |
 |---|---|---|
-| `deployments` (GET `/deployments`) | `universal-llm-api` | [policies/universal-llm-api-deployments-policy.xml](modules/apim/policies/universal-llm-api-deployments-policy.xml) |
-| `deployment-by-name` (GET `/deployments/{id}`) | `universal-llm-api` | [policies/universal-llm-api-deployment-by-name-policy.xml](modules/apim/policies/universal-llm-api-deployment-by-name-policy.xml) |
-| `openai-deployments` (GET `/deployments`) | `azure-openai-api` | [policies/universal-llm-api-deployments-policy.xml](modules/apim/policies/universal-llm-api-deployments-policy.xml) |
-| `openai-deployment-by-name` (GET `/deployments/{id}/info`) | `azure-openai-api` | [policies/universal-llm-api-deployment-by-name-policy.xml](modules/apim/policies/universal-llm-api-deployment-by-name-policy.xml) |
-| `deployments` + `deployment-by-name` (unified-AI) | `unified-ai-api` | [policies/unified-ai-api-deployments-policy.xml](modules/apim/policies/unified-ai-api-deployments-policy.xml), [policies/unified-ai-api-deployment-by-name-policy.xml](modules/apim/policies/unified-ai-api-deployment-by-name-policy.xml) |
+| `deployments` (GET `/deployments`) | `universal-llm-api` | [apis/shared/universal-llm-api-deployments-policy.xml](apis/shared/universal-llm-api-deployments-policy.xml) |
+| `deployment-by-name` (GET `/deployments/{id}`) | `universal-llm-api` | [apis/shared/universal-llm-api-deployment-by-name-policy.xml](apis/shared/universal-llm-api-deployment-by-name-policy.xml) |
+| `listModels` / `retrieveModel` (only when `inference_api_type = "OpenAIV1"`) | `universal-llm-api` | Same two files as above |
+| `deployments` (GET `/deployments`) | `azure-openai-api` | [apis/shared/universal-llm-api-deployments-policy.xml](apis/shared/universal-llm-api-deployments-policy.xml) |
+| `deployment-by-name` (GET `/deployments/{id}/info`) | `azure-openai-api` | [apis/shared/universal-llm-api-deployment-by-name-policy.xml](apis/shared/universal-llm-api-deployment-by-name-policy.xml) |
+| `deployments` + `deployment-by-name` (unified-AI, via azapi) | `unified-ai-api` | [apis/unified-ai-api/unified-ai-api-deployments-policy.xml](apis/unified-ai-api/unified-ai-api-deployments-policy.xml), [apis/unified-ai-api/unified-ai-api-deployment-by-name-policy.xml](apis/unified-ai-api/unified-ai-api-deployment-by-name-policy.xml) |
 
-All four `deployments` / `deployment-by-name` operation policies
-`<include-fragment fragment-id="get-available-models" />`, which means they
-are **count-gated** on `length(var.llm_backend_config) > 0` — if no LLM
-backends are configured, the dynamic fragment isn't created and these
-operation policies aren't attached.
+The `deployments` / `deployment-by-name` operation policies
+`<include-fragment fragment-id="get-available-models" />`. On
+`universal-llm-api` and `azure-openai-api` they are **gated** on
+`local.has_llm_backends` (`length(local.effective_llm_backend_config) > 0`) —
+if no LLM backends are configured these operation policies aren't attached.
 
 ### 4.3 Product-level policies
 
 | Product | Policy XML | Where |
 |---|---|---|
-| `default-ai-access` | None (inline policy not set here) | [main.tf](modules/apim/main.tf) |
-| `unified-ai-product` | [policies/unified-ai-product-subscription.xml](modules/apim/policies/unified-ai-product-subscription.xml) | [extra-apis.tf](modules/apim/extra-apis.tf) |
+| `default-ai-access` | None (inline policy not set here) | [modules/apim/main.tf](modules/apim/main.tf) |
+| `unified-ai-product` | [apis/unified-ai-api/unified-ai-product-subscription.xml](apis/unified-ai-api/unified-ai-product-subscription.xml) | `product` attribute of the `unified-ai-api` entry in [apis.tf](apis.tf) (created by [modules/gateway-api](modules/gateway-api/README.md)) |
 | Per-use-case access-contract products | Per-service `policy_xml`, or [citadel-access-contracts/policies/default-ai-product-policy.xml](citadel-access-contracts/policies/default-ai-product-policy.xml) when blank | [citadel-access-contracts/main.tf](citadel-access-contracts/main.tf) |
 
 Access-contract product policies set context variables (e.g. the
@@ -297,32 +342,31 @@ and the routing logic updates without touching any XML.
 
 ## 6. Apply-time ordering (why `depends_on` matters)
 
-Terraform's graph resolves to roughly this order inside the APIM module:
+Terraform's graph resolves to roughly this order across the APIM modules:
 
 ```text
-1. azurerm_api_management.citadel
-2. Named values (uami, pii, content-safety, entra-*, JWT-*, aws-*)
-3. azurerm_api_management_policy_fragment.static            (for_each map)
-   azurerm_api_management_policy_fragment.set_backend_pools  (dynamic)
-   azurerm_api_management_policy_fragment.get_available_models
-   azurerm_api_management_policy_fragment.metadata_config
-   azurerm_api_management_policy_fragment.resolve_model_alias
-   azapi_resource.pii_fragment                              (PII, when enabled)
-4. azurerm_api_management_backend.* / azapi_resource.llm_backend / pool / content-safety / embeddings
-5. azurerm_api_management_api.{universal_llm, azure_openai, unified_ai, ...}
-   azurerm_api_management_api_operation.* (chat-completions, deployments, deployment-by-name, ...)
-6. azurerm_api_management_api_policy.*               ← validates <include-fragment> + {{named-value}}
-   azurerm_api_management_api_operation_policy.*    ← validates <include-fragment>
-7. azurerm_api_management_product.*
-   azurerm_api_management_product_policy.*
-   azurerm_api_management_product_api.*
+1. module.apim          azurerm_api_management.citadel
+2. module.apim          Named values (uami, pii, content-safety, entra-*, JWT-*, aws-*)
+   module.apim_telemetry  Loggers (App Insights, Azure Monitor, Event Hub, PII Event Hub) + global diagnostics
+3. module.policy_fragments  azurerm_api_management_policy_fragment.this   (catalogue, for_each)
+                            azapi_resource.this                            (PII, when enabled)
+   module.llm_routing       set_backend_pools / get_available_models / metadata_config / resolve_model_alias
+4. module.llm_routing   azapi_resource.llm_backend / llm_backend_pool
+   module.apim          content-safety / ai_search / embeddings / ms-learn-mcp backends
+5. module.api[*]        API (azurerm_api_management_api or azapi_resource for websocket / mcp)
+6. module.api[*]        API policy + operation policies   ← validates <include-fragment> + {{named-value}}
+                        API diagnostics                    ← validates logger IDs
+                        Optional product + product policy + product-API link
+7. module.api_dependent[*]  Second wave (document-intelligence-api, weather-mcp, ms-learn-mcp)
 ```
 
 If you ever see a 400 at apply time like
 *"Policy reference is not resolved: The fragment 'xxx' cannot be found"* or
 *"Named value 'yyy' is not defined"*, the fix is always to add the missing
-entry to the `depends_on` of the policy resource — the graph doesn't know
-about `<include-fragment>` text inside an XML file.
+entry to `local.api_policy_depends_on` in [apis.tf](apis.tf) (or to
+`depends_on_ids` of `module.policy_fragments` for a named value referenced by
+a fragment) — the graph doesn't know about `<include-fragment>` text inside
+an XML file.
 
 ---
 
@@ -330,18 +374,18 @@ about `<include-fragment>` text inside an XML file.
 
 | Variable | Effect on fragments | Effect on policies |
 |---|---|---|
-| `enable_unified_ai_api` | Creates 4 unified-AI fragments (`central-cache-manager`, `request-processor`, `path-builder`, `set-response-headers`) | Creates unified-AI API + its policy + 2 op policies + product + product policy |
-| `enable_pii_anonymization` | Creates 3 PII fragments via `azapi_resource.pii_fragment` | No direct policy; referenced from universal-llm + unified-ai |
-| `enable_pii_redaction` | — | Creates `piiServiceUrl` named value + `pii-usage-eventhub-logger` (Language service auth uses the APIM managed identity) |
-| `enable_content_safety` | — | Creates `contentSafetyServiceUrl` named value + content-safety backend |
+| `features.unified_ai_api` | Creates 3 unified-AI fragments (`central-cache-manager`, `request-processor`, `path-builder`) | Creates unified-AI API + its policy + 2 op policies + product + product policy |
+| `features.pii_anonymization` | Creates 3 PII fragments via `azapi_resource.this` in `module.policy_fragments` | No direct policy; referenced from universal-llm + unified-ai |
+| `features.pii_redaction` | — | Creates `piiServiceUrl` named value + `pii-usage-eventhub-logger` (in `module.apim_telemetry`; Language service auth uses the APIM managed identity) |
+| `features.content_safety` | — | Creates `contentSafetyServiceUrl` named value + content-safety backend |
 | `enable_jwt_auth` | — | Populates 4 JWT-* named values (else placeholders) |
-| `enable_azure_ai_search` | — | Creates `azure-ai-search-index-api` + its policy + `ai_search` backends |
-| `enable_document_intelligence` | — | Creates two document intelligence APIs + policies |
-| `enable_ai_model_inference` | — | Creates `ai-model-inference-api` + policy |
-| `enable_openai_realtime` | — | Creates WebSocket API + policy via azapi |
-| `is_mcp_sample_deployed` | — | Creates weather-api + weather-mcp + ms-learn-mcp + 3 policies |
-| `length(var.llm_backend_config) > 0` | Creates the dynamic fragments | Enables 4 operation policies on universal-llm / azure-openai |
-| `length(var.model_aliases) > 0` | Injects alias deployments into `get-available-models` / `metadata-config` and populates `resolve-model-alias` | Aliases resolve to underlying models at request time |
+| `features.azure_ai_search` | — | Creates `azure-ai-search-index-api` + its policy + `ai_search` backends |
+| `features.document_intelligence` | — | Creates two document intelligence APIs + policies |
+| `features.ai_model_inference` | — | Creates `ai-model-inference-api` + policy |
+| `features.openai_realtime` | — | Creates the WebSocket API via azapi (no API-scope policy) |
+| `features.mcp_sample` | — | Creates weather-api + weather-mcp + ms-learn-mcp + 3 policies |
+| `length(local.effective_llm_backend_config) > 0` | Dynamic fragments carry real pool/model data (they are always created) | Enables the `deployments` / `deployment-by-name` operation policies on universal-llm / azure-openai |
+| `length(var.model_aliases) > 0` ([modules/llm-routing](modules/llm-routing/README.md) / [llm-backend-onboarding](llm-backend-onboarding/) input) | Injects alias deployments into `get-available-models` / `metadata-config` and populates `resolve-model-alias` | Aliases resolve to underlying models at request time |
 | Standalone `citadel-access-contracts/` (`var.services` + `var.use_case`) | — | Creates per-use-case products + product-API links + subscription + policy (+ optional KV secrets / Foundry connection) against existing APIM |
 
 ---
@@ -350,10 +394,11 @@ about `<include-fragment>` text inside an XML file.
 
 | Task | Edit this file |
 |---|---|
-| Add a new reusable policy snippet (available in all APIs) | Add XML to [modules/apim/policies/](modules/apim/policies/) + add entry to `local.static_fragments` in [policy-fragments.tf](modules/apim/policy-fragments.tf) |
-| Change which fragments an API uses | Edit the API's policy XML (e.g. [universal-llm-api-policy-v2.xml](modules/apim/policies/universal-llm-api-policy-v2.xml)); no Terraform changes needed |
-| Add a new API with its own policy | Add `azurerm_api_management_api` + `azurerm_api_management_api_policy` in [extra-apis.tf](modules/apim/extra-apis.tf) with `depends_on` on the fragments used |
-| Add a new named value | Add resource in [main.tf](modules/apim/main.tf) or [named-values-extras.tf](modules/apim/named-values-extras.tf) + append to the `depends_on` list of `azurerm_api_management_policy_fragment.static` |
+| Add a new reusable policy snippet (available in all APIs) | Add XML to [policies/fragments/](policies/fragments/) (`frag-<name>.xml`) + add a `name = { description, file }` entry to the catalogue (`local.static_fragments`, or the feature-gated `local.unified_ai_fragments` / `local.pii_fragments`) in [policy-fragments.tf](policy-fragments.tf) |
+| Change which fragments an API uses | Edit the API's policy XML (e.g. [apis/universal-llm-api/universal-llm-api-policy-v2.xml](apis/universal-llm-api/universal-llm-api-policy-v2.xml)); no Terraform changes needed |
+| Add a new API with its own policy | Put the spec + policy XML under `apis/<api>/` and add an entry to the catalogue in [apis.tf](apis.tf) — `local.gateway_apis_raw`, or `local.dependent_apis_raw` if it must be created after another API/backend (set `api_depends_on`). [modules/gateway-api](modules/gateway-api/README.md) creates the API, policies, diagnostics and optional product; fragment/named-value/logger dependencies are already wired via `local.api_policy_depends_on` |
+| Add a new named value | Add resource in [modules/apim/main.tf](modules/apim/main.tf) or [modules/apim/named-values-extras.tf](modules/apim/named-values-extras.tf) + add its ID to the `named_value_ids` output in [modules/apim/outputs.tf](modules/apim/outputs.tf) |
+| Change the generated routing fragments | Edit the templates in [modules/llm-routing/templates/](modules/llm-routing/templates/) or the generator `locals` in [modules/llm-routing/main.tf](modules/llm-routing/main.tf) |
 | Add a new backend pool routing rule | Add to `var.llm_backend_config` — dynamic fragments regenerate automatically |
 | Add a per-use-case access contract | Add a service entry to `var.services` (+ `var.api_name_mapping`) in the standalone [citadel-access-contracts/](citadel-access-contracts/) module (no XML edits unless you need custom per-service `policy_xml`) |
 | Onboard an LLM backend to a live APIM | Add to `var.llm_backend_config` in the standalone [llm-backend-onboarding/](llm-backend-onboarding/) module |

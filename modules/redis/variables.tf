@@ -19,6 +19,11 @@ variable "sku_name" {
   description = "Azure Managed Redis SKU (Microsoft.Cache/redisEnterprise)."
   type        = string
   default     = "Balanced_B10"
+
+  validation {
+    condition     = can(regex("^((Balanced_B|MemoryOptimized_M|ComputeOptimized_X|FlashOptimized_A)[0-9]+|Enterprise_E[0-9]+|EnterpriseFlash_F[0-9]+)$", var.sku_name))
+    error_message = "sku_name must be an Azure Managed Redis SKU (Balanced_B*, MemoryOptimized_M*, ComputeOptimized_X*, FlashOptimized_A*) or Enterprise_E* / EnterpriseFlash_F*."
+  }
 }
 
 variable "sku_capacity" {

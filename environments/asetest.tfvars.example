@@ -25,7 +25,7 @@
 #     -> run the VERIFY checklist at the bottom
 #
 #   PHASE B — switch the SAME environment to ASE v3 (tests the migration path)
-#     set logic_app_hosting_model = "AppServiceEnvironmentV3" below, then:
+#     set usage_pipeline.logic_app = { hosting = "ase_v3", sku = "I1v2", ... } below, then:
 #     ./scripts/deploy.ps1 asetest -SkipLogicAppCode   (ASE creation: 1h+)
 #     Publish workflow code from a machine INSIDE the VNet (ILB ASE — the SCM
 #     endpoint is private). Tested approach: a small Linux VM in snet-citadel-pe
@@ -35,7 +35,7 @@
 #       curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary @app.zip \
 #         "https://<logic_app_name>.scm.<ase-name>.appserviceenvironment.net/api/zipdeploy?isAsync=false"
 #     Delete that VM before `destroy` (it blocks deletion of the PE subnet).
-#     (No VNet access available? Set ase_internal_load_balancing_mode = "None"
+#     (No VNet access available? Set usage_pipeline.ase.internal_load_balancing_mode = "None"
 #      and deploy without -SkipLogicAppCode — less prod-like, but quick.)
 #     ./scripts/validate.ps1 asetest
 #     -> run the VERIFY checklist again
@@ -79,56 +79,77 @@ kv_auto_detect_deployer_ip       = true
 # -----------------------------------------------------------------------------
 # 4. NETWORKING (greenfield VNet; ASE subnet is added automatically in phase B)
 # -----------------------------------------------------------------------------
-use_existing_vnet   = false
-vnet_address_prefix = "10.170.0.0/24"
-apim_network_type   = "External"
-
-# ASE v3 settings (used only in phase B)
-ase_subnet_name                  = "snet-citadel-ase"
-ase_subnet_prefix                = "10.170.1.0/24" # appended as 2nd VNet address space
-ase_internal_load_balancing_mode = "Web, Publishing" # ILB, prod-like
-ase_zone_redundant               = false
-ase_create_private_dns_zone      = true
+network = {
+  mode          = "greenfield"
+  address_space = "10.170.0.0/24"
+  subnets = {
+    ase = { name = "snet-citadel-ase", prefix = "10.170.1.0/24" } # appended as 2nd VNet address space
+  }
+}
 
 # -----------------------------------------------------------------------------
 # 5. COMPUTE SKU & SIZING (smallest that exercises the full pipeline)
 # -----------------------------------------------------------------------------
 # Developer = classic SKU with VNet injection, so APIM can reach the private
 # Foundry endpoint (needed for the end-to-end usage test).
-apim_sku       = "Developer"
-apim_sku_units = 1
+apim = {
+  sku       = "Developer"
+  capacity  = 1
+  vnet_mode = "external"
+}
 
-# DEPRECATED (ignored, see variables.tf): cosmos_db_rus
-# cosmos_db_rus            = 400
-eventhub_capacity_units  = 1
-# DEPRECATED (ignored, see variables.tf): eventhub_partition_count
-# eventhub_partition_count = 2
-
-# PHASE A: "WorkflowStandard"   PHASE B: "AppServiceEnvironmentV3"
-logic_app_hosting_model    = "WorkflowStandard"
-logic_app_sku_size         = "WS1"
-logic_app_ase_sku_size     = "I1v2"
-logic_app_ase_worker_count = 1
+usage_pipeline = {
+  eventhub = {
+    capacity              = 1
+    public_network_access = "Enabled"
+  }
+  # Cosmos public access only so you can inspect items in the portal Data
+  # Explorer from your laptop; the Logic App always uses the private endpoint.
+  # Set "Disabled" for a fully prod-like run.
+  cosmos = {
+    public_network_access = "Enabled"
+    local_auth_enabled    = false # keyless — the thing under test
+  }
+  logic_app = {
+    hosting          = "workflow_standard" # PHASE A: "workflow_standard" (sku WS1)   PHASE B: "ase_v3" (sku I1v2)
+    sku              = "WS1"
+    worker_count     = 1
+    code_deploy      = true
+    code_source_path = "logicapp-src/usage-ingestion-logicapp"
+  }
+  # ASE v3 settings (used only in phase B)
+  ase = {
+    internal_load_balancing_mode = "Web, Publishing" # ILB, prod-like
+    zone_redundant               = false
+    create_private_dns_zone      = true
+  }
+}
 
 # -----------------------------------------------------------------------------
 # 6. FEATURE FLAGS (trimmed to the usage pipeline)
 # -----------------------------------------------------------------------------
-enable_api_center              = false
-enable_pii_redaction           = true
-enable_content_safety          = true
-enable_redis_cache             = false
-create_app_insights_dashboards = false
+features = {
+  api_center            = false
+  api_center_onboarding = false
+  pii_redaction         = true
+  content_safety        = true
+  semantic_cache        = false
+  ai_model_inference    = false
+  document_intelligence = false
+  azure_ai_search       = false
+  openai_realtime       = false
+  unified_ai_api        = false
+  mcp_sample            = false
+}
+
+monitoring = {
+  app_insights_dashboards = false
+}
 
 # -----------------------------------------------------------------------------
 # 8. NETWORK ACCESS
 # -----------------------------------------------------------------------------
-# Cosmos public access only so you can inspect items in the portal Data
-# Explorer from your laptop; the Logic App always uses the private endpoint.
-# Set "Disabled" for a fully prod-like run.
-cosmos_db_public_access      = "Enabled"
-cosmos_db_local_auth_enabled = false # keyless — the thing under test
-eventhub_network_access      = "Enabled"
-ai_foundry_external_access   = true
+ai_foundry_external_access = true
 
 # -----------------------------------------------------------------------------
 # 10. AI FOUNDRY (one small model is enough to generate usage events)
@@ -152,19 +173,10 @@ ai_foundry_models = [
 # -----------------------------------------------------------------------------
 # 14. OPTIONAL APIM EXTRA APIs (off — not under test)
 # -----------------------------------------------------------------------------
-enable_ai_model_inference    = false
-enable_document_intelligence = false
-enable_azure_ai_search       = false
-enable_openai_realtime       = false
-enable_unified_ai_api        = false
-is_mcp_sample_deployed       = false
-enable_api_center_onboarding = false
 
 # -----------------------------------------------------------------------------
 # 19. LOGIC APP WORKFLOW CODE (publishes the updated connections.json)
 # -----------------------------------------------------------------------------
-enable_logic_app_code_deploy = true
-logic_app_code_source_path   = "logicapp-src/usage-ingestion-logicapp"
 
 # -----------------------------------------------------------------------------
 # 22. FOUNDRY -> APIM CONNECTION (not under test)

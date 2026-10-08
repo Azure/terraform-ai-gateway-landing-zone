@@ -67,20 +67,6 @@ variable "managed_identity_client_id" {
   type        = string
 }
 
-variable "eventhub_endpoint_uri" {
-  type        = string
-  description = "EventHub namespace endpoint URI (https://<ns>.servicebus.windows.net)"
-}
-variable "eventhub_usage_hub_name" {
-  type        = string
-  description = "Name of the APIM usage event hub inside the namespace (matches Bicep output eventHub.name)."
-  default     = "ai-usage"
-}
-variable "eventhub_pii_hub_name" {
-  type        = string
-  description = "Name of the PII usage event hub (matches Bicep output eventHubPIIName)."
-  default     = "pii-usage"
-}
 variable "pii_service_endpoint" {
   description = "Endpoint of the PII detection service (Foundry Language); empty when PII redaction is off."
   type        = string
@@ -113,18 +99,6 @@ variable "entra_audience" {
   description = "Entra ID audience (resource identifier)"
   type        = string
 }
-variable "log_analytics_id" {
-  description = "Resource ID of the Log Analytics workspace that receives diagnostic settings."
-  type        = string
-}
-variable "log_verbosity" {
-  description = "APIM diagnostic log verbosity: verbose, information, error"
-  type        = string
-}
-variable "log_body_bytes" {
-  description = "Max bytes to log from request/response body"
-  type        = number
-}
 variable "dns_zone_id_apim" {
   description = "Resource ID of the privatelink.azure-api.net DNS zone for the gateway private endpoint (empty = none)."
   type        = string
@@ -134,25 +108,6 @@ variable "create_internal_dns" {
   description = "For apim_network_type = Internal (Developer/Premium), create per-hostname private DNS zones for the gateway/portal/developer/management/scm endpoints and link them to the VNet."
   type        = bool
   default     = true
-}
-
-# -----------------------------------------------------------------------------
-# APIM hardening
-# -----------------------------------------------------------------------------
-variable "app_insights_id" {
-  description = "Resource ID of the Application Insights component used by the APIM logger."
-  type        = string
-}
-variable "app_insights_instrumentation_key" {
-  description = "Instrumentation key of the APIM Application Insights component (legacy logger credential)."
-  type        = string
-  sensitive   = true
-}
-variable "app_insights_connection_string" {
-  description = "Application Insights connection string — used in the AppInsights logger (Bicep parity)."
-  type        = string
-  sensitive   = true
-  default     = ""
 }
 
 variable "redis_cache_connection_string" {
@@ -171,40 +126,6 @@ variable "apim_zones" {
 # -----------------------------------------------------------------------------
 # APIM logic plane (Bicep parity: llm-backends, policy fragments, extra APIs)
 # -----------------------------------------------------------------------------
-
-variable "llm_backend_config" {
-  description = "Bicep llmBackendConfig — one entry per LLM endpoint."
-  type = list(object({
-    backend_id   = string
-    backend_type = string
-    endpoint     = string
-    auth_scheme  = optional(string) # legacy, retained
-    auth_type    = optional(string) # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
-    auth_config = optional(object({
-      named_value_key = optional(string)
-    }))
-    supported_models = list(object({
-      name                = string
-      sku                 = optional(string, "Standard")
-      capacity            = optional(number, 100)
-      modelFormat         = optional(string, "OpenAI")
-      modelVersion        = optional(string, "1")
-      apiVersion          = optional(string, "2024-02-15-preview")
-      timeout             = optional(number, 120)
-      inferenceApiVersion = optional(string, "")
-      retirementDate      = optional(string, "")
-    }))
-    priority = optional(number, 1)
-    weight   = optional(number, 100)
-  }))
-  default = []
-}
-
-variable "configure_circuit_breaker" {
-  description = "Enable per-backend circuit breaker rules."
-  type        = bool
-  default     = true
-}
 
 variable "ai_search_instances" {
   description = "Existing AI Search endpoints to register as APIM backends."
@@ -240,48 +161,6 @@ variable "embeddings_backend_url" {
   default     = ""
 }
 
-variable "enable_pii_anonymization" {
-  description = "Feature flag for policy fragments that implement PII redaction."
-  type        = bool
-  default     = true
-}
-
-variable "enable_unified_ai_api" {
-  description = "Enable wildcard Unified AI API in APIM."
-  type        = bool
-  default     = false
-}
-
-variable "enable_ai_model_inference" {
-  description = "Enable Azure AI Model Inference API in APIM."
-  type        = bool
-  default     = false
-}
-
-variable "enable_document_intelligence" {
-  description = "Enable Document Intelligence APIs (legacy + v4) in APIM."
-  type        = bool
-  default     = false
-}
-
-# Bicep parity: apim.bicep inferenceAPIType (default 'OpenAIV1'). Drives the
-# Universal LLM API OpenAPI spec + base path selection.
-variable "inference_api_type" {
-  description = "Universal LLM API inference contract (Bicep: inferenceAPIType). One of AzureOpenAI, AzureAI, OpenAI, OpenAIV1."
-  type        = string
-  default     = "OpenAIV1"
-  validation {
-    condition     = contains(["AzureOpenAI", "AzureAI", "OpenAI", "OpenAIV1"], var.inference_api_type)
-    error_message = "inference_api_type must be one of AzureOpenAI, AzureAI, OpenAI, OpenAIV1."
-  }
-}
-
-variable "enable_openai_realtime" {
-  description = "Enable OpenAI Realtime WebSocket API in APIM."
-  type        = bool
-  default     = false
-}
-
 variable "is_mcp_sample_deployed" {
   description = "Deploy the sample MCP server (weather-api / weather-mcp / ms-learn-mcp)."
   type        = bool
@@ -303,24 +182,6 @@ variable "ms_learn_mcp_backend_url" {
 # block via azapi).
 # -----------------------------------------------------------------------------
 
-variable "enable_extra_api_diagnostics" {
-  description = "Attach API-level diagnostics to the extra service APIs (AI Search, Document Intelligence, ...)."
-  type        = bool
-  default     = false
-}
-
-variable "extra_api_log_settings" {
-  description = "Bicep parity: api.bicep `logSettings` (headers + body bytes for app insights)."
-  type = object({
-    headers = list(string)
-    body    = object({ bytes = number })
-  })
-  default = {
-    headers = ["Content-type", "User-agent", "x-ms-region", "x-ratelimit-remaining-tokens", "x-ratelimit-remaining-requests"]
-    body    = { bytes = 0 }
-  }
-}
-
 variable "enable_jwt_auth" {
   description = "When true, JWT-* named values are populated from jwt_tenant_id / jwt_app_registration_id."
   type        = bool
@@ -339,46 +200,10 @@ variable "jwt_app_registration_id" {
   default     = ""
 }
 
-variable "subscription_id" {
-  description = "Subscription ID of the deployment."
-  type        = string
-}
-
 variable "azure_login_endpoint" {
   description = "Entra login endpoint (e.g. https://login.microsoftonline.com/)."
   type        = string
   default     = "https://login.microsoftonline.com/"
-}
-
-# API Center onboarding (Bicep parity)
-variable "enable_api_center_onboarding" {
-  description = "Register each gateway API in API Center (needs an API Center service)."
-  type        = bool
-  default     = false
-}
-
-variable "api_center_service_name" {
-  description = "Name of the API Center service that receives the API registrations."
-  type        = string
-  default     = ""
-}
-
-variable "api_center_workspace_name" {
-  description = "API Center workspace that receives the API registrations."
-  type        = string
-  default     = "default"
-}
-
-variable "api_center_environment_name" {
-  description = "API Center environment for REST APIs."
-  type        = string
-  default     = "api-dev"
-}
-
-variable "api_center_mcp_environment_name" {
-  description = "API Center environment for MCP servers."
-  type        = string
-  default     = "mcp-dev"
 }
 
 # Foundry → APIM named subscription
@@ -386,17 +211,6 @@ variable "enable_foundry_apim_connection" {
   description = "Create a dedicated APIM subscription for Foundry connections."
   type        = bool
   default     = false
-}
-
-variable "model_aliases" {
-  description = "Model alias definitions. Each: { name, models[], strategy?, weights?[] }"
-  type = list(object({
-    name     = string
-    models   = list(string)
-    strategy = optional(string, "priority")
-    weights  = optional(list(number), [])
-  }))
-  default = []
 }
 
 variable "aws_region" {
@@ -410,4 +224,12 @@ variable "enable_redis_cache" {
   description = "Attach Azure Managed Redis as the APIM external cache (requires redis_cache_connection_string)."
   type        = bool
   default     = false
+}
+
+variable "default_product_api_names" {
+  description = "Names of the APIs linked to the default-ai-access product (root apis.tf)."
+  type = object({
+    universal_llm = string
+    azure_openai  = string
+  })
 }

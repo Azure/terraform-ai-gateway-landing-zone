@@ -25,9 +25,11 @@ data "azurerm_api_management" "citadel" {
 # -----------------------------------------------------------------------------
 
 locals {
-  # Single source of truth for policy XML: the fragments are shared with modules/apim
+  # Single source of truth for policy XML: the fragments are shared with the root
+  # deployment (policies/fragments, modules/llm-routing/templates)
   # until ownership moves to this stack (review §7.8). No duplicated copies here.
-  policies_dir = "${path.module}/../modules/apim/policies"
+  policies_dir          = "${path.module}/../policies/fragments"
+  routing_templates_dir = "${path.module}/../modules/llm-routing/templates"
 
   # Normalize LLM backends — extract per-model name lists for pool grouping.
   llm_backends_normalized = [
@@ -277,13 +279,13 @@ locals {
 
   # Final XML contents for the 3 dynamic fragments
   set_backend_pools_xml = replace(
-    file("${local.policies_dir}/frag-set-backend-pools.xml"),
+    file("${local.routing_templates_dir}/frag-set-backend-pools.xml"),
     "//{backendPoolsCode}",
     local.backend_pools_code
   )
 
   get_available_models_xml = replace(
-    file("${local.policies_dir}/frag-get-available-models.xml"),
+    file("${local.routing_templates_dir}/frag-get-available-models.xml"),
     "//{modelDeploymentsCode}",
     local.model_deployments_with_aliases_code
   )
@@ -325,7 +327,7 @@ locals {
   ])
 
   metadata_config_xml_1 = replace(
-    file("${local.policies_dir}/frag-metadata-config.xml"),
+    file("${local.routing_templates_dir}/frag-metadata-config.xml"),
     "//{modelsConfigCode}",
     local.metadata_models_code
   )
@@ -431,7 +433,7 @@ resource "azurerm_api_management_policy_fragment" "resolve_model_alias" {
   format            = "rawxml"
   description       = "Resolves model alias names to actual underlying models"
   value = replace(
-    file("${local.policies_dir}/frag-resolve-model-alias.xml"),
+    file("${local.routing_templates_dir}/frag-resolve-model-alias.xml"),
     "//{inlineAliasesCode}",
     local.inline_aliases_code
   )

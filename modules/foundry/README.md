@@ -38,11 +38,10 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_account_names"></a> [account\_names](#input\_account\_names) | Foundry (AI Services) account names, one per entry in foundry\_instances (from modules/naming). | `list(string)` | n/a | yes |
 | <a name="input_apim_principal_id"></a> [apim\_principal\_id](#input\_apim\_principal\_id) | Principal ID granted 'Cognitive Services User' on each Foundry (typically APIM UAMI). | `string` | n/a | yes |
 | <a name="input_deployer_object_id"></a> [deployer\_object\_id](#input\_deployer\_object\_id) | Principal ID granted 'Azure AI Project Manager' on each Foundry (matches deployer() in Bicep). | `string` | n/a | yes |
-| <a name="input_environment_name"></a> [environment\_name](#input\_environment\_name) | Environment name used for resource naming (e.g., citadel-dev, citadel-prod) | `string` | n/a | yes |
 | <a name="input_location"></a> [location](#input\_location) | Primary Azure region for deployment | `string` | n/a | yes |
-| <a name="input_random_suffix"></a> [random\_suffix](#input\_random\_suffix) | Random suffix appended to globally unique resource names. | `string` | n/a | yes |
 | <a name="input_resource_group_id"></a> [resource\_group\_id](#input\_resource\_group\_id) | Resource ID of the resource group the module deploys into. | `string` | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Name of the resource group the module deploys into. | `string` | n/a | yes |
 | <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id) | Subnet ID for private endpoints. | `string` | n/a | yes |

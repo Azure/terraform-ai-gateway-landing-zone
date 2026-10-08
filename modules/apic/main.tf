@@ -15,7 +15,7 @@
 locals {
   apic_mcp_configs      = try(jsondecode(file("${path.module}/remote-mcp-servers.json")).mcps, [])
   apic_metadata_schemas = try(jsondecode(file("${path.module}/apic-metadata.json")).metadata, [])
-  apic_service_name     = "apic-${var.environment_name}-${var.random_suffix}"
+  apic_service_name     = var.api_center_name
 }
 
 resource "azapi_resource" "api_center" {

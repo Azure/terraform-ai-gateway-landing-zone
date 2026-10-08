@@ -273,19 +273,14 @@ function Invoke-PlanAndApply {
     terraform apply -auto-approve $planFile 2>&1 | Tee-Object -FilePath $applyLog.FullName
     $applyExit = $LASTEXITCODE
 
-    # Auto-import on "already exists" errors
+    # Objects that already exist in Azure are adopted declaratively: print the
+    # matching import {} blocks to paste into imports.tf, then re-run.
     if ($applyExit -ne 0 -and (Select-String -Path $applyLog.FullName -Pattern 'already exists' -Quiet)) {
-        Write-Warn "Apply failed with 'already exists' errors. Attempting auto-import..."
-        $runImport = $true
-        if (-not $AutoApprove) {
-            $ans = Read-Host 'Auto-import existing resources and retry apply? (Y/n)'
-            if ($ans -match '^[Nn]$') { $runImport = $false }
-        }
-        $importScript = Join-Path $ScriptDir 'import-existing.ps1'
-        if ($runImport -and (Test-Path $importScript)) {
-            & $importScript $Environment
-            if ($LASTEXITCODE -eq 0) { $applyExit = 0 }
-        }
+        Write-Warn 'Apply failed because some objects already exist in Azure. Add these import blocks to imports.tf,'
+        Write-Warn 're-run the deployment (the plan shows each import) and remove the blocks afterwards:'
+        $python = if (Get-Command python3 -ErrorAction SilentlyContinue) { 'python3' } else { 'python' }
+        & $python (Join-Path $ScriptDir 'import-blocks-from-log.py') $applyLog.FullName
+        Write-Warn 'Runbook: docs/operations/adopting-existing-resources.md'
     }
 
     Remove-Item $applyLog.FullName -Force -ErrorAction SilentlyContinue

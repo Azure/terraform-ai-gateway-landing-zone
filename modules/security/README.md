@@ -63,6 +63,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | Name | Description |
 | ---- | ----------- |
 | <a name="output_key_vault_id"></a> [key\_vault\_id](#output\_key\_vault\_id) | Resource ID of the Key Vault. |
+| <a name="output_key_vault_id_for_secrets"></a> [key\_vault\_id\_for\_secrets](#output\_key\_vault\_id\_for\_secrets) | Resource ID of the Key Vault, available once the deployer's RBAC and the network ACLs have propagated. Use it for data-plane writes (secrets). |
 | <a name="output_key_vault_name"></a> [key\_vault\_name](#output\_key\_vault\_name) | Name of the Key Vault. |
 | <a name="output_key_vault_uri"></a> [key\_vault\_uri](#output\_key\_vault\_uri) | URI of the Key Vault. |
 <!-- END_TF_DOCS -->

@@ -61,7 +61,7 @@ APIM **StandardV2 / PremiumV2** (stv2 platform) are only available in a subset
 of regions. Classic **Developer / Premium** are globally available. If your
 target region doesn't support v2, either pick a v2-supported region
 (e.g. `swedencentral`, `francecentral`, `germanywestcentral`, `eastus`,
-`eastus2`, `westus3`, `uksouth`) or set `apim_sku = "Premium"`.
+`eastus2`, `westus3`, `uksouth`) or set `apim = { sku = "Premium" }`.
 
 Verify before deploying:
 
@@ -69,7 +69,7 @@ Verify before deploying:
 az apim list-skus --location "<your-region>" -o table
 ```
 
-See [VARIABLES.md](VARIABLES.md) → `apim_sku` for the full region list and the
+See [VARIABLES.md](VARIABLES.md#5-api-management-apim--other-skus) → `apim.sku` for the full region list and the
 authoritative Microsoft doc link.
 
 ### 2b — Key Vault bootstrap allowlist (prod only)
@@ -85,7 +85,7 @@ Two options (pick one):
 
 **A) Temporary IP allowlist (recommended for non-VNet runners)**
 
-In [environments/prod.tfvars](environments/prod.tfvars):
+In `environments/prod.tfvars` (copied from [environments/prod.tfvars.example](environments/prod.tfvars.example)):
 
 ```hcl
 kv_deployer_ip_rules       = ["<your.public.ip>/32"]  # IP Azure sees for this runner
@@ -136,9 +136,9 @@ pattern:**
 |---|---|---|---|
 | `kv_deployer_ip_rules` | `["<ip>/32"]` | `[]` | KV data-plane write for `apim-gateway-key` placeholder |
 | `kv_auto_detect_deployer_ip` | `false` (prefer explicit IP) | `false` | Unreliable behind proxies/VPN |
-| `apim_v2_public_network_access` | `true` | `false` | APIM v2 can't be *created* with public access disabled; module handles the flip automatically on subsequent applies via `azapi_update_resource.apim_public_network_access` |
-| `eventhub_network_access` | `"Enabled"` | `"Disabled"` | Must be Enabled on first deploy so Terraform can seed consumer groups; tighten post-apply |
-| `apim_network_type` | `"External"` | `"Internal"` | Flip to Internal only after you have custom domain + DNS wired up |
+| `apim.public_network_access` | `true` | `false` | APIM v2 can't be *created* with public access disabled; module handles the flip automatically on subsequent applies via `azapi_update_resource.apim_public_network_access` |
+| `usage_pipeline.eventhub.public_network_access` | `"Enabled"` | `"Disabled"` | Must be Enabled on first deploy so Terraform can seed consumer groups; tighten post-apply |
+| `apim.vnet_mode` (Developer/Premium only) | `"external"` | `"internal"` | Flip to internal only after you have custom domain + DNS wired up |
 
 ---
 

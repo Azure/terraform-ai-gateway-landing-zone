@@ -121,7 +121,10 @@ jobs:
         run: |
           # Root configurations commit their lock file; it must not change in CI.
           if [ -f .terraform.lock.hcl ]; then LOCK=-lockfile=readonly; fi
-          terraform init -backend=false $LOCK
+          # Roots keep tests in tests/unit; modules use Terraform's default tests/.
+          # init must see the test directory to install modules that tests call.
+          if [ -d tests/unit ]; then TESTDIR=-test-directory=tests/unit; fi
+          terraform init -backend=false $LOCK $TESTDIR
 
       - name: validate
         working-directory: ${{ matrix.dir }}
@@ -140,6 +143,8 @@ jobs:
         run: |
           if [ -d tests/unit ]; then
             terraform test -no-color -test-directory=tests/unit
+          elif ls tests/*.tftest.hcl >/dev/null 2>&1; then
+            terraform test -no-color
           else
-            echo "no tests/unit in ${{ matrix.dir }}"
+            echo "no tests in ${{ matrix.dir }}"
           fi

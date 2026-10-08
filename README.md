@@ -148,21 +148,34 @@ All configuration is done through `.tfvars` files in `environments/`. Key settin
 
 **Greenfield (new VNet):**
 ```hcl
-use_existing_vnet   = false
-vnet_address_prefix = "10.170.0.0/24"
-apim_network_type   = "External"   # or "Internal" for fully private
+network = {
+  mode          = "greenfield"
+  address_space = "10.170.0.0/24"
+}
+apim = {
+  sku       = "Developer"
+  vnet_mode = "external"   # or "internal" for fully private (Developer/Premium); v2 SKUs use "integration"
+}
 ```
 
 **Brownfield (existing enterprise VNet):**
 ```hcl
-use_existing_vnet    = true
-existing_vnet_rg     = "rg-network-hub"
-vnet_name            = "vnet-hub-prod-eastus"
-apim_subnet_name     = "snet-citadel-apim"
-dns_zone_rg          = "rg-network-dns"
-# Zones in another subscription: pass their full resource IDs instead
-# existing_private_dns_zones = { key_vault = "/subscriptions/<sub>/resourceGroups/rg-network-dns/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net", ... }
+network = {
+  mode                = "byo"
+  resource_group_name = "rg-network-hub"
+  vnet_name           = "vnet-hub-prod-eastus"
+  subnets = {
+    apim = { name = "snet-citadel-apim" }
+  }
+  private_dns = {
+    resource_group_name = "rg-network-dns"
+    # Zones in another subscription: pass their full resource IDs instead
+    # zone_ids = { key_vault = "/subscriptions/<sub>/resourceGroups/rg-network-dns/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net", ... }
+  }
+}
 ```
+
+> The old flat inputs (`use_existing_vnet`, `apim_network_type`, `logic_app_hosting_model`, …) still work for one release but raise a plan-time deprecation warning. See [VARIABLES.md §23](VARIABLES.md#23-deprecated-flat-inputs) for the old → new mapping.
 
 ### Entra ID Authentication
 
@@ -274,14 +287,26 @@ there.
 
 | Module | Resources Created |
 |--------|-------------------|
-| `networking` | VNet, 3 subnets, NSG, route table, 12 private DNS zones |
+| `naming` | No resources — generates every resource name (honours `name_overrides`) |
+| `networking` | Greenfield VNet, subnets, NSGs, route table (skipped when `network.mode = "byo"`) |
+| `private-dns` | Private DNS zones + VNet links (created, or the zone IDs you supply) |
 | `monitoring` | Log Analytics workspace, 2× Application Insights, dashboard |
 | `security` | Key Vault, RBAC assignments, PE |
 | `cosmosdb` | Cosmos DB account, `usage-db` database, `usage` + `model-pricing` containers |
 | `eventhub` | Event Hub namespace, `apim-usage` + `pii-usage` hubs, auth rules, consumer groups |
-| `ai-services` | Language Service (PII), Content Safety, AI Foundry (n instances + models), API Center |
-| `apim` | APIM instance, Universal LLM API, Azure OpenAI API, named values, loggers, diagnostic settings |
-| `logic-app` | Logic App Standard, App Service Plan, Storage Account (runtime); optional App Service Environment v3 for keyless storage (`logic_app_hosting_model`) |
+| `foundry` | AI Foundry accounts (n instances), projects, model deployments, APIM connection |
+| `apic` | API Center service, workspace, environments |
+| `api-center-registration` | API Center registration of the enabled gateway APIs (`features.api_center_onboarding`) |
+| `apim` | APIM instance, private endpoint, named values, non-LLM backends, default product, Foundry subscription, Redis external cache |
+| `apim-telemetry` | APIM loggers (App Insights, Azure Monitor, Event Hub) + global diagnostics |
+| `apim-policy-fragments` | Reusable policy fragments from the [policy-fragments.tf](policy-fragments.tf) catalogue |
+| `llm-routing` | LLM backends, backend pools, generated routing fragments |
+| `gateway-api` | One APIM API (http / websocket / mcp) + policies, diagnostics, optional product — one instance per entry in [apis.tf](apis.tf) |
+| `redis` | Azure Managed Redis (semantic cache, `features.semantic_cache`) |
+| `entra-id` | Entra app registration + rotating client secret in Key Vault |
+| `logic-app` | Logic App Standard, App Service Plan, Storage Account (runtime); optional App Service Environment v3 for keyless storage (`usage_pipeline.logic_app.hosting = "ase_v3"`) |
+
+Each module has a generated `README.md` (terraform-docs) with its full inputs and outputs, e.g. [modules/gateway-api/README.md](modules/gateway-api/README.md).
 
 ---
 
@@ -383,9 +408,15 @@ citadel-terraform/
 ├── terraform.tf             # Provider + Terraform version constraints
 ├── .terraform.lock.hcl      # Provider lock file (committed; CI runs init -lockfile=readonly)
 ├── providers.tf             # AzureRM, AzAPI, Random provider config
-├── main.tf                  # Root module — orchestrates all modules
-├── variables.tf             # All input variables (mirrors Bicep params; deprecated inputs at the end)
-├── checks.tf                # Plan-time checks (deprecated inputs)
+├── main.tf                  # Root module — naming, resource group, BYO Log Analytics lookup, module calls
+├── interfaces.tf            # Typed inputs (apim, network, features, usage_pipeline, monitoring) + effective config
+├── network.tf               # Networking (greenfield module or BYO lookups) + private DNS
+├── apis.tf                  # API catalogue → modules/gateway-api
+├── policy-fragments.tf      # Policy-fragment catalogue → modules/apim-policy-fragments
+├── api-center-registration.tf # API Center registration → modules/api-center-registration
+├── moved.tf                 # moved {} blocks for relocated resource addresses
+├── variables.tf             # All input variables (flat inputs are deprecated shims; deprecated inputs at the end)
+├── checks.tf                # Plan-time checks (deprecated inputs, deprecated flat inputs)
 ├── outputs.tf               # Key deployment outputs
 ├── tests/unit/              # Mocked unit tests — terraform test -test-directory=tests/unit
 ├── .github/workflows/ci.yml # CI: fmt, tflint, validate, tests, terraform-docs, checkov, gitleaks
@@ -394,24 +425,42 @@ citadel-terraform/
 ├── .gitignore
 │
 ├── modules/
-│   ├── networking/          # VNet, subnets, NSGs, route tables, DNS zones
+│   ├── naming/              # Resource names
+│   ├── networking/          # Greenfield VNet, subnets, NSGs, route tables
+│   ├── private-dns/         # Private DNS zones + VNet links
 │   ├── monitoring/          # Log Analytics, Application Insights, dashboards
 │   ├── security/            # Key Vault, RBAC assignments, private endpoints
 │   ├── cosmosdb/            # Cosmos DB account, databases, containers
 │   ├── eventhub/            # Event Hub namespace, hubs, auth rules
-│   ├── ai-services/         # Language Service, Content Safety, AI Foundry, API Center
-│   ├── apim/                # API Management + APIs + policies + named values
-│   │   └── policies/        # APIM policy XML (single copy; also read by llm-backend-onboarding)
+│   ├── foundry/             # AI Foundry accounts, projects, model deployments
+│   ├── apic/                # API Center
+│   ├── api-center-registration/ # API registration in API Center
+│   ├── apim/                # API Management service, named values, non-LLM backends, default product
+│   ├── apim-telemetry/      # APIM loggers + diagnostics
+│   ├── apim-policy-fragments/ # Deploys a map of policy fragments
+│   ├── llm-routing/         # LLM backends, pools, generated routing fragments
+│   │   └── templates/       # Templates for the generated fragments
+│   ├── gateway-api/         # Generic API module (http / websocket / mcp)
+│   ├── redis/               # Azure Managed Redis (semantic cache)
+│   ├── entra-id/            # Entra app registration
 │   └── logic-app/           # Logic App Standard for usage ingestion
+│
+├── apis/                    # Per-API OpenAPI specs + policy XML (universal-llm-api/, azure-openai-api/,
+│   │                        #   unified-ai-api/, weather-api/, ...)
+│   └── shared/              # Operation / MCP policies shared by several APIs
+├── policies/
+│   └── fragments/           # frag-*.xml policy fragments (single copy; also read by llm-backend-onboarding)
 │
 ├── llm-backend-onboarding/  # Standalone module — onboard LLM backends to an existing APIM
 │   ├── main.tf              # Backends, backend pools, policy fragments, named values
+│   ├── imports.tf           # Conditional import {} blocks — adopts existing objects automatically
 │   ├── terraform.tfvars.example
 │   ├── tests/unit/          # Mocked unit tests
 │   └── scripts/             # deploy.sh / destroy.sh / test.sh
 │
 ├── citadel-access-contracts/ # Standalone module — onboard a use-case to an existing APIM
 │   ├── main.tf              # APIM products, subscriptions, policies, KV secrets, Foundry conns
+│   ├── imports.tf           # Conditional import {} blocks — adopts existing objects automatically
 │   ├── terraform.tfvars.example
 │   ├── contracts/           # Per-use-case contract definitions
 │   ├── policies/            # Inbound product policy XML (incl. default-ai-product-policy.xml)
@@ -419,19 +468,19 @@ citadel-terraform/
 │   └── scripts/             # deploy.sh / destroy.sh / test.sh
 │
 ├── environments/
-│   ├── dev.tfvars.example   # Development template — copy to dev.tfvars and fill in
-│   ├── dev.tfvars           # Development (Developer SKU, public access)
-│   ├── prod.tfvars.example  # Production template — copy to prod.tfvars and fill in
-│   └── prod.tfvars          # Production (PremiumV2, fully private)
+│   ├── dev.tfvars.example   # Development template (typed inputs) — copy to dev.tfvars and fill in
+│   ├── prod.tfvars.example  # Production template (typed inputs) — copy to prod.tfvars and fill in
+│   └── asetest.tfvars.example # Logic App on ASE v3 (keyless storage) template
 │
-├── docs/operations/         # Runbooks — platform-team-requests.md (ALZ prerequisites)
+├── docs/operations/         # Runbooks — platform-team-requests.md (ALZ prerequisites),
+│                            #   adopting-existing-resources.md (import {} blocks)
 │
 ├── scripts/                # Bash (*.sh) + PowerShell (*.ps1) equivalents
 │   ├── ci/                     # CI helpers: tf-dirs.sh, check-policy-assets.sh
 │   ├── deploy.sh / .ps1        # Full deploy script (init + plan + apply)
 │   ├── destroy.sh / .ps1       # Teardown script
 │   ├── validate.sh / .ps1      # Post-deployment smoke tests
-│   ├── import-existing.sh / .ps1  # Import pre-existing resources into state
+│   ├── import-blocks-from-log.py  # Prints import {} blocks for "already exists" apply errors
 │   └── bootstrap-state.sh / .ps1  # One-time remote state backend setup
 │
 ├── shared/                  # Python helpers for the validation notebooks

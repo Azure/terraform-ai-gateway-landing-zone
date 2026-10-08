@@ -5,18 +5,46 @@
 # Mirrors the architecture from the Azure-Samples Bicep accelerator.
 # =============================================================================
 
-locals {
-  # Generate a unique hash for resource naming
-  resource_token = substr(sha256("${var.resource_group_name}-${var.environment_name}-${var.subscription_id}"), 0, 10)
+# =============================================================================
+# NAMING — every resource name comes from modules/naming (v1 convention =
+# the names this repository has always generated). Explicit name variables and
+# var.name_overrides win.
+# =============================================================================
 
-  # Default resource names (auto-generated if not specified)
-  resource_group_name = var.resource_group_name != "" ? var.resource_group_name : "rg-${var.environment_name}"
-  apim_service_name   = var.apim_service_name != "" ? var.apim_service_name : "apim-${local.resource_token}"
-  cosmos_db_name      = var.cosmos_db_account_name != "" ? var.cosmos_db_account_name : "cosmos-${local.resource_token}"
-  eventhub_ns_name    = var.eventhub_namespace_name != "" ? var.eventhub_namespace_name : "evhns-${local.resource_token}"
-  log_analytics_name  = var.log_analytics_name != "" ? var.log_analytics_name : "law-${local.resource_token}"
-  key_vault_name      = var.key_vault_name != "" ? var.key_vault_name : "kv-${local.resource_token}"
-  vnet_name           = var.vnet_name != "" ? var.vnet_name : "vnet-${var.environment_name}"
+module "naming" {
+  source = "./modules/naming"
+
+  environment_name       = var.environment_name
+  resource_group_name    = var.resource_group_name
+  subscription_id        = var.subscription_id
+  legacy_suffix          = random_string.suffix.result
+  foundry_instance_names = [for c in var.ai_foundry_instances : c.name]
+
+  # Dedicated name inputs win over var.name_overrides only when they are set.
+  name_overrides = merge(var.name_overrides, {
+    for k, v in {
+      resource_group     = var.resource_group_name
+      apim               = local.apim_cfg.name
+      cosmos             = var.cosmos_db_account_name
+      eventhub_namespace = var.eventhub_namespace_name
+      log_analytics      = var.log_analytics_name
+      key_vault          = var.key_vault_name
+      virtual_network    = local.network_cfg.vnet_name
+    } : k => v if v != null && v != ""
+  })
+}
+
+locals {
+  names = module.naming.names
+
+  # Short aliases kept so the rest of the root module reads as before.
+  resource_group_name = local.names.resource_group
+  apim_service_name   = local.names.apim
+  cosmos_db_name      = local.names.cosmos
+  eventhub_ns_name    = local.names.eventhub_namespace
+  log_analytics_name  = local.names.log_analytics
+  key_vault_name      = local.names.key_vault
+  vnet_name           = local.names.virtual_network
 
   # Merged tags
   default_tags = {
@@ -27,11 +55,11 @@ locals {
   all_tags = merge(local.default_tags, var.tags)
 
   # Determine APIM SKU family
-  is_apim_v2   = contains(["StandardV2", "PremiumV2"], var.apim_sku)
-  is_apim_vnet = contains(["Developer", "Premium"], var.apim_sku)
+  is_apim_v2   = contains(["StandardV2", "PremiumV2"], local.apim_cfg.sku)
+  is_apim_vnet = contains(["Developer", "Premium"], local.apim_cfg.sku)
 
   # Create private DNS zones when not using existing
-  create_dns_zones = length(var.existing_private_dns_zones) == 0 && var.dns_zone_rg == ""
+  create_dns_zones = length(local.network_cfg.private_dns_zone_ids) == 0 && local.network_cfg.private_dns_resource_group_name == ""
 }
 
 # =============================================================================
@@ -96,14 +124,14 @@ resource "random_string" "suffix" {
 # =============================================================================
 
 resource "azurerm_user_assigned_identity" "apim" {
-  name                = "id-apim-${var.environment_name}-${random_string.suffix.result}"
+  name                = local.names.uami_apim
   resource_group_name = local.resource_group_name_resolved
   location            = var.location
   tags                = local.all_tags
 }
 
 resource "azurerm_user_assigned_identity" "usage" {
-  name                = "id-logicapp-${var.environment_name}-${random_string.suffix.result}"
+  name                = local.names.uami_usage
   resource_group_name = local.resource_group_name_resolved
   location            = var.location
   tags                = local.all_tags
@@ -122,50 +150,12 @@ locals {
   usage_identity_principal = azurerm_user_assigned_identity.usage.principal_id
 }
 
-# =============================================================================
-# MODULE: NETWORKING
-# =============================================================================
-
-module "networking" {
-  source = "./modules/networking"
-
-  resource_group_name = local.resource_group_name_resolved
-  location            = var.location
-  tags                = local.all_tags
-
-  # VNet configuration
-  use_existing_vnet   = var.use_existing_vnet
-  existing_vnet_rg    = var.existing_vnet_rg
-  vnet_name           = local.vnet_name
-  vnet_address_prefix = var.vnet_address_prefix
-
-  # Subnets
-  apim_subnet_name        = var.apim_subnet_name
-  apim_subnet_prefix      = var.apim_subnet_prefix
-  pe_subnet_name          = var.private_endpoint_subnet_name
-  pe_subnet_prefix        = var.private_endpoint_subnet_prefix
-  logic_app_subnet_name   = var.logic_app_subnet_name
-  logic_app_subnet_prefix = var.logic_app_subnet_prefix
-  enable_agent_subnet     = var.enable_agent_subnet
-  agent_subnet_name       = var.agent_subnet_name
-  agent_subnet_prefix     = var.agent_subnet_prefix
-  enable_ase_subnet       = var.logic_app_hosting_model == "AppServiceEnvironmentV3"
-  nsg_on_all_subnets      = var.nsg_on_all_subnets
-  ase_subnet_name         = var.ase_subnet_name
-  ase_subnet_prefix       = var.ase_subnet_prefix
-
-  # APIM network type
-  apim_network_type = var.apim_network_type
-  is_apim_vnet      = local.is_apim_vnet
-  is_apim_v2        = local.is_apim_v2
-
-  # DNS
-  create_dns_zones           = local.create_dns_zones
-  existing_private_dns_zones = var.existing_private_dns_zones
-
-  # Only VNet-link privatelink.monitor.azure.com when AMPLS is enabled; an empty
-  # linked monitor zone blackholes App Insights ingestion DNS from the VNet.
-  use_azure_monitor_private_link_scope = var.use_azure_monitor_private_link_scope
+# BYO Log Analytics workspace, possibly in another subscription (provider alias).
+data "azurerm_log_analytics_workspace" "byo" {
+  provider            = azurerm.loganalytics
+  count               = local.monitoring_cfg.byo_workspace ? 1 : 0
+  name                = try(split("/", local.monitoring_cfg.workspace_id)[8], "")
+  resource_group_name = try(split("/", local.monitoring_cfg.workspace_id)[4], "")
 }
 
 # =============================================================================
@@ -175,27 +165,25 @@ module "networking" {
 module "monitoring" {
   source = "./modules/monitoring"
 
-  providers = {
-    azurerm              = azurerm
-    azurerm.loganalytics = azurerm.loganalytics
-  }
 
   resource_group_name = local.resource_group_name_resolved
   location            = var.location
   tags                = local.all_tags
 
-  log_analytics_name         = local.log_analytics_name
-  use_existing_log_analytics = var.use_existing_log_analytics
-  existing_log_analytics_id  = var.existing_log_analytics_id
+  log_analytics_name = local.log_analytics_name
+  existing_log_analytics_workspace = local.monitoring_cfg.byo_workspace ? {
+    id           = local.monitoring_cfg.workspace_id
+    workspace_id = data.azurerm_log_analytics_workspace.byo[0].workspace_id
+  } : null
 
   environment_name  = var.environment_name
-  create_dashboards = var.create_app_insights_dashboards
+  create_dashboards = local.monitoring_cfg.app_insights_dashboards
   subscription_id   = var.subscription_id
 
   # AMPLS (Bicep parity: useAzureMonitorPrivateLinkScope)
-  use_azure_monitor_private_link_scope = var.use_azure_monitor_private_link_scope
-  ampls_subnet_id                      = var.use_azure_monitor_private_link_scope ? module.networking.pe_subnet_id : ""
-  ampls_dns_zone_id_monitor            = var.use_azure_monitor_private_link_scope ? module.networking.dns_zone_ids["monitor"] : ""
+  use_azure_monitor_private_link_scope = local.monitoring_cfg.private_link_scope
+  ampls_subnet_id                      = local.monitoring_cfg.private_link_scope ? local.network.pe_subnet_id : ""
+  ampls_dns_zone_id_monitor            = local.monitoring_cfg.private_link_scope ? module.private_dns.zone_ids["monitor"] : ""
 }
 
 # =============================================================================
@@ -216,9 +204,9 @@ module "security" {
 
   managed_identity_principal_id = local.apim_identity_principal
 
-  subnet_id = module.networking.pe_subnet_id
+  subnet_id = local.network.pe_subnet_id
 
-  dns_zone_id_key_vault = module.networking.dns_zone_ids["key_vault"]
+  dns_zone_id_key_vault = module.private_dns.zone_ids["key_vault"]
 
   # Bicep parity: grant each Foundry system-assigned MI KV Secrets User
   foundry_principal_ids   = module.foundry.foundry_principal_ids
@@ -266,16 +254,16 @@ module "cosmosdb" {
   tags                = local.all_tags
 
   account_name          = local.cosmos_db_name
-  public_network_access = var.cosmos_db_public_access
+  public_network_access = local.usage_cfg.cosmos.public_network_access
 
-  local_authentication_enabled = var.cosmos_db_local_auth_enabled
+  local_authentication_enabled = local.usage_cfg.cosmos.local_auth_enabled
 
   # Identity (for RBAC - Cosmos DB Built-in Data Contributor on Usage MI)
   managed_identity_principal_id = local.usage_identity_principal
 
-  subnet_id = module.networking.pe_subnet_id
+  subnet_id = local.network.pe_subnet_id
 
-  dns_zone_id = module.networking.dns_zone_ids["cosmos_db"]
+  dns_zone_id = module.private_dns.zone_ids["cosmos_db"]
 
   log_analytics_id = module.monitoring.log_analytics_id
 }
@@ -292,21 +280,21 @@ module "eventhub" {
   tags                = local.all_tags
 
   namespace_name        = local.eventhub_ns_name
-  capacity_units        = var.eventhub_capacity_units
-  public_network_access = var.eventhub_network_access
+  capacity_units        = local.usage_cfg.eventhub.capacity
+  public_network_access = local.usage_cfg.eventhub.public_network_access
 
   # Identities (Bicep parity): APIM MI = Sender, Usage MI = Receiver + Owner
   apim_identity_principal_id  = local.apim_identity_principal
   usage_identity_principal_id = local.usage_identity_principal
 
-  subnet_id = module.networking.pe_subnet_id
+  subnet_id = local.network.pe_subnet_id
 
-  dns_zone_id = module.networking.dns_zone_ids["event_hub"]
+  dns_zone_id = module.private_dns.zone_ids["event_hub"]
 
   log_analytics_id = module.monitoring.log_analytics_id
 
   # Optional DR pairing (Bicep parity: disasterRecoveryConfig)
-  disaster_recovery_config = var.eventhub_disaster_recovery_config
+  disaster_recovery_config = local.usage_cfg.eventhub.disaster_recovery
 }
 
 # =============================================================================
@@ -318,11 +306,10 @@ module "apic" {
 
   resource_group_id = local.resource_group_id
   tags              = local.all_tags
-  environment_name  = var.environment_name
-  random_suffix     = random_string.suffix.result
+  api_center_name   = local.names.api_center
 
   # Feature flags
-  enable_api_center = var.enable_api_center
+  enable_api_center = local.features.api_center
   apic_location     = var.apic_location != "" ? var.apic_location : var.location
 
   # SKUs
@@ -345,8 +332,7 @@ module "foundry" {
   resource_group_id   = local.resource_group_id
   location            = var.location
   tags                = local.all_tags
-  environment_name    = var.environment_name
-  random_suffix       = random_string.suffix.result
+  account_names       = module.naming.foundry_account_names
 
   foundry_external_access = var.ai_foundry_external_access
 
@@ -363,10 +349,10 @@ module "foundry" {
   app_insights_instrumentation_key = module.monitoring.foundry_app_insights_instrumentation_key
 
   # Networking
-  subnet_id                         = module.networking.pe_subnet_id
-  dns_zone_ids                      = module.networking.dns_zone_ids
+  subnet_id                         = local.network.pe_subnet_id
+  dns_zone_ids                      = module.private_dns.zone_ids
   foundry_network_injection_enabled = var.foundry_network_injection_enabled
-  agent_subnet_id                   = module.networking.agent_subnet_id
+  agent_subnet_id                   = local.network.agent_subnet_id
 
   # Foundry project -> APIM connections (ApiKey = dedicated foundry-apim-connection subscription)
   enable_apim_connections = var.enable_foundry_apim_connection
@@ -382,10 +368,10 @@ module "foundry" {
 # =============================================================================
 
 module "redis" {
-  count  = var.enable_redis_cache ? 1 : 0
+  count  = local.features.semantic_cache ? 1 : 0
   source = "./modules/redis"
 
-  name                = "redis-${var.environment_name}-${random_string.suffix.result}"
+  name                = local.names.redis
   location            = var.location
   resource_group_name = local.resource_group_name_resolved
   tags                = local.all_tags
@@ -395,10 +381,8 @@ module "redis" {
   public_network_access = var.redis_public_network_access
   minimum_tls_version   = var.redis_minimum_tls_version
 
-  subnet_id   = module.networking.pe_subnet_id
-  dns_zone_id = module.networking.dns_zone_ids["redis"]
-
-  depends_on = [module.networking]
+  subnet_id   = local.network.pe_subnet_id
+  dns_zone_id = module.private_dns.zone_ids["redis"]
 }
 
 # =============================================================================
@@ -411,11 +395,9 @@ module "entra_id" {
 
   environment_name            = var.environment_name
   app_display_name_prefix     = var.entra_app_display_name_prefix
-  key_vault_id                = module.security.key_vault_id
+  key_vault_id                = module.security.key_vault_id_for_secrets
   client_secret_name          = var.entra_client_secret_name
   client_secret_rotation_days = var.entra_client_secret_rotation_days
-
-  depends_on = [module.security]
 }
 
 locals {
@@ -477,6 +459,45 @@ locals {
 }
 
 # =============================================================================
+# MODULE: APIM TELEMETRY — loggers + service-level diagnostics
+# =============================================================================
+
+module "apim_telemetry" {
+  source = "./modules/apim-telemetry"
+
+  api_management_id   = module.apim.apim_id
+  api_management_name = module.apim.apim_name
+  resource_group_name = local.resource_group_name_resolved
+
+  app_insights_id                  = module.monitoring.app_insights_id
+  app_insights_connection_string   = module.monitoring.app_insights_connection_string
+  app_insights_instrumentation_key = module.monitoring.app_insights_instrumentation_key
+  log_analytics_id                 = module.monitoring.log_analytics_id
+
+  eventhub_endpoint_uri      = module.eventhub.endpoint_uri
+  eventhub_usage_hub_name    = module.eventhub.apim_usage_hub_name
+  eventhub_pii_hub_name      = module.eventhub.pii_usage_hub_name
+  enable_pii_redaction       = local.features.pii_redaction
+  managed_identity_client_id = local.apim_identity_client_id
+
+  log_verbosity  = var.apim_log_verbosity
+  log_body_bytes = var.apim_log_body_bytes
+}
+
+# =============================================================================
+# MODULE: LLM ROUTING — backends, pools and generated routing fragments
+# =============================================================================
+
+module "llm_routing" {
+  source = "./modules/llm-routing"
+
+  api_management_id          = module.apim.apim_id
+  managed_identity_client_id = local.apim_identity_client_id
+  llm_backend_config         = local.effective_llm_backend_config
+  configure_circuit_breaker  = var.configure_circuit_breaker
+}
+
+# =============================================================================
 # MODULE: API MANAGEMENT
 # =============================================================================
 
@@ -488,49 +509,42 @@ module "apim" {
   tags                = local.all_tags
 
   apim_name       = local.apim_service_name
-  sku_name        = var.apim_sku
-  sku_capacity    = var.apim_sku_units
-  publisher_email = var.apim_publisher_email
-  publisher_name  = var.apim_publisher_name
+  sku_name        = local.apim_cfg.sku
+  sku_capacity    = local.apim_cfg.capacity
+  publisher_email = local.apim_cfg.publisher_email
+  publisher_name  = local.apim_cfg.publisher_name
 
   # Networking
-  apim_network_type             = var.apim_network_type
+  apim_network_type             = local.apim_network_type
   is_apim_v2                    = local.is_apim_v2
-  apim_subnet_id                = module.networking.apim_subnet_id
-  pe_subnet_id                  = module.networking.pe_subnet_id
-  vnet_id                       = module.networking.vnet_id
-  apim_v2_use_private_endpoint  = var.apim_v2_use_private_endpoint
-  apim_v2_public_network_access = var.apim_v2_public_network_access
+  apim_subnet_id                = local.network.apim_subnet_id
+  pe_subnet_id                  = local.network.pe_subnet_id
+  vnet_id                       = local.network.vnet_id
+  apim_v2_use_private_endpoint  = local.apim_cfg.private_endpoint
+  apim_v2_public_network_access = local.apim_cfg.public_network_access
 
   # Identity
   managed_identity_id        = local.apim_identity_id
   managed_identity_client_id = local.apim_identity_client_id
 
   # Monitoring
-  app_insights_id                  = module.monitoring.app_insights_id
-  app_insights_instrumentation_key = module.monitoring.app_insights_instrumentation_key
-  app_insights_connection_string   = module.monitoring.app_insights_connection_string
 
   # Redis (semantic cache) — optional
-  enable_redis_cache            = var.enable_redis_cache
-  redis_cache_connection_string = var.enable_redis_cache ? module.redis[0].connection_string : ""
+  enable_redis_cache            = local.features.semantic_cache
+  redis_cache_connection_string = local.features.semantic_cache ? module.redis[0].connection_string : ""
 
   # Availability zones (Bicep parity: Premium + skuCount>1)
-  apim_zones = var.apim_sku == "Premium" && var.apim_sku_units > 1 ? (
-    var.apim_sku_units == 2 ? ["1", "2"] : ["1", "2", "3"]
+  apim_zones = local.apim_cfg.sku == "Premium" && local.apim_cfg.capacity > 1 ? (
+    local.apim_cfg.capacity == 2 ? ["1", "2"] : ["1", "2", "3"]
   ) : []
 
   # Integrations
-  eventhub_endpoint_uri   = module.eventhub.endpoint_uri
-  eventhub_usage_hub_name = module.eventhub.apim_usage_hub_name
-  eventhub_pii_hub_name   = module.eventhub.pii_usage_hub_name
-  pii_service_endpoint    = var.enable_pii_redaction ? module.foundry.primary_foundry_endpoint : ""
-  content_safety_endpoint = var.enable_content_safety ? module.foundry.primary_foundry_endpoint : ""
-  enable_pii_redaction    = var.enable_pii_redaction
-  enable_content_safety   = var.enable_content_safety
+  pii_service_endpoint    = local.features.pii_redaction ? module.foundry.primary_foundry_endpoint : ""
+  content_safety_endpoint = local.features.content_safety ? module.foundry.primary_foundry_endpoint : ""
+  enable_pii_redaction    = local.features.pii_redaction
+  enable_content_safety   = local.features.content_safety
 
   # Universal LLM API inference contract (Bicep: inferenceAPIType)
-  inference_api_type = var.inference_api_type
 
   # Auth
   entra_auth_enabled = var.entra_auth_enabled
@@ -539,46 +553,32 @@ module "apim" {
   entra_audience     = var.entra_audience
 
   # Logging
-  log_analytics_id = module.monitoring.log_analytics_id
-  log_verbosity    = var.apim_log_verbosity
-  log_body_bytes   = var.apim_log_body_bytes
 
   # DNS
-  dns_zone_id_apim = module.networking.dns_zone_ids["apim_gateway"]
+  dns_zone_id_apim = module.private_dns.zone_ids["apim_gateway"]
   # Internal-mode APIM hostname zones; skipped when DNS is managed centrally (BYO zones).
   create_internal_dns = local.create_dns_zones
 
   # APIM logic plane (§19.12 — Bicep parity for llm-backends/pools, fragments,
   # extra APIs, MCP, API Center onboarding)
-  llm_backend_config           = local.effective_llm_backend_config
-  configure_circuit_breaker    = var.configure_circuit_breaker
-  ai_search_instances          = [for s in var.ai_search_instances : { name = s.name, url = s.endpoint, description = "AI Search backend" }]
-  enable_azure_ai_search       = var.enable_azure_ai_search
-  enable_embeddings_backend    = var.enable_embeddings_backend
-  embeddings_backend_url       = var.embeddings_backend_url
-  enable_pii_anonymization     = var.enable_pii_anonymization
-  enable_unified_ai_api        = var.enable_unified_ai_api
-  enable_ai_model_inference    = var.enable_ai_model_inference
-  enable_document_intelligence = var.enable_document_intelligence
-  enable_openai_realtime       = var.enable_openai_realtime
-  is_mcp_sample_deployed       = var.is_mcp_sample_deployed
-  ms_learn_mcp_backend_url     = var.ms_learn_mcp_backend_url
+  default_product_api_names = {
+    universal_llm = module.api["universal-llm-api"].name
+    azure_openai  = module.api["azure-openai-api"].name
+  }
+  ai_search_instances       = [for s in var.ai_search_instances : { name = s.name, url = s.endpoint, description = "AI Search backend" }]
+  enable_azure_ai_search    = local.features.azure_ai_search
+  enable_embeddings_backend = local.features.embeddings_backend
+  embeddings_backend_url    = var.embeddings_backend_url
+  is_mcp_sample_deployed    = local.features.mcp_sample
+  ms_learn_mcp_backend_url  = var.ms_learn_mcp_backend_url
 
   enable_jwt_auth         = local.effective_enable_jwt_auth
   jwt_tenant_id           = local.effective_jwt_tenant_id
   jwt_app_registration_id = local.effective_jwt_app_registration_id
-  subscription_id         = data.azurerm_client_config.current.subscription_id
   azure_login_endpoint    = var.azure_login_endpoint
 
-  enable_api_center_onboarding    = var.enable_api_center && var.enable_api_center_onboarding
-  api_center_service_name         = var.enable_api_center ? module.apic.api_center_name : ""
-  api_center_workspace_name       = "default"
-  api_center_environment_name     = "api-dev"
-  api_center_mcp_environment_name = "mcp-dev"
 
   enable_foundry_apim_connection = var.enable_foundry_apim_connection
-
-  depends_on = [module.networking, module.monitoring, module.eventhub, module.cosmosdb, module.redis, module.apic]
 }
 
 # =============================================================================
@@ -588,32 +588,40 @@ module "apim" {
 module "logic_app" {
   source = "./modules/logic-app"
 
+  resource_group_id   = local.resource_group_id
   resource_group_name = local.resource_group_name_resolved
   location            = var.location
   tags                = local.all_tags
   environment_name    = var.environment_name
-  random_suffix       = random_string.suffix.result
+  names = {
+    storage_account         = local.names.storage_logic
+    logic_app               = local.names.logic_app
+    content_share           = local.names.logic_content_share
+    app_service_plan        = local.names.app_service_plan
+    app_service_environment = local.names.app_service_environment
+    code_artifact           = local.names.logic_app_code_artifact
+  }
 
-  sku_size = var.logic_app_sku_size
+  sku_size = local.usage_cfg.logic_app.ws_sku
 
   # Hosting model — ASE v3 enables keyless (shared-key disabled) runtime storage
-  hosting_model                    = var.logic_app_hosting_model
-  ase_subnet_id                    = module.networking.ase_subnet_id
-  vnet_id                          = module.networking.vnet_id
-  ase_sku_size                     = var.logic_app_ase_sku_size
-  ase_worker_count                 = var.logic_app_ase_worker_count
-  ase_internal_load_balancing_mode = var.ase_internal_load_balancing_mode
-  ase_zone_redundant               = var.ase_zone_redundant
-  ase_create_private_dns_zone      = var.ase_create_private_dns_zone
+  hosting_model                    = local.usage_cfg.logic_app.hosting_model
+  ase_subnet_id                    = local.network.ase_subnet_id
+  vnet_id                          = local.network.vnet_id
+  ase_sku_size                     = local.usage_cfg.logic_app.ase_sku
+  ase_worker_count                 = local.usage_cfg.logic_app.worker_count
+  ase_internal_load_balancing_mode = local.usage_cfg.ase.internal_load_balancing_mode
+  ase_zone_redundant               = local.usage_cfg.ase.zone_redundant
+  ase_create_private_dns_zone      = local.usage_cfg.ase.create_private_dns_zone
 
   # Networking
-  subnet_id    = module.networking.logic_app_subnet_id
-  pe_subnet_id = module.networking.pe_subnet_id
+  subnet_id    = local.network.logic_app_subnet_id
+  pe_subnet_id = local.network.pe_subnet_id
 
-  dns_zone_id_blob  = module.networking.dns_zone_ids["storage_blob"]
-  dns_zone_id_file  = module.networking.dns_zone_ids["storage_file"]
-  dns_zone_id_table = module.networking.dns_zone_ids["storage_table"]
-  dns_zone_id_queue = module.networking.dns_zone_ids["storage_queue"]
+  dns_zone_id_blob  = module.private_dns.zone_ids["storage_blob"]
+  dns_zone_id_file  = module.private_dns.zone_ids["storage_file"]
+  dns_zone_id_table = module.private_dns.zone_ids["storage_table"]
+  dns_zone_id_queue = module.private_dns.zone_ids["storage_queue"]
 
   # Integrations
   eventhub_endpoint_host      = "${module.eventhub.namespace_name}.servicebus.windows.net"
@@ -636,19 +644,17 @@ module "logic_app" {
   apim_app_insights_rg           = local.resource_group_name_resolved
   subscription_id                = var.subscription_id
 
-  content_share_name = var.logic_content_share_name
+  content_share_name = local.usage_cfg.logic_app.content_share_name
 
   # Workflow-code publish. Defaults to the
   # vendored accelerator project under logicapp-src/usage-ingestion-logicapp.
-  enable_code_deploy = var.enable_logic_app_code_deploy
-  code_source_path   = var.logic_app_code_source_path != "" ? var.logic_app_code_source_path : "${path.root}/logicapp-src/usage-ingestion-logicapp"
+  enable_code_deploy = local.usage_cfg.logic_app.code_deploy
+  code_source_path   = local.usage_cfg.logic_app.code_source_path != "" ? local.usage_cfg.logic_app.code_source_path : "${path.root}/logicapp-src/usage-ingestion-logicapp"
 
   # Identity (Logic App uses the usage UAMI per Bicep managed-identity-usage.bicep)
   managed_identity_id           = local.usage_identity_id
   managed_identity_client_id    = local.usage_identity_client_id
   managed_identity_principal_id = local.usage_identity_principal
-
-  depends_on = [module.eventhub, module.cosmosdb]
 
   log_analytics_id = module.monitoring.log_analytics_id
 }

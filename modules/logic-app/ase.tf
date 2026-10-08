@@ -12,7 +12,7 @@ locals {
 
 resource "azurerm_app_service_environment_v3" "ase" {
   count                        = local.use_ase ? 1 : 0
-  name                         = "ase-${var.environment_name}-${var.random_suffix}"
+  name                         = var.names.app_service_environment
   resource_group_name          = var.resource_group_name
   subnet_id                    = var.ase_subnet_id
   internal_load_balancing_mode = var.ase_internal_load_balancing_mode

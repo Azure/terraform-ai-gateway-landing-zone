@@ -1,3 +1,8 @@
+variable "resource_group_id" {
+  description = "Resource ID of the resource group (scope of the Event Hubs Data Owner and Monitoring Reader assignments)."
+  type        = string
+}
+
 variable "resource_group_name" {
   description = "Name of the resource group the module deploys into."
   type        = string
@@ -12,10 +17,6 @@ variable "tags" {
 }
 variable "environment_name" {
   description = "Environment name used for resource naming (e.g., citadel-dev, citadel-prod)"
-  type        = string
-}
-variable "random_suffix" {
-  description = "Random suffix appended to globally unique resource names."
   type        = string
 }
 variable "sku_size" {
@@ -260,4 +261,16 @@ variable "code_source_path" {
   description = "Absolute path to the Logic App Standard project folder. Leave blank to skip when enable_code_deploy=false."
   type        = string
   default     = "src/usage-ingestion-logicapp"
+}
+
+variable "names" {
+  description = "Resource names from modules/naming."
+  type = object({
+    storage_account         = string
+    logic_app               = string
+    content_share           = string
+    app_service_plan        = string
+    app_service_environment = string
+    code_artifact           = string
+  })
 }

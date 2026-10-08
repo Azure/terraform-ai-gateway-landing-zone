@@ -35,7 +35,7 @@ provider "azurerm" {
   features {}
 
   subscription_id = coalesce(
-    var.existing_log_analytics_subscription_id,
+    local.monitoring_cfg.workspace_subscription_id,
     var.subscription_id
   )
 }

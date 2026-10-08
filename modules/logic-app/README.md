@@ -54,7 +54,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | [null_resource.publish_workflows](https://registry.terraform.io/providers/hashicorp/null/latest/docs/resources/resource) | resource |
 | [archive_file.workflow_code](https://registry.terraform.io/providers/hashicorp/archive/latest/docs/data-sources/file) | data source |
 | [azurerm_client_config.current](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/client_config) | data source |
-| [azurerm_resource_group.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/resource_group) | data source |
 
 ## Inputs
 
@@ -68,7 +67,8 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_managed_identity_client_id"></a> [managed\_identity\_client\_id](#input\_managed\_identity\_client\_id) | Client ID of the user-assigned managed identity the service runs as. | `string` | n/a | yes |
 | <a name="input_managed_identity_id"></a> [managed\_identity\_id](#input\_managed\_identity\_id) | Resource ID of the user-assigned managed identity the service runs as. | `string` | n/a | yes |
 | <a name="input_managed_identity_principal_id"></a> [managed\_identity\_principal\_id](#input\_managed\_identity\_principal\_id) | Principal (object) ID of the user-assigned managed identity that is granted data-plane roles. | `string` | n/a | yes |
-| <a name="input_random_suffix"></a> [random\_suffix](#input\_random\_suffix) | Random suffix appended to globally unique resource names. | `string` | n/a | yes |
+| <a name="input_names"></a> [names](#input\_names) | Resource names from modules/naming. | <pre>object({<br/>    storage_account         = string<br/>    logic_app               = string<br/>    content_share           = string<br/>    app_service_plan        = string<br/>    app_service_environment = string<br/>    code_artifact           = string<br/>  })</pre> | n/a | yes |
+| <a name="input_resource_group_id"></a> [resource\_group\_id](#input\_resource\_group\_id) | Resource ID of the resource group (scope of the Event Hubs Data Owner and Monitoring Reader assignments). | `string` | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Name of the resource group the module deploys into. | `string` | n/a | yes |
 | <a name="input_sku_size"></a> [sku\_size](#input\_sku\_size) | Logic App (Standard) SKU size. Used only when logic\_app\_hosting\_model = "WorkflowStandard". | `string` | n/a | yes |
 | <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id) | Resource ID of the subnet used for regional VNet integration (Workflow Standard hosting). | `string` | n/a | yes |

@@ -87,12 +87,8 @@ Write-Info 'Initializing Terraform...'
 terraform init
 if ($LASTEXITCODE -ne 0) { Write-Err 'Terraform init failed.' }
 
-# --- Import existing resources (handles re-onboarding / idempotent re-runs) ---
-Write-Info 'Checking for existing resources to import into state...'
-# Run in a child process so an `exit` inside the import script cannot terminate
-# this deploy run (mirrors the bash `bash import-existing.sh` subprocess call).
-pwsh -NoProfile -File (Join-Path $ScriptDir 'import-existing.ps1') -VarFile $VarFile
-if ($LASTEXITCODE -ne 0) { Write-Err 'Import step failed.' }
+# Existing products, policies, subscriptions and API links are adopted by the
+# import {} blocks in imports.tf (idempotent re-runs).
 
 # --- Terraform action ---
 if ($Destroy) {

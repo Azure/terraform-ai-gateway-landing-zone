@@ -10,16 +10,8 @@ variable "tags" {
   description = "Tags applied to every resource the module creates."
   type        = map(string)
 }
-variable "use_existing_vnet" {
-  description = "Use an existing VNet instead of creating a new one"
-  type        = bool
-}
-variable "existing_vnet_rg" {
-  description = "Resource group of the existing VNet (required if use_existing_vnet = true)"
-  type        = string
-}
 variable "vnet_name" {
-  description = "Name of the virtual network to create, or to look up when use_existing_vnet = true."
+  description = "Name of the virtual network to create."
   type        = string
 }
 variable "vnet_address_prefix" {
@@ -93,26 +85,6 @@ variable "is_apim_v2" {
   type        = bool
   default     = false
 }
-variable "create_dns_zones" {
-  description = "Create the private DNS zones in this resource group (false when existing zones are supplied)."
-  type        = bool
-}
-
-# When AMPLS (Azure Monitor Private Link Scope) is NOT enabled, the
-# privatelink.monitor.azure.com zone must NOT be linked to the VNet: an empty
-# linked zone hijacks and blackholes App Insights / Azure Monitor ingestion DNS
-# for every resource in the VNet (APIM gateway, Logic App, etc.), silently
-# breaking all Application Insights telemetry while Log Analytics keeps working.
-variable "use_azure_monitor_private_link_scope" {
-  description = "Create an Azure Monitor Private Link Scope (AMPLS) for private ingestion."
-  type        = bool
-  default     = false
-}
-variable "existing_private_dns_zones" {
-  description = "Map of existing private DNS zone resource IDs"
-  type        = map(string)
-}
-
 variable "nsg_on_all_subnets" {
   description = "Also attach NSGs to the private-endpoint and Logic App subnets (Azure Landing Zone Deny-Subnet-Without-Nsg)."
   type        = bool

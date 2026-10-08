@@ -18,7 +18,7 @@ data "archive_file" "workflow_code" {
   count       = local.code_deploy_enabled ? 1 : 0
   type        = "zip"
   source_dir  = var.code_source_path
-  output_path = "${path.module}/.artifacts/usage-ingestion-logicapp-${var.random_suffix}.zip"
+  output_path = "${path.module}/.artifacts/${var.names.code_artifact}.zip"
   excludes    = ["workflow-designtime", ".funcignore", "local.settings.json"]
 }
 

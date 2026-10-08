@@ -74,7 +74,7 @@ output "usage_managed_identity_principal_id" {
 
 output "vnet_id" {
   description = "Virtual network resource ID"
-  value       = module.networking.vnet_id
+  value       = local.network.vnet_id
 }
 
 output "ai_foundry_endpoints" {

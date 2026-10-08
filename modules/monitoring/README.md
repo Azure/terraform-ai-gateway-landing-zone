@@ -17,7 +17,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | Name | Version |
 | ---- | ------- |
 | <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | >= 4.79, < 5.0 |
-| <a name="provider_azurerm.loganalytics"></a> [azurerm.loganalytics](#provider\_azurerm.loganalytics) | >= 4.79, < 5.0 |
 
 ## Resources
 
@@ -34,7 +33,6 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | [azurerm_monitor_private_link_scoped_service.law](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_private_link_scoped_service) | resource |
 | [azurerm_portal_dashboard.app_insights](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/portal_dashboard) | resource |
 | [azurerm_private_endpoint.ampls](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
-| [azurerm_log_analytics_workspace.existing](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/log_analytics_workspace) | data source |
 
 ## Inputs
 
@@ -42,15 +40,14 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_create_dashboards"></a> [create\_dashboards](#input\_create\_dashboards) | Create Application Insights dashboards | `bool` | n/a | yes |
 | <a name="input_environment_name"></a> [environment\_name](#input\_environment\_name) | Environment name used for resource naming (e.g., citadel-dev, citadel-prod) | `string` | n/a | yes |
-| <a name="input_existing_log_analytics_id"></a> [existing\_log\_analytics\_id](#input\_existing\_log\_analytics\_id) | Resource ID of existing Log Analytics workspace | `string` | n/a | yes |
 | <a name="input_location"></a> [location](#input\_location) | Primary Azure region for deployment | `string` | n/a | yes |
-| <a name="input_log_analytics_name"></a> [log\_analytics\_name](#input\_log\_analytics\_name) | Name of the Log Analytics workspace to create (ignored when use\_existing\_log\_analytics = true). | `string` | n/a | yes |
+| <a name="input_log_analytics_name"></a> [log\_analytics\_name](#input\_log\_analytics\_name) | Name of the Log Analytics workspace to create (ignored when existing\_log\_analytics\_workspace is set). | `string` | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Name of the resource group the module deploys into. | `string` | n/a | yes |
 | <a name="input_subscription_id"></a> [subscription\_id](#input\_subscription\_id) | Subscription ID used when rendering the App Insights dashboard templates. | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
-| <a name="input_use_existing_log_analytics"></a> [use\_existing\_log\_analytics](#input\_use\_existing\_log\_analytics) | Use an existing Log Analytics workspace | `bool` | n/a | yes |
 | <a name="input_ampls_dns_zone_id_monitor"></a> [ampls\_dns\_zone\_id\_monitor](#input\_ampls\_dns\_zone\_id\_monitor) | Private DNS zone id for privatelink.monitor.azure.com. | `string` | `""` | no |
 | <a name="input_ampls_subnet_id"></a> [ampls\_subnet\_id](#input\_ampls\_subnet\_id) | Private endpoint subnet id for the AMPLS scoped PE (when use\_azure\_monitor\_private\_link\_scope is true). | `string` | `""` | no |
+| <a name="input_existing_log_analytics_workspace"></a> [existing\_log\_analytics\_workspace](#input\_existing\_log\_analytics\_workspace) | Existing (BYO) Log Analytics workspace: resource id and workspace (customer) id. null = create one named log\_analytics\_name. The caller looks the workspace up. | <pre>object({<br/>    id           = string<br/>    workspace_id = string<br/>  })</pre> | `null` | no |
 | <a name="input_use_azure_monitor_private_link_scope"></a> [use\_azure\_monitor\_private\_link\_scope](#input\_use\_azure\_monitor\_private\_link\_scope) | Create an Azure Monitor Private Link Scope (AMPLS) scoping the LAW and App Insights components. | `bool` | `false` | no |
 
 ## Outputs

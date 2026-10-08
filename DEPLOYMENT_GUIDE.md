@@ -7,8 +7,8 @@
 >
 > **Related files:**
 > [scripts/deploy.sh](scripts/deploy.sh) / [scripts/deploy.ps1](scripts/deploy.ps1) ·
-> [environments/dev.tfvars](environments/dev.tfvars) ·
-> [environments/prod.tfvars](environments/prod.tfvars)
+> [environments/dev.tfvars.example](environments/dev.tfvars.example) ·
+> [environments/prod.tfvars.example](environments/prod.tfvars.example)
 
 ---
 
@@ -33,8 +33,8 @@ result:
 
 - A single `terraform apply` can deploy the entire stack, including Entra ID,
   Foundry→APIM connection, and access contracts.
-- All follow-ons are gated by **feature-flag variables** (`enable_*`) so you
-  still choose what to roll out.
+- All follow-ons are gated by **feature-flag variables** (`enable_*` and the
+  typed `features` object) so you still choose what to roll out.
 - If you prefer the Bicep workflow (stage core, validate, then enable
   add-ons), the `--phased` deploy-script mode gives you two sequential
   `plan`/`apply` passes against the same state.
@@ -98,8 +98,7 @@ difference is flag syntax: Bash uses `--kebab-case` flags, PowerShell uses
 
 The same mapping applies to the other helpers:
 [bootstrap-state](scripts/bootstrap-state.ps1),
-[validate](scripts/validate.ps1), [destroy](scripts/destroy.ps1), and
-[import-existing](scripts/import-existing.ps1) all expose `.ps1` equivalents
+[validate](scripts/validate.ps1) and [destroy](scripts/destroy.ps1) all expose `.ps1` equivalents
 with positional `dev`/`prod` arguments.
 
 ---
@@ -111,30 +110,33 @@ The effective order for a full deployment is:
 
 ```text
 0. Random suffix + Resource Group
-1. networking         ── VNet, 3 subnets, NSGs, route table, DNS zones
+1. networking         ── VNet, subnets, NSGs, route table (greenfield; BYO = data lookups in network.tf)
+   private_dns        ── private DNS zones + VNet links (created or supplied IDs)
 2. eventhub           ── namespace + ai-usage/pii-usage hubs + consumer groups
    cosmosdb           ── account + usage-db + 4 containers
    monitoring         ── LAW + 3 App Insights + 3 dashboards + AMPLS
-   ai_services        ── Foundry account + project + APIC scaffold
+   foundry / apic     ── Foundry account + project, API Center scaffold
                        (all run in parallel — no cross-dependencies)
 3. security           ── Key Vault + Foundry KV RBAC
 4. redis              ── Azure Managed Redis + PE + APIM caches link
 5. entra_id           ── (optional) azuread_application + SP + KV secret
-6. apim               ── APIM service + identity + loggers + diagnostics
-   ├─ backends        ── per-model LLM backends + pools + content safety
-   │                    + AI search + embeddings
-   ├─ fragments       ── 21 static + 3 dynamic policy fragments
-   ├─ extra-apis      ── Unified AI, AI Search, DocIntel×2, Inference,
-   │                    Realtime, Weather, Weather MCP, MS Learn MCP
-   ├─ named-values    ── JWT-*, AWS placeholders + 4 operation policies
-   ├─ apic-onboarding ── (optional) register each API in APIC
+6. apim               ── APIM service + identity + PE + named values (JWT-*, AWS placeholders)
+   ├─ backends        ── content safety + AI search + embeddings + MS Learn MCP
    └─ foundry-sub     ── (optional) dedicated APIM subscription for Foundry
+   apim_telemetry     ── loggers + global diagnostics
+   llm_routing        ── per-model LLM backends + pools + 4 generated routing fragments
+   policy_fragments   ── static (+ unified-AI / PII) policy fragments (policy-fragments.tf)
+   api / api_dependent── one modules/gateway-api instance per API (apis.tf):
+                         Universal LLM, Azure OpenAI, Unified AI, AI Search,
+                         DocIntel×2, Inference, Realtime, Weather, Weather MCP,
+                         MS Learn MCP — with their API + operation policies
+   api_center_registration ── (optional) register each API in APIC
 7. logic_app          ── Logic App Standard + 4 storage PEs + MI RBAC
    └─ publish_workflows
                       ── zip + `az functionapp deployment source config-zip`
                          of logicapp-src/usage-ingestion-logicapp (4 workflows +
-                         host.json + connections.json). On by default;
-                         gated by `enable_logic_app_code_deploy`.
+                         host.json + connections.json). On in the example
+                         tfvars; gated by `usage_pipeline.logic_app.code_deploy`.
 8. foundry.connection_apim
                       ── (optional) Foundry project → APIM connection
 9. access_contracts   ── (optional) per-use-case APIM products + policies
@@ -151,25 +153,31 @@ Every add-on defaults to **off** unless listed otherwise. You can set them in
 `environments/<env>.tfvars`, via `-var=…=true` on the command line, or via
 the `--with-*` shortcuts in [scripts/deploy.sh](scripts/deploy.sh).
 
+Gateway capabilities live in the typed `features` object (see
+[VARIABLES.md §6](VARIABLES.md#6-feature-flags-features)); the deploy-script
+shortcuts still pass the equivalent **deprecated flat inputs** (e.g.
+`-var=is_mcp_sample_deployed=true`), which override the typed attribute and
+raise the `deprecated_flat_inputs` plan warning. Both names are listed below.
+
 | Variable | Default | Shortcut flag | Effect |
 |---|---|---|---|
 | `enable_entra_id_setup` | `false` | `--with-entra` | Creates Entra ID app registration, service principal, client secret → KV; auto-populates APIM JWT-* named values. |
 | `enable_foundry_apim_connection` | `false` | `--with-foundry-conn` | Creates Foundry project → APIM connection (ApiKey) + dedicated APIM subscription. |
 | `enable_access_contracts` | `false` | `--with-access-contracts` | Reads the `access_contracts` map and creates per-use-case APIM products, policies, subscriptions, and optional KV secrets + Foundry connections. |
-| `is_mcp_sample_deployed` | `false` | `--with-mcp-samples` | Enables Weather API + Weather MCP + MS Learn MCP APIs. |
+| `features.mcp_sample` (flat: `is_mcp_sample_deployed`) | `false` | `--with-mcp-samples` | Enables Weather API + Weather MCP + MS Learn MCP APIs. |
 | `enable_jwt_auth` | `false` | `--with-jwt` | Populates JWT-* named values from `jwt_tenant_id` / `jwt_app_registration_id`. Auto-overridden by `enable_entra_id_setup`. |
-| `enable_api_center_onboarding` | `false` | `--with-apic-onboarding` | Registers each APIM API in API Center with version + definition + deployment records. |
-| `enable_unified_ai_api` | depends on tfvars | — | Wildcard unified AI API. |
-| `enable_azure_ai_search` | depends on tfvars | — | AI Search Index API + backends from `ai_search_instances`. |
-| `enable_document_intelligence` | depends on tfvars | — | Legacy `/formrecognizer` + current `/documentintelligence` APIs. |
-| `enable_ai_model_inference` | depends on tfvars | — | Model Inference API. |
-| `enable_openai_realtime` | depends on tfvars | — | WebSocket Realtime API. |
-| `enable_embeddings_backend` | `false` | — | Dedicated embeddings backend for semantic cache. |
-| `enable_pii_anonymization` | `false` | — | PII redaction policy (authenticates to the Language service with the APIM managed identity). |
-| `enable_api_center` | `true` | — | Provisions the API Center service (workspace, environments, metadata schemas). |
-| `eventhub_disaster_recovery_config` | empty | — | Optional EH DR namespace pairing. |
+| `features.api_center_onboarding` (flat: `enable_api_center_onboarding`) | `false` | `--with-apic-onboarding` | Registers each APIM API in API Center with version + definition + deployment records. |
+| `features.unified_ai_api` | depends on tfvars | — | Wildcard unified AI API. |
+| `features.azure_ai_search` | depends on tfvars | — | AI Search Index API + backends from `ai_search_instances`. |
+| `features.document_intelligence` | depends on tfvars | — | Legacy `/formrecognizer` + current `/documentintelligence` APIs. |
+| `features.ai_model_inference` | depends on tfvars | — | Model Inference API. |
+| `features.openai_realtime` | depends on tfvars | — | WebSocket Realtime API. |
+| `features.embeddings_backend` | `false` | — | Dedicated embeddings backend for semantic cache. |
+| `features.pii_anonymization` | `true` | — | PII anonymization policy fragments (authenticates to the Language service with the APIM managed identity). |
+| `features.api_center` | `true` | — | Provisions the API Center service (workspace, environments, metadata schemas). |
+| `usage_pipeline.eventhub.disaster_recovery` | empty | — | Optional EH DR namespace pairing. |
 | `configure_circuit_breaker` | `false` | — | Adds circuit-breaker rules to LLM backends. |
-| `enable_logic_app_code_deploy` | `true` | `--skip-logic-app-code` (inverse) | Zips and publishes `logicapp-src/usage-ingestion-logicapp` to the Logic App Standard site after infra is ready. See §7.8. |
+| `usage_pipeline.logic_app.code_deploy` (flat: `enable_logic_app_code_deploy`) | `false` (`true` in the example tfvars) | `--skip-logic-app-code` (inverse) | Zips and publishes `logicapp-src/usage-ingestion-logicapp` to the Logic App Standard site after infra is ready. See §7.8. |
 
 ---
 
@@ -186,7 +194,9 @@ cp environments/dev.tfvars.example environments/dev.tfvars
 # (prod) cp environments/prod.tfvars.example environments/prod.tfvars
 ```
 
-Then edit [environments/dev.tfvars](environments/dev.tfvars):
+Then edit `environments/dev.tfvars` (see
+[environments/dev.tfvars.example](environments/dev.tfvars.example) for every
+attribute):
 
 ```hcl
 subscription_id        = "YOUR-SUBSCRIPTION-ID"   # auto-rewritten by deploy.sh
@@ -195,12 +205,14 @@ environment_name       = "citadel-dev"
 resource_group_name    = "rg-citadel-dev"
 
 # Feature flags (start conservative, enable more over time)
-enable_azure_ai_search       = false
-enable_document_intelligence = false
-enable_unified_ai_api        = true
-enable_api_center            = true
-enable_api_center_onboarding = false
-enable_jwt_auth              = false
+features = {
+  azure_ai_search       = false
+  document_intelligence = false
+  unified_ai_api        = true
+  api_center            = true
+  api_center_onboarding = false
+}
+enable_jwt_auth = false
 ```
 
 ### 5.2 Bootstrap (first time only)
@@ -403,7 +415,7 @@ values auto-populate from the live app registration + tenant.
 
 **What gets created:**
 
-- `modules/apim/foundry-subscription.tf` — dedicated APIM subscription that
+- [modules/apim/foundry-subscription.tf](modules/apim/foundry-subscription.tf) — dedicated APIM subscription that
   exposes a primary key as an output.
 - `modules/foundry/connection-apim.tf` —
   `Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview`
@@ -488,8 +500,11 @@ Registers each enabled APIM API in API Center with:
 - `…/deployments` (pointing at the running APIM gateway URL +
   `api-dev` / `mcp-dev` / `api-prod` / `mcp-prod` environment)
 
-The APIC service itself is created unconditionally when `enable_api_center =
-true` (default); this flag only controls the per-API record creation.
+The APIC service itself is created unconditionally when `features.api_center =
+true` (default); this flag (`features.api_center_onboarding`, wired through
+[api-center-registration.tf](api-center-registration.tf) →
+[modules/api-center-registration](modules/api-center-registration/README.md))
+only controls the per-API record creation.
 
 **Example:**
 
@@ -550,7 +565,7 @@ accelerator's `azure.yaml`.
   endpoint (`<sitename>.scm.azurewebsites.net`). The zip is uploaded through
   Kudu, so if the Logic App itself is behind a private endpoint the
   deployer must run from inside the VNet. For public-network sites
-  (`apim_v2_public_network_access = true`) SCM is reachable from anywhere.
+  (`apim.public_network_access = true`) SCM is reachable from anywhere.
 
 **Trigger behaviour:**
 
@@ -564,8 +579,8 @@ accelerator's `azure.yaml`.
 
 | Variable | Default |
 |---|---|
-| `enable_logic_app_code_deploy` | `true` |
-| `logic_app_code_source_path` | `logicapp-src/usage-ingestion-logicapp` (set in `environments/dev.tfvars`; blank disables the publish) |
+| `usage_pipeline.logic_app.code_deploy` | `false` (`true` in the example tfvars) |
+| `usage_pipeline.logic_app.code_source_path` | `logicapp-src/usage-ingestion-logicapp` (set in `environments/dev.tfvars`; blank disables the publish) |
 
 **Examples:**
 
@@ -581,6 +596,8 @@ accelerator's `azure.yaml`.
 ./scripts/deploy.sh dev --logic-app-code-only
 
 # Point at a fork or a locally-modified project tree
+# (TF_VAR_logic_app_code_source_path is a deprecated flat input; it overrides
+#  usage_pipeline.logic_app.code_source_path and raises a plan warning)
 export TF_VAR_logic_app_code_source_path=/path/to/my/workflows
 ./scripts/deploy.sh dev --logic-app-code-only
 ```
@@ -662,15 +679,18 @@ backends + pools + the 3 dynamic policy fragments get re-applied.
 ### 9.2 APIM SKU upgrade
 
 The Bicep `apim-gateway-upgrade/` sub-deployment isn't needed. Change
-`apim_sku_name` + `apim_sku_capacity` in your tfvars and re-run — Terraform
+`apim.sku` + `apim.capacity` in your tfvars and re-run — Terraform
 applies the SKU change in place on the existing APIM resource.
 
-### 9.3 Auto-import on drift
+### 9.3 Adopting resources that already exist
 
-If a resource exists in Azure but not in the Terraform state (e.g. from a
-previous partial run), `deploy.sh` detects `already exists` errors, offers to
-run [scripts/import-existing.sh](scripts/import-existing.sh), and retries the
-apply automatically.
+If a resource exists in Azure but not in the Terraform state (e.g. after a
+previous partial run or a state loss), apply fails with `already exists`.
+`deploy.sh` / `deploy.ps1` then print the matching `import {}` blocks (via
+[scripts/import-blocks-from-log.py](scripts/import-blocks-from-log.py)). Paste
+them into an `imports.tf`, re-run (the plan lists each import), and remove the
+blocks afterwards. Nothing is imported behind your back. See
+[docs/operations/adopting-existing-resources.md](docs/operations/adopting-existing-resources.md).
 
 ### 9.4 Validation notebooks (`validation/` + `shared/`)
 
@@ -743,7 +763,7 @@ variable map.
 | Foundry connection fails with "missing subscription key" | APIM subscription hasn't finished provisioning | Re-run `./scripts/deploy.sh <env> --with-foundry-conn`. |
 | `az: command not found` during `publish_workflows` | Deployer doesn't have Azure CLI installed | Install `az` CLI or run with `--skip-logic-app-code` and publish manually. |
 | Workflow publish fails with `AuthorizationFailed` | Signed-in principal lacks **Website Contributor** / **Logic App Contributor** on the RG | Grant the role or run the zip-deploy as a different principal. |
-| Workflow publish hangs / `403 Ip Forbidden` on SCM | Logic App is behind a private endpoint and the deployer isn't on the VNet | Run `--logic-app-code-only` from a jumpbox inside the VNet, or temporarily flip `apim_v2_public_network_access = true`. |
+| Workflow publish hangs / `403 Ip Forbidden` on SCM | Logic App is behind a private endpoint and the deployer isn't on the VNet | Run `--logic-app-code-only` from a jumpbox inside the VNet, or temporarily flip `apim.public_network_access = true`. |
 | Logic App runs trigger but workflows are empty | Code-publish skipped or first apply crashed before the null_resource | Run `./scripts/deploy.sh <env> --logic-app-code-only`. |
 
 ---

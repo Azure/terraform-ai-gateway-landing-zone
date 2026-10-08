@@ -11,16 +11,16 @@
 # -----------------------------------------------------------------------------
 environment_name             = "dev-01"
 location                     = "swedencentral"
-subscription_id              = "" # replace before deploying
+subscription_id              = ""   # replace before deploying
 purge_soft_delete_on_destroy = true # dev convenience; not for prod
 
 tags = {
-  Environment       = "Development"
-  CostCenter        = "Engineering"
-  Owner             = "platform-team@contoso.com"
-  Criticality       = "Low"
-  ManagedBy         = "Terraform"
-  SecurityControl   = "Ignore"
+  Environment     = "Development"
+  CostCenter      = "Engineering"
+  Owner           = "platform-team@contoso.com"
+  Criticality     = "Low"
+  ManagedBy       = "Terraform"
+  SecurityControl = "Ignore"
 }
 
 # -----------------------------------------------------------------------------
@@ -28,7 +28,7 @@ tags = {
 # -----------------------------------------------------------------------------
 resource_group_name         = "rg-citadel-dev-01"
 use_existing_resource_group = false
-# apim_service_name         = ""
+# APIM name: set apim.name (section 5) to override the generated name
 # cosmos_db_account_name    = ""
 # eventhub_namespace_name   = ""
 # log_analytics_name        = ""
@@ -37,86 +37,97 @@ use_existing_resource_group = false
 # -----------------------------------------------------------------------------
 # 3. SECURITY / KEY VAULT
 # -----------------------------------------------------------------------------
-purge_protection_enabled   = false # dev convenience
-rbac_authorization_enabled = true
-soft_delete_retention_days = 7
-network_acl_default_action = "Allow" # relaxed for dev
-kv_public_network_access_enabled = true # relaxed for dev
-key_vault_sku              = "standard"
-kv_deployer_ip_rules       = []
-kv_auto_detect_deployer_ip = true # convenient for local dev; not recommended for CI with unstable egress IPs
+purge_protection_enabled         = false # dev convenience
+rbac_authorization_enabled       = true
+soft_delete_retention_days       = 7
+network_acl_default_action       = "Allow" # relaxed for dev
+kv_public_network_access_enabled = true    # relaxed for dev
+key_vault_sku                    = "standard"
+kv_deployer_ip_rules             = []
+kv_auto_detect_deployer_ip       = true # convenient for local dev; not recommended for CI with unstable egress IPs
 
 # -----------------------------------------------------------------------------
-# 4. NETWORKING (greenfield — creates new VNet)
+# 4. NETWORKING (typed input `network`, see interfaces.tf; greenfield = new VNet)
 # -----------------------------------------------------------------------------
-use_existing_vnet = false
-# existing_vnet_rg             = ""
-# vnet_name                    = ""
-vnet_address_prefix            = "10.170.0.0/24"
-apim_subnet_name               = "snet-citadel-apim"
-apim_subnet_prefix             = "10.170.0.0/26"
-private_endpoint_subnet_name   = "snet-citadel-pe"
-private_endpoint_subnet_prefix = "10.170.0.64/26"
-logic_app_subnet_name          = "snet-citadel-functions"
-logic_app_subnet_prefix        = "10.170.0.128/26"
-
-enable_agent_subnet = true
-agent_subnet_name   = "snet-agents"
-agent_subnet_prefix = "10.170.0.192/26"
-
-apim_network_type              = "External"
-apim_v2_use_private_endpoint   = true
-apim_v2_public_network_access  = true
-# dns_zone_rg                  = ""
-# dns_subscription_id          = ""
-# existing_private_dns_zones   = {}
+network = {
+  mode          = "greenfield"
+  address_space = "10.170.0.0/24"
+  subnets = {
+    apim             = { name = "snet-citadel-apim", prefix = "10.170.0.0/26" }
+    private_endpoint = { name = "snet-citadel-pe", prefix = "10.170.0.64/26" }
+    logic_app        = { name = "snet-citadel-functions", prefix = "10.170.0.128/26" }
+    agent            = { enabled = true, name = "snet-agents", prefix = "10.170.0.192/26" }
+  }
+  # Existing VNet: mode = "byo", resource_group_name = "...", vnet_name = "..."
+  # Existing private DNS zones: private_dns = { resource_group_name = "...", zone_ids = { ... } }
+}
 
 # -----------------------------------------------------------------------------
-# 5. COMPUTE SKU & SIZING
+# 5. COMPUTE SKU & SIZING (typed inputs `apim` and `usage_pipeline`)
 # -----------------------------------------------------------------------------
-apim_sku             = "Developer"
-apim_sku_units       = 1
-apim_publisher_email = "admin@contoso.com"
-apim_publisher_name  = "AI Citadel Admin"
+apim = {
+  sku                   = "Developer"
+  capacity              = 1
+  vnet_mode             = "external" # Developer/Premium: none | external | internal
+  publisher_email       = "admin@contoso.com"
+  publisher_name        = "AI Citadel Admin"
+  private_endpoint      = true # v2 SKUs only
+  public_network_access = true # v2 SKUs only
+}
 
-# DEPRECATED (ignored, see variables.tf): cosmos_db_rus
-# cosmos_db_rus                     = 400
-eventhub_capacity_units           = 1
-# DEPRECATED (ignored, see variables.tf): eventhub_partition_count
-# eventhub_partition_count          = 2
-eventhub_disaster_recovery_config = null # { partner_namespace_id, alias }
+usage_pipeline = {
+  eventhub = {
+    capacity              = 1
+    public_network_access = "Enabled"
+    disaster_recovery     = null # { partner_namespace_id, alias }
+  }
+  cosmos = {
+    public_network_access = "Enabled"
+  }
+  logic_app = {
+    hosting            = "workflow_standard" # or ase_v3 (keyless storage; see asetest.tfvars.example)
+    sku                = "WS1"
+    content_share_name = "" # auto-derived if blank
+    code_deploy        = true
+    code_source_path   = "logicapp-src/usage-ingestion-logicapp" # blank → use vendored accelerator project
+  }
+}
 
-# DEPRECATED (ignored, see variables.tf): logic_app_sku_tier
-# logic_app_sku_tier   = "WorkflowStandard"
-logic_app_sku_size   = "WS1"
-# DEPRECATED (ignored, see variables.tf): language_service_sku
-# language_service_sku = "S"
-# DEPRECATED (ignored, see variables.tf): content_safety_sku
-# content_safety_sku   = "S0"
-api_center_sku       = "Free"
-
-# -----------------------------------------------------------------------------
-# 6. FEATURE FLAGS
-# -----------------------------------------------------------------------------
-enable_api_center              = true # TODO: was false # reduces dev cost
-enable_pii_redaction           = true
-enable_content_safety          = true
-enable_redis_cache             = false
-create_app_insights_dashboards = true
+api_center_sku = "Free"
 
 # -----------------------------------------------------------------------------
-# 7. LOG ANALYTICS STRATEGY
+# 6. FEATURE FLAGS (typed input `features`)
 # -----------------------------------------------------------------------------
-use_existing_log_analytics = false
-# existing_log_analytics_id              = ""
-# existing_log_analytics_subscription_id = ""
+features = {
+  api_center            = true
+  api_center_onboarding = true
+  pii_redaction         = true
+  pii_anonymization     = true
+  content_safety        = true
+  semantic_cache        = false # deploys Azure Managed Redis
+  embeddings_backend    = false
+  ai_model_inference    = true
+  document_intelligence = true
+  azure_ai_search       = false
+  openai_realtime       = true
+  unified_ai_api        = true
+  mcp_sample            = true
+}
+
+# -----------------------------------------------------------------------------
+# 7. LOG ANALYTICS / MONITORING (typed input `monitoring`)
+# -----------------------------------------------------------------------------
+monitoring = {
+  private_link_scope      = false
+  app_insights_dashboards = true
+  # log_analytics_workspace_id    = "" # BYO workspace
+  # log_analytics_subscription_id = ""
+}
 
 # -----------------------------------------------------------------------------
 # 8. NETWORK ACCESS (relaxed for dev)
 # -----------------------------------------------------------------------------
-cosmos_db_public_access          = "Enabled"
-eventhub_network_access          = "Enabled"
-ai_foundry_external_access       = true
+ai_foundry_external_access = true
 
 # -----------------------------------------------------------------------------
 # 9. ENTRA ID AUTHENTICATION (API key only for dev)
@@ -183,7 +194,7 @@ apim_log_body_bytes = 8192
 # }
 
 # -----------------------------------------------------------------------------
-# 13. REDIS (Azure Managed Redis) — only used if enable_redis_cache = true
+# 13. REDIS (Azure Managed Redis) — only used if features.semantic_cache = true
 # -----------------------------------------------------------------------------
 redis_sku_name              = "Balanced_B10"
 redis_sku_capacity          = 2
@@ -193,20 +204,13 @@ redis_minimum_tls_version   = "1.2"
 # -----------------------------------------------------------------------------
 # 14. OPTIONAL APIM EXTRA APIs (off by default in dev)
 # -----------------------------------------------------------------------------
-enable_ai_model_inference       = true
-enable_document_intelligence    = true
-enable_azure_ai_search          = false
-enable_openai_realtime          = true
-enable_unified_ai_api           = true
 # DEPRECATED (ignored, see variables.tf): enable_ai_gateway_pii_redaction
 # enable_ai_gateway_pii_redaction = true
-is_mcp_sample_deployed          = true
 
 # -----------------------------------------------------------------------------
 # 15. API CENTER
 # -----------------------------------------------------------------------------
-apic_location                = "westeurope"
-enable_api_center_onboarding = true
+apic_location = "westeurope"
 
 # -----------------------------------------------------------------------------
 # 16. AI SEARCH INSTANCES (existing endpoints to register)
@@ -219,31 +223,25 @@ ai_search_instances = []
 # -----------------------------------------------------------------------------
 # 17. AZURE MONITOR PRIVATE LINK
 # -----------------------------------------------------------------------------
-use_azure_monitor_private_link_scope = false
 
 # -----------------------------------------------------------------------------
 # 18. FOUNDRY EMBEDDINGS (semantic cache)
 # -----------------------------------------------------------------------------
 # DEPRECATED (ignored, see variables.tf): primary_foundry_embedding_model_name
 # primary_foundry_embedding_model_name = ""
-enable_embeddings_backend            = false
-embeddings_backend_url               = ""
+embeddings_backend_url = ""
 
 # -----------------------------------------------------------------------------
 # 19. LOGIC APP CONTENT SHARE
 # -----------------------------------------------------------------------------
-logic_content_share_name = "" # auto-derived if blank
 
 # Workflow-code publish (zip + `az functionapp deployment source config-zip`
 # of src/usage-ingestion-logicapp). See DEPLOYMENT_GUIDE.md §7.8.
-enable_logic_app_code_deploy = true
-logic_app_code_source_path  = "logicapp-src/usage-ingestion-logicapp" # blank → use vendored accelerator project
 
 # -----------------------------------------------------------------------------
 # 20. APIM LOGIC PLANE (JWT / PII / MCP)
 # -----------------------------------------------------------------------------
 configure_circuit_breaker = true
-enable_pii_anonymization  = true
 ms_learn_mcp_backend_url  = "https://learn.microsoft.com/api/mcp"
 enable_jwt_auth           = false
 jwt_tenant_id             = ""
