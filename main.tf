@@ -334,6 +334,9 @@ module "apic" {
 module "foundry" {
   source = "./modules/foundry"
 
+  enable_telemetry       = var.enable_telemetry
+  outbound_allowed_fqdns = var.foundry_outbound_allowed_fqdns
+
   resource_group_name = local.resource_group_name_resolved
   resource_group_id   = local.resource_group_id
   location            = var.location

@@ -643,6 +643,12 @@ variable "foundry_network_injection_enabled" {
   default     = true
 }
 
+variable "foundry_outbound_allowed_fqdns" {
+  description = "Restrict the AI Foundry accounts' outbound network access (incl. the Agent Service) to these FQDNs. null = unrestricted. Opt-in: list every endpoint your agents and tools call."
+  type        = list(string)
+  default     = null
+}
+
 variable "ai_foundry_instances" {
   description = "List of AI Foundry instances to deploy"
   type = list(object({

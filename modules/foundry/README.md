@@ -20,19 +20,25 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="provider_azapi"></a> [azapi](#provider\_azapi) | >= 2.9, < 3.0 |
 | <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | >= 4.79, < 5.0 |
 
+## Modules
+
+| Name | Source | Version |
+| ---- | ------ | ------- |
+| <a name="module_account"></a> [account](#module\_account) | Azure/avm-res-cognitiveservices-account/azurerm | 0.11.1 |
+
 ## Resources
 
 | Name | Type |
 | ---- | ---- |
 | [azapi_resource.apim_connection](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.app_insights_connection](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
-| [azapi_resource.foundry](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.model_deployment](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.project](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azurerm_monitor_diagnostic_setting.foundry](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_diagnostic_setting) | resource |
 | [azurerm_private_endpoint.foundry](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
 | [azurerm_role_assignment.apim_cognitive_services_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.deployer_project_manager](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azapi_resource.account_state](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource) | data source |
 
 ## Inputs
 
@@ -58,12 +64,14 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_enable_apim_connections"></a> [enable\_apim\_connections](#input\_enable\_apim\_connections) | Create Foundry-project → APIM ApiKey connections. | `bool` | `false` | no |
 | <a name="input_enable_app_insights_connection"></a> [enable\_app\_insights\_connection](#input\_enable\_app\_insights\_connection) | Create the App Insights connection on each Foundry account. | `bool` | `true` | no |
 | <a name="input_enable_diagnostics"></a> [enable\_diagnostics](#input\_enable\_diagnostics) | Create diagnostic settings sending AllMetrics to Log Analytics. | `bool` | `true` | no |
+| <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_foundry_external_access"></a> [foundry\_external\_access](#input\_foundry\_external\_access) | If true, publicNetworkAccess=Enabled on Foundry accounts. | `bool` | `false` | no |
 | <a name="input_foundry_instances"></a> [foundry\_instances](#input\_foundry\_instances) | List of AI Foundry (AIServices) account definitions. | <pre>list(object({<br/>    name                 = optional(string, "")<br/>    location             = string<br/>    custom_subdomain     = optional(string, "")<br/>    default_project_name = optional(string, "")<br/>  }))</pre> | `[]` | no |
 | <a name="input_foundry_models"></a> [foundry\_models](#input\_foundry\_models) | Model deployments to create across the Foundry accounts. | <pre>list(object({<br/>    name             = string<br/>    publisher        = optional(string, "OpenAI")<br/>    version          = string<br/>    sku              = optional(string, "GlobalStandard")<br/>    capacity         = optional(number, 100)<br/>    ai_service_index = optional(number, 0)<br/>  }))</pre> | `[]` | no |
 | <a name="input_foundry_network_injection_enabled"></a> [foundry\_network\_injection\_enabled](#input\_foundry\_network\_injection\_enabled) | Inject the Foundry Agent Service into the agent subnet (needs enable\_agent\_subnet = true). | `bool` | `true` | no |
 | <a name="input_foundry_project_default_name"></a> [foundry\_project\_default\_name](#input\_foundry\_project\_default\_name) | Default AI Foundry project name (used when an instance entry does not override it). | `string` | `"citadel-governance-project"` | no |
 | <a name="input_log_analytics_id"></a> [log\_analytics\_id](#input\_log\_analytics\_id) | Log Analytics workspace ID for diagnostic settings. | `string` | `""` | no |
+| <a name="input_outbound_allowed_fqdns"></a> [outbound\_allowed\_fqdns](#input\_outbound\_allowed\_fqdns) | Restrict the Foundry accounts' outbound network access to these FQDNs. null = unrestricted (v1 behaviour). | `list(string)` | `null` | no |
 
 ## Outputs
 

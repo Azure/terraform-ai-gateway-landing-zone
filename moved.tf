@@ -495,3 +495,45 @@ moved {
   from = module.eventhub.azurerm_role_assignment.eventhub_data_owner_usage
   to   = module.eventhub.module.namespace.azurerm_role_assignment.this["usage_data_owner"]
 }
+
+# --- WP-2.7: Foundry accounts on the Azure Verified Module ---
+moved {
+  from = module.foundry.azapi_resource.foundry[0]
+  to   = module.foundry.module.account[0].azapi_resource.ai_service[0]
+}
+moved {
+  from = module.foundry.azapi_resource.foundry[1]
+  to   = module.foundry.module.account[1].azapi_resource.ai_service[0]
+}
+moved {
+  from = module.foundry.azapi_resource.foundry[2]
+  to   = module.foundry.module.account[2].azapi_resource.ai_service[0]
+}
+moved {
+  from = module.foundry.azapi_resource.foundry[3]
+  to   = module.foundry.module.account[3].azapi_resource.ai_service[0]
+}
+moved {
+  from = module.foundry.azapi_resource.foundry[4]
+  to   = module.foundry.module.account[4].azapi_resource.ai_service[0]
+}
+moved {
+  from = module.foundry.azapi_resource.foundry[5]
+  to   = module.foundry.module.account[5].azapi_resource.ai_service[0]
+}
+moved {
+  from = module.foundry.azapi_resource.foundry[6]
+  to   = module.foundry.module.account[6].azapi_resource.ai_service[0]
+}
+moved {
+  from = module.foundry.azapi_resource.foundry[7]
+  to   = module.foundry.module.account[7].azapi_resource.ai_service[0]
+}
+moved {
+  from = module.foundry.azapi_resource.foundry[8]
+  to   = module.foundry.module.account[8].azapi_resource.ai_service[0]
+}
+moved {
+  from = module.foundry.azapi_resource.foundry[9]
+  to   = module.foundry.module.account[9].azapi_resource.ai_service[0]
+}

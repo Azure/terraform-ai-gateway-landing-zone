@@ -7,25 +7,25 @@
 
 output "foundry_ids" {
   description = "Resource IDs for each AI Foundry (AIServices) account."
-  value       = azapi_resource.foundry[*].id
+  value       = local.account_ids
 }
 
 output "foundry_names" {
   description = "Names of each AI Foundry account."
-  value       = azapi_resource.foundry[*].name
+  value       = local.account_names
 }
 
 output "foundry_endpoints" {
   description = "Endpoint for each AI Foundry account."
   value = [
-    for r in azapi_resource.foundry : try(r.output.properties.endpoint, "")
+    for e in local.account_endpoints : coalesce(e, "")
   ]
 }
 
 output "foundry_principal_ids" {
   description = "System-assigned managed identity principal IDs for each Foundry account."
   value = [
-    for r in azapi_resource.foundry : try(r.output.identity.principalId, "")
+    for p in local.account_principal_ids : coalesce(p, "")
   ]
 }
 
@@ -43,13 +43,13 @@ output "project_names" {
 output "extended_ai_services_config" {
   description = "Per-instance Foundry details including the Foundry project endpoint."
   value = [
-    for i, f in azapi_resource.foundry : {
-      name                     = f.name
+    for i, name in local.account_names : {
+      name                     = name
       location                 = var.foundry_instances[i].location
-      cognitive_service_id     = f.id
-      cognitive_service_name   = f.name
-      endpoint                 = try(f.output.properties.endpoint, "")
-      foundry_project_endpoint = "https://${f.name}.services.ai.azure.com/api/projects/${azapi_resource.project[i].name}"
+      cognitive_service_id     = local.account_ids[i]
+      cognitive_service_name   = name
+      endpoint                 = coalesce(local.account_endpoints[i], "")
+      foundry_project_endpoint = "https://${name}.services.ai.azure.com/api/projects/${azapi_resource.project[i].name}"
     }
   ]
 }

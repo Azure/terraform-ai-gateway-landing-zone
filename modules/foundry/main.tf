@@ -42,56 +42,75 @@ locals {
 # AI Foundry (AIServices) accounts
 # Bicep: foundryResources (Microsoft.CognitiveServices/accounts@2026-05-01)
 # -----------------------------------------------------------------------------
-resource "azapi_resource" "foundry" {
-  count     = length(local.instances)
-  type      = "Microsoft.CognitiveServices/accounts@2026-05-01"
-  name      = local.instance_names[count.index]
-  location  = local.instances[count.index].location
-  parent_id = var.resource_group_id
-  tags      = var.tags
+module "account" {
+  source  = "Azure/avm-res-cognitiveservices-account/azurerm"
+  version = "0.11.1"
+  count   = length(local.instances)
 
-  # API version 2026-05-01 is newer than the latest schema validation in azapi.
-  schema_validation_enabled = false
+  name             = local.instance_names[count.index]
+  location         = local.instances[count.index].location
+  parent_id        = var.resource_group_id
+  tags             = var.tags
+  enable_telemetry = var.enable_telemetry
 
-  identity {
-    type = "SystemAssigned"
+  kind                     = "AIServices"
+  sku_name                 = "S0"
+  allow_project_management = true # required to enable AI Foundry (projects) on the account
+  # The project is created below (azapi_resource.project); keep the account's
+  # project list and default as Azure sets them, so an update doesn't clear them.
+  associated_projects   = [local.instance_project_names[count.index]]
+  default_project       = local.instance_project_names[count.index]
+  custom_subdomain_name = local.instance_subdomains[count.index]
+  local_auth_enabled    = !var.disable_key_auth
+  managed_identities    = { system_assigned = true }
+
+  public_network_access_enabled = var.foundry_external_access
+  network_acls = {
+    default_action = "Deny"
+    bypass         = "AzureServices"
+    ip_rules       = []
   }
 
-  body = {
-    kind = "AIServices"
-    sku = {
-      name = "S0"
-    }
-    properties = {
-      # Required to enable AI Foundry (project management) on the account
-      allowProjectManagement = true
-      customSubDomainName    = local.instance_subdomains[count.index]
-      disableLocalAuth       = var.disable_key_auth
-      publicNetworkAccess    = var.foundry_external_access ? "Enabled" : "Disabled"
-      networkAcls = {
-        defaultAction       = "Deny"
-        bypass              = "AzureServices"
-        ipRules             = []
-        virtualNetworkRules = []
-      }
-      # Per-instance opt-in: config.network_injection_enabled (default true) AND
-      # the module-level flag AND an available agent subnet.
-      networkInjections = (
-        var.foundry_network_injection_enabled &&
-        try(local.instances[count.index].network_injection_enabled, true) &&
-        var.agent_subnet_id != ""
-        ) ? [
-        {
-          scenario                   = "agent"
-          subnetArmId                = var.agent_subnet_id
-          useMicrosoftManagedNetwork = false
-        }
-      ] : null
+  # Optional egress lock-down: when set, the account (and the Agent Service)
+  # may only reach these FQDNs.
+  outbound_network_access_restricted = var.outbound_allowed_fqdns != null
+  fqdns                              = var.outbound_allowed_fqdns
 
-    }
-  }
+  # Per-instance opt-in: config.network_injection_enabled (default true) AND
+  # the module-level flag AND an available agent subnet.
+  network_injections = (
+    var.foundry_network_injection_enabled &&
+    try(local.instances[count.index].network_injection_enabled, true) &&
+    var.agent_subnet_id != ""
+    ) ? {
+    scenario                          = "agent"
+    subnet_id                         = var.agent_subnet_id
+    microsoft_managed_network_enabled = false
+  } : null
+}
 
+# The principal ID and endpoint never change once an account exists, but an
+# in-place update of the account makes the module outputs unknown at plan time,
+# which would replace every role assignment on that principal. Read them from
+# the live account when it exists; new accounts use the module outputs.
+data "azapi_resource" "account_state" {
+  count = length(local.instances)
+
+  type                   = "Microsoft.CognitiveServices/accounts@2025-06-01"
+  resource_id            = "${var.resource_group_id}/providers/Microsoft.CognitiveServices/accounts/${local.instance_names[count.index]}"
+  ignore_not_found       = true
   response_export_values = ["identity.principalId", "properties.endpoint"]
+}
+
+locals {
+  account_ids   = module.account[*].resource_id
+  account_names = module.account[*].name
+  account_endpoints = [
+    for i, m in module.account : try(data.azapi_resource.account_state[i].output.properties.endpoint, null) != null ? data.azapi_resource.account_state[i].output.properties.endpoint : m.endpoint
+  ]
+  account_principal_ids = [
+    for i, m in module.account : try(data.azapi_resource.account_state[i].output.identity.principalId, null) != null ? data.azapi_resource.account_state[i].output.identity.principalId : m.system_assigned_mi_principal_id
+  ]
 }
 
 # -----------------------------------------------------------------------------
@@ -103,7 +122,7 @@ resource "azapi_resource" "project" {
   type      = "Microsoft.CognitiveServices/accounts/projects@2026-05-01"
   name      = local.instance_project_names[count.index]
   location  = local.instances[count.index].location
-  parent_id = azapi_resource.foundry[count.index].id
+  parent_id = local.account_ids[count.index]
   tags      = var.tags
 
   # API version 2026-05-01 is newer than the latest schema validation in azapi.
@@ -126,7 +145,7 @@ resource "azapi_resource" "project" {
 # -----------------------------------------------------------------------------
 resource "azurerm_role_assignment" "deployer_project_manager" {
   count              = length(local.instances)
-  scope              = azapi_resource.foundry[count.index].id
+  scope              = local.account_ids[count.index]
   role_definition_id = "/providers/Microsoft.Authorization/roleDefinitions/${local.ai_project_manager_role_id}"
   principal_id       = var.deployer_object_id
 }
@@ -137,7 +156,7 @@ resource "azurerm_role_assignment" "deployer_project_manager" {
 # -----------------------------------------------------------------------------
 resource "azurerm_role_assignment" "apim_cognitive_services_user" {
   count                = length(local.instances)
-  scope                = azapi_resource.foundry[count.index].id
+  scope                = local.account_ids[count.index]
   role_definition_name = "Cognitive Services User"
   principal_id         = var.apim_principal_id
   principal_type       = "ServicePrincipal"
@@ -150,7 +169,7 @@ resource "azurerm_role_assignment" "apim_cognitive_services_user" {
 resource "azurerm_monitor_diagnostic_setting" "foundry" {
   count                      = var.enable_diagnostics ? length(local.instances) : 0
   name                       = "${local.instance_names[count.index]}-diagnostics"
-  target_resource_id         = azapi_resource.foundry[count.index].id
+  target_resource_id         = local.account_ids[count.index]
   log_analytics_workspace_id = var.log_analytics_id
 
   enabled_metric {
@@ -167,7 +186,7 @@ resource "azapi_resource" "app_insights_connection" {
 
   type      = "Microsoft.CognitiveServices/accounts/connections@2026-05-01"
   name      = "${local.instance_names[count.index]}-appInsights-connection"
-  parent_id = azapi_resource.foundry[count.index].id
+  parent_id = local.account_ids[count.index]
 
   # API version 2026-05-01 is newer than the latest schema validation in azapi.
   schema_validation_enabled = false
@@ -202,7 +221,7 @@ resource "azapi_resource" "model_deployment" {
 
   type      = "Microsoft.CognitiveServices/accounts/deployments@2026-05-01"
   name      = var.foundry_models[count.index].name
-  parent_id = azapi_resource.foundry[var.foundry_models[count.index].ai_service_index].id
+  parent_id = local.account_ids[var.foundry_models[count.index].ai_service_index]
 
   # API version 2026-05-01 is newer than the latest schema validation in azapi.
   schema_validation_enabled = false
@@ -254,7 +273,7 @@ resource "azurerm_private_endpoint" "foundry" {
 
   private_service_connection {
     name                           = "psc-${local.instance_names[count.index]}"
-    private_connection_resource_id = azapi_resource.foundry[count.index].id
+    private_connection_resource_id = local.account_ids[count.index]
     subresource_names              = ["account"]
     is_manual_connection           = false
   }
