@@ -8,11 +8,11 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 4.79.0"
+      version = "~> 4.81"
     }
     azapi = {
       source  = "azure/azapi"
-      version = "~> 2.9.0"
+      version = "~> 2.12"
     }
     azuread = {
       source  = "hashicorp/azuread"
@@ -37,6 +37,12 @@ terraform {
     http = {
       source  = "hashicorp/http"
       version = "~> 3.4"
+    }
+    # Azure Verified Modules report usage telemetry through modtm
+    # (disabled per module with enable_telemetry = false).
+    modtm = {
+      source  = "azure/modtm"
+      version = "~> 0.3"
     }
   }
 
