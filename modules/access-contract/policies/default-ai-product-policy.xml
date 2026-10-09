@@ -12,7 +12,7 @@
         <include-fragment fragment-id="set-llm-requested-model" />
         
         <!-- Setting allowed models variable (comma-separated list) - uses validate-model-access fragment -->
-        <set-variable name="allowedModels" value="gpt-4o,deepseek-r1,gpt-4.1,gpt-5.4-mini" />
+        <set-variable name="allowedModels" value="gpt-4.1,gpt-5.4-mini" />
 
         <!-- Capacity management - Subscription Level: allow only assigned tpm for each HR use case subscription -->
         <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="1000" estimate-prompt-tokens="false" token-quota="100000" token-quota-period="Monthly" />
