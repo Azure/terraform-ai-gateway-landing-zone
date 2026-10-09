@@ -1,6 +1,6 @@
 # =============================================================================
-# ACCESS CONTRACT — one use case onboarded to the gateway (Bicep parity:
-# citadel-access-contracts). Per service code:
+# ACCESS CONTRACT — one use case onboarded to the gateway (citadel-access-contracts). 
+# Per service code:
 #   product (+ policy) -> mapped APIs -> subscription -> Key Vault secrets ->
 #   Foundry connection.
 # Subscription keys never enter Terraform state: the subscription is an
@@ -13,6 +13,22 @@ locals {
   services = { for s in var.services : s.code => s }
 
   endpoint_url = { for code, s in local.services : code => "${var.api_management.gateway_url}/${var.api_paths[code]}" }
+
+  # Product policy: generated from the service's properties (policies/product-policy.xml.tftpl),
+  # unless the service brings a complete policy_xml.
+  product_policy_xml = {
+    for code, s in local.services : code => s.policy_xml != "" ? s.policy_xml : replace(templatefile("${path.module}/policies/product-policy.xml.tftpl", {
+      allowed_models          = join(",", s.allowed_models)
+      enable_response_headers = s.enable_response_headers
+      jwt_required            = s.jwt_required
+      jwt_audience            = replace(replace(replace(var.foundry_config.managed_identity_audience, "&", "&amp;"), "\"", "&quot;"), "<", "&lt;")
+      tenant_id               = var.tenant_id
+      token_limit_attributes = s.token_limit == null ? "" : join(" ", compact([
+        s.token_limit.tokens_per_minute == null ? "" : "tokens-per-minute=\"${s.token_limit.tokens_per_minute}\"",
+        s.token_limit.token_quota == null ? "" : "token-quota=\"${s.token_limit.token_quota}\" token-quota-period=\"${s.token_limit.token_quota_period}\"",
+      ]))
+    }), "/\n([ \t]*\n)+/", "\n") # the template's directive lines leave blank lines
+  }
 
   product_apis = merge([
     for code, s in local.services : {
@@ -51,7 +67,7 @@ resource "azurerm_api_management_product_policy" "service" {
   api_management_name = var.api_management.name
   resource_group_name = var.api_management.resource_group_name
   product_id          = azurerm_api_management_product.service[each.key].product_id
-  xml_content         = each.value.policy_xml != "" ? each.value.policy_xml : file("${path.module}/policies/default-ai-product-policy.xml")
+  xml_content         = local.product_policy_xml[each.key]
 }
 
 resource "azapi_resource" "subscription" {
@@ -155,8 +171,8 @@ locals {
 # longer identifies the caller). Warn rather than fail: custom policies are free-form.
 check "foundry_mi_policy_validates_jwt" {
   assert {
-    condition     = var.foundry_project_id == null || !local.foundry_mi || alltrue([for s in var.services : strcontains(s.policy_xml, "jwtRequired")])
-    error_message = "foundry_config.auth_type = ProjectManagedIdentity: every service's product policy_xml must set jwtRequired=true with jwtAudience = managed_identity_audience, jwtIssuer and jwtOpenIdConfigUrl, otherwise the project identity's JWT is sent but never validated (see DEPLOYMENT_GUIDE, Foundry connection authentication). Use auth_type = ApiKey to skip JWT validation."
+    condition     = var.foundry_project_id == null || !local.foundry_mi || alltrue([for s in var.services : s.policy_xml != "" ? strcontains(s.policy_xml, "jwtRequired") : s.jwt_required])
+    error_message = "foundry_config.auth_type = ProjectManagedIdentity: every service needs jwt_required = true (or a custom policy_xml that sets jwtRequired=true with jwtAudience = managed_identity_audience, jwtIssuer and jwtOpenIdConfigUrl), otherwise the project identity's JWT is sent but never validated (see DEPLOYMENT_GUIDE, Foundry connection authentication). Use auth_type = ApiKey to skip JWT validation."
   }
 }
 

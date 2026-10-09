@@ -14,32 +14,10 @@ services = [
     code                 = "LLM"
     endpoint_secret_name = "TEAMA-LLM-ENDPOINT"
     api_key_secret_name  = "TEAMA-LLM-KEY"
-    # policy_xml = "" -> modules/access-contract/policies/default-ai-product-policy.xml.
-    # Per-contract model RBAC + capacity:
-    policy_xml = <<-XML
-      <policies>
-        <inbound>
-          <base />
-          <include-fragment fragment-id="set-llm-requested-model" />
-          <set-variable name="allowedModels" value="gpt-4.1,fast" />
-          <include-fragment fragment-id="validate-model-access" />
-          <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="2000" estimate-prompt-tokens="false" token-quota="50000" token-quota-period="Daily" />
-          <!-- Enable advanced response headers offered by set-response-headers fragment -->
-          <set-variable name="enableResponseHeaders" value="@(true)" />
-        </inbound>
-        <backend><base /></backend>
-        <outbound><base /></outbound>
-        <on-error>
-          <base />
-          <!-- Raising throttling events (http 429 only) can help in setting up alerts in App Insights -->
-          <!-- Set the following variables to customize the throttling event details -->
-          <!-- <set-variable name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
-          <set-variable name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "DefaultModel"))" />
-          <set-variable name="appId" value="@((string)context.Variables.GetValueOrDefault<string>("appId", context.Subscription?.Id ?? "Portal-Admin-Sub"))" />
-          <include-fragment fragment-id="raise-throttling-events" /> -->
-        </on-error>
-      </policies>
-    XML
+    # Product policy, generated from these properties (policy_xml is only for advanced policies).
+    allowed_models          = ["gpt-4.1", "fast"]
+    token_limit             = { tokens_per_minute = 2000, token_quota = 50000, token_quota_period = "Daily" }
+    enable_response_headers = true
   },
 ]
 

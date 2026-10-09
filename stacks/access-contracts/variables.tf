@@ -13,13 +13,59 @@ variable "api_name_mapping" {
 }
 
 variable "services" {
-  description = "Services to onboard (code, endpoint_secret_name, api_key_secret_name, policy_xml); see modules/access-contract."
+  description = <<-EOT
+    Services to onboard: a product, its policy and a subscription each (modules/access-contract).
+      code                     key in api_name_mapping, e.g. LLM
+      endpoint_secret_name     Key Vault secret for the endpoint URL
+      api_key_secret_name      Key Vault secret for the subscription key
+    The product policy is generated from these properties:
+      allowed_models           models (and aliases) the contract may call; [] = every model
+      token_limit              per-subscription limit (llm-token-limit): tokens_per_minute and / or
+                               token_quota, with token_quota_period (Hourly | Daily | Weekly | Monthly | Yearly);
+                               null = no limit
+      enable_response_headers  the UAIG-* debug response headers (default true)
+      jwt_required             also validate the Entra token the Foundry connection sends
+                               (audience = foundry_config.managed_identity_audience, tenant = the deploying identity's)
+    policy_xml                 advanced: a complete product policy that replaces the generated one
+                               (the properties above are then ignored)
+  EOT
   type = list(object({
     code                 = string
     endpoint_secret_name = string
     api_key_secret_name  = string
-    policy_xml           = optional(string, "")
+
+    allowed_models = optional(list(string), [])
+    token_limit = optional(object({
+      tokens_per_minute  = optional(number)
+      token_quota        = optional(number)
+      token_quota_period = optional(string, "Monthly")
+    }))
+    enable_response_headers = optional(bool, true)
+    jwt_required            = optional(bool, false)
+
+    policy_xml = optional(string, "")
   }))
+
+  validation {
+    condition     = length(var.services) == length(distinct([for s in var.services : s.code]))
+    error_message = "services[*].code must be unique."
+  }
+  validation {
+    condition     = alltrue([for s in var.services : alltrue([for m in s.allowed_models : can(regex("^[A-Za-z0-9][A-Za-z0-9._:/-]*$", m))])])
+    error_message = "services[*].allowed_models entries must be model or alias names (letters, digits and . _ : / -), without spaces or commas."
+  }
+  validation {
+    condition = alltrue([for s in var.services : s.token_limit == null ? true : (
+      (s.token_limit.tokens_per_minute != null || s.token_limit.token_quota != null) &&
+      coalesce(s.token_limit.tokens_per_minute, 1) > 0 &&
+      coalesce(s.token_limit.token_quota, 1) > 0
+    )])
+    error_message = "services[*].token_limit needs tokens_per_minute and / or token_quota, each greater than 0."
+  }
+  validation {
+    condition     = alltrue([for s in var.services : s.token_limit == null ? true : contains(["Hourly", "Daily", "Weekly", "Monthly", "Yearly"], s.token_limit.token_quota_period)])
+    error_message = "services[*].token_limit.token_quota_period must be Hourly, Daily, Weekly, Monthly or Yearly."
+  }
 }
 
 variable "product_terms" {

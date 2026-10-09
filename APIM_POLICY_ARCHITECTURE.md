@@ -103,7 +103,7 @@ modules/
   gateway-api/                 # Generic API: http / websocket / mcp, operation policies, diagnostics, optional product
   apim-telemetry/              # APIM loggers (App Insights, Azure Monitor, Event Hub) + global diagnostics
   access-contract/             # Products, product policies, subscriptions, Key Vault secrets, Foundry connection
-    policies/                  #   default-ai-product-policy.xml
+    policies/                  #   product-policy.xml.tftpl (the generated product policy)
 ```
 
 Each fragment file has exactly one owner:
@@ -352,7 +352,7 @@ if no LLM backends are configured these operation policies aren't attached.
 | Product | Policy XML | Where |
 |---|---|---|
 | `unified-ai-product` | [unified-ai-product-subscription.xml](stacks/llm-backend-onboarding/apis/unified-ai-api/unified-ai-product-subscription.xml) | `product` attribute of the `unified-ai-api` entry in [stacks/llm-backend-onboarding/apis.tf](stacks/llm-backend-onboarding/apis.tf) (created by [modules/gateway-api](modules/gateway-api/README.md)) |
-| Per-use-case access-contract products | Per-service `policy_xml`, or [modules/access-contract/policies/default-ai-product-policy.xml](modules/access-contract/policies/default-ai-product-policy.xml) when blank | [modules/access-contract/main.tf](modules/access-contract/main.tf), called from [stacks/access-contracts/main.tf](stacks/access-contracts/main.tf) |
+| Per-use-case access-contract products | Generated from the service properties (`allowed_models`, `token_limit`, `enable_response_headers`, `jwt_required`) with [modules/access-contract/policies/product-policy.xml.tftpl](modules/access-contract/policies/product-policy.xml.tftpl), or a complete per-service `policy_xml` | [modules/access-contract/main.tf](modules/access-contract/main.tf), called from [stacks/access-contracts/main.tf](stacks/access-contracts/main.tf) |
 
 There is no built-in default product: a general-purpose product (formerly
 `default-ai-access`) or a Foundry → gateway connection is an access contract
@@ -492,7 +492,7 @@ named value referenced by a fragment) — the graph doesn't know about
 | Add a new named value | Model-agnostic: add a key to `local.plain_named_values` in [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) (already in `depends_on_ids` / `api_policy_depends_on`). Backend credentials: add a resource in [stacks/llm-backend-onboarding/named-values.tf](stacks/llm-backend-onboarding/named-values.tf) and add it to `depends_on_ids` of `module.llm_fragments` |
 | Change the generated routing fragments | Edit the templates in [modules/llm-routing/templates/](modules/llm-routing/templates/) or the generator `locals` in [modules/llm-routing/main.tf](modules/llm-routing/main.tf) |
 | Add a new backend pool routing rule | Add the model to `foundry.models` in `platform.tfvars` and re-apply platform, then llm-backend-onboarding; or add to `extra_llm_backends` / `llm_backend_config` in `environments/<env>/llm-backend-onboarding.tfvars` — dynamic fragments regenerate automatically |
-| Add a per-use-case access contract | Add `environments/<env>/access-contracts/<use-case>.tfvars` with `use_case`, `services` and `api_name_mapping`, then run `task contract ENV=<env> USE_CASE=<use-case>` (no XML edits unless you need custom per-service `policy_xml`) |
+| Add a per-use-case access contract | Add `environments/<env>/access-contracts/<use-case>.tfvars` with `use_case`, `services` and `api_name_mapping`, then run `task contract ENV=<env> USE_CASE=<use-case>` (no XML: the product policy comes from the service properties; set a complete `policy_xml` only for a custom policy) |
 | Onboard an LLM backend to a live APIM | Edit `environments/<env>/llm-backend-onboarding.tfvars` and run `task apply STACK=llm-backend-onboarding ENV=<env>` |
 
 ---
@@ -513,11 +513,12 @@ applied with `task contract`) by calling
 `var.use_case` (`{ business_unit, use_case_name, environment }`),
 `var.api_name_mapping` (service code → existing APIM API names), and
 `var.services` (list of `{ code, endpoint_secret_name, api_key_secret_name,
-policy_xml }`). Per service `code` it creates:
+allowed_models, token_limit, enable_response_headers, jwt_required, policy_xml }`).
+Per service `code` it creates:
 
 - An APIM product `<code>-<business_unit>-<use_case_name>-<environment>`.
 - Product→API links from `var.api_name_mapping[code]`.
-- A product policy (`policy_xml`, else `policies/default-ai-product-policy.xml`).
+- A product policy generated from `allowed_models`, `token_limit`, `enable_response_headers` and `jwt_required` (`policies/product-policy.xml.tftpl`), or the service's complete `policy_xml` when set.
 - A subscription `<…>-SUB-01`, created with `azapi_resource` so the keys never
   enter state. The key is read through an ephemeral `azapi_resource_action`
   (`listSecrets`) and written only to write-only arguments.

@@ -1,6 +1,9 @@
 # APIM, Key Vault and the Foundry project are owned by stacks/platform and
 # found by name; the APIs by stacks/gateway-config / llm-backend-onboarding.
 
+# The tenant of the deploying identity: the issuer of the generated JWT policy.
+data "azurerm_client_config" "current" {}
+
 data "azurerm_api_management" "this" {
   name                = local.names.apim
   resource_group_name = local.names.resource_group
@@ -43,6 +46,7 @@ module "contract" {
   api_name_mapping = var.api_name_mapping
   api_paths        = { for k, a in data.azurerm_api_management_api.first : k => a.path }
   services         = var.services
+  tenant_id        = data.azurerm_client_config.current.tenant_id
   product_terms    = var.product_terms
 
   key_vault_id         = local.key_vault_id

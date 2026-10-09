@@ -18,45 +18,23 @@ services = [
     code                 = "LLM"
     endpoint_secret_name = "RETAIL-LLM-ENDPOINT"
     api_key_secret_name  = "RETAIL-LLM-KEY"
-    # Model RBAC, a token limit and the Entra JWT checked by the connection (see the dev-greenfield-private contract).
-    policy_xml = <<-XML
-      <policies>
-        <inbound>
-          <base />
-          <set-variable name="jwtRequired" value="true" />
-          <set-variable name="jwtAudience" value="https://cognitiveservices.azure.com" />
-          <set-variable name="jwtIssuer" value="https://sts.windows.net/<tenant-id>/" />
-          <set-variable name="jwtOpenIdConfigUrl" value="https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration" />
-          <include-fragment fragment-id="set-llm-requested-model" />
-          <set-variable name="allowedModels" value="fast,balanced" />
-          <include-fragment fragment-id="validate-model-access" />
-          <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="50000" estimate-prompt-tokens="false" token-quota="5000000" token-quota-period="Daily" />
-          <!-- Enable advanced response headers offered by set-response-headers fragment -->
-          <set-variable name="enableResponseHeaders" value="@(true)" />
-        </inbound>
-        <backend><base /></backend>
-        <outbound><base /></outbound>
-        <on-error>
-          <base />
-          <!-- Raising throttling events (http 429 only) can help in setting up alerts in App Insights -->
-          <!-- Set the following variables to customize the throttling event details -->
-          <!-- <set-variable name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
-          <set-variable name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "DefaultModel"))" />
-          <set-variable name="appId" value="@((string)context.Variables.GetValueOrDefault<string>("appId", context.Subscription?.Id ?? "Portal-Admin-Sub"))" />
-          <include-fragment fragment-id="raise-throttling-events" /> -->
-        </on-error>
-      </policies>
-    XML
+    # Product policy, generated from these properties (policy_xml is only for advanced policies).
+    allowed_models          = ["fast", "balanced"]
+    token_limit             = { tokens_per_minute = 50000, token_quota = 5000000, token_quota_period = "Daily" }
+    enable_response_headers = true
+    jwt_required            = true # also validate the token the Foundry project identity sends (audience: foundry_config)
   },
   {
     code                 = "SRCH"
     endpoint_secret_name = "RETAIL-SEARCH-ENDPOINT"
     api_key_secret_name  = "RETAIL-SEARCH-KEY"
+    jwt_required         = true # its Foundry connection sends the project identity's token too
   },
   {
     code                 = "DOC"
     endpoint_secret_name = "RETAIL-DOC-ENDPOINT"
     api_key_secret_name  = "RETAIL-DOC-KEY"
+    jwt_required         = true # its Foundry connection sends the project identity's token too
   },
 ]
 

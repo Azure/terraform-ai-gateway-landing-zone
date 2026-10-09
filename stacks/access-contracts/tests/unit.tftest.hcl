@@ -4,6 +4,11 @@
 mock_provider "azurerm" {
   override_during = plan
 
+  mock_data "azurerm_client_config" {
+    defaults = {
+      tenant_id = "00000000-0000-0000-0000-000000000001"
+    }
+  }
   mock_data "azurerm_api_management" {
     defaults = {
       id                  = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-aigw-dev/providers/Microsoft.ApiManagement/service/apim-aigw-dev"
@@ -111,4 +116,62 @@ run "foundry_auth_type_is_validated" {
   }
 
   expect_failures = [var.foundry_config]
+}
+
+# --- generated product policy properties ---------------------------------------
+
+run "policy_properties_are_accepted" {
+  command = plan
+
+  variables {
+    services = [{
+      code                    = "LLM"
+      endpoint_secret_name    = "HR_LLM_ENDPOINT"
+      api_key_secret_name     = "HR_LLM_KEY"
+      allowed_models          = ["gpt-5.4-mini", "fast"]
+      token_limit             = { tokens_per_minute = 2000, token_quota = 50000, token_quota_period = "Daily" }
+      enable_response_headers = true
+      jwt_required            = true
+    }]
+  }
+
+  override_module {
+    target  = module.contract
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
+  }
+
+  assert {
+    condition     = var.services[0].token_limit.token_quota_period == "Daily" && var.services[0].jwt_required
+    error_message = "The structured policy properties are part of the service."
+  }
+}
+
+run "model_names_are_validated" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", allowed_models = ["gpt-4o,deepseek"] }]
+  }
+
+  override_module {
+    target  = module.contract
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
+  }
+
+  expect_failures = [var.services]
+}
+
+run "token_limit_is_validated" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", token_limit = { token_quota = 10, token_quota_period = "Sometimes" } }]
+  }
+
+  override_module {
+    target  = module.contract
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
+  }
+
+  expect_failures = [var.services]
 }

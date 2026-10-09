@@ -5,6 +5,11 @@
 mock_provider "azurerm" {
   override_during = plan
 
+  mock_data "azurerm_client_config" {
+    defaults = {
+      tenant_id = "00000000-0000-0000-0000-000000000001"
+    }
+  }
   mock_data "azurerm_api_management" {
     defaults = {
       id                  = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-aigw-dev/providers/Microsoft.ApiManagement/service/apim-aigw-dev"

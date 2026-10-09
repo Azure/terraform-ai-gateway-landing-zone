@@ -1,5 +1,5 @@
 # Team-owned Foundry project and Key Vault, ModelGateway connection with a
-# static model list and API-key auth (no JWT validation in the policy).
+# static model list and API-key auth (jwt_required stays off).
 use_case = {
   business_unit = "TeamB"
   use_case_name = "Agents"
@@ -15,7 +15,7 @@ services = [
     code                 = "LLM"
     endpoint_secret_name = "TEAMB-LLM-ENDPOINT"
     api_key_secret_name  = "TEAMB-LLM-KEY"
-    # Default product policy (no model RBAC, no extra limits).
+    # No policy properties: every model, no token limit, response headers on (the defaults).
   },
 ]
 

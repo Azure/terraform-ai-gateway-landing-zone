@@ -365,32 +365,34 @@ state. In `ProjectManagedIdentity` mode the key sits in the connection's
 (Foundry echoes the header back), so state stays clean.
 
 **The product policy must validate the JWT**, otherwise it is sent and never
-checked. Add this to the service's `policy_xml` inbound section (the
-`security-handler` fragment already honours these variables):
+checked. Set `jwt_required = true` on the service in the contract's tfvars; the
+module then generates the policy variables the `security-handler` fragment
+honours:
 
-```xml
-<inbound>
-  <base />
-  <set-variable name="jwtRequired" value="true" />
-  <set-variable name="jwtAudience" value="https://cognitiveservices.azure.com" />
-  <set-variable name="jwtIssuer" value="https://sts.windows.net/<tenant-id>/" />
-  <set-variable name="jwtOpenIdConfigUrl" value="https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration" />
-  <!-- model access, capacity, ... -->
-</inbound>
+```hcl
+services = [{
+  code                 = "LLM"
+  endpoint_secret_name = "TEAMA-LLM-ENDPOINT"
+  api_key_secret_name  = "TEAMA-LLM-KEY"
+  jwt_required         = true
+}]
 ```
 
-| Variable | Value | Notes |
+| Variable the module sets | Value | Notes |
 |---|---|---|
-| `jwtAudience` | the connection's `managed_identity_audience` | must be identical on both sides |
+| `jwtRequired` | `true` | |
+| `jwtAudience` | the connection's `foundry_config.managed_identity_audience` | the same input feeds both sides, so they can't differ |
 | `jwtIssuer` | `https://sts.windows.net/<tenant-id>/` | managed identity tokens are v1 tokens |
 | `jwtOpenIdConfigUrl` | `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration` | the v2.0 keys validate v1 signatures |
 
-- **Use the literal tenant ID.** `{{JWT-TenantId}}` holds the real tenant only when
-  gateway-config has `entra_auth.enabled = true`; otherwise it is `not-configured`.
+- **The tenant is the deploying identity's**, read from the provider; there is
+  nothing to enter. For a Foundry project in another tenant, bring your own
+  `policy_xml` with that tenant's ID (the literal ID, not `{{JWT-TenantId}}`, which
+  holds the real tenant only when gateway-config has `entra_auth.enabled = true`).
 - A `check` warns on every plan when a Foundry contract uses `ProjectManagedIdentity`
-  and a service's policy has no `jwtRequired`. The default product policy has none,
-  so a Foundry contract needs a custom `policy_xml` or `auth_type = "ApiKey"`.
-- **Direct callers are affected too.** With `jwtRequired` the product accepts only
+  and a service has neither `jwt_required = true` nor a custom `policy_xml` that sets
+  `jwtRequired`. Use `auth_type = "ApiKey"` for a key-only connection.
+- **Direct callers are affected too.** With `jwt_required` the product accepts only
   requests that carry the key **and** a valid token for that audience. Apps that read
   the same key from Key Vault must send a token as well (for example
   `az account get-access-token --resource https://cognitiveservices.azure.com`), or
@@ -444,6 +446,40 @@ content_safety_service = { source = "dedicated" }
   Entra token (Language `language/:analyze-text` redacts the entities; Content
   Safety `contentsafety/text:analyze` scores the text). Example:
   [examples/no-foundry-ai-services](examples/no-foundry-ai-services/).
+
+### 6.5 Access contract product policy
+
+Each service of an access contract gets an APIM product with a policy that the module
+generates from properties, so a contract's tfvars never contains XML:
+
+```hcl
+services = [{
+  code                 = "LLM"
+  endpoint_secret_name = "TEAMA-LLM-ENDPOINT"
+  api_key_secret_name  = "TEAMA-LLM-KEY"
+
+  allowed_models          = ["gpt-5.4-mini", "fast"]   # models and aliases; [] = every model
+  token_limit             = { tokens_per_minute = 2000, token_quota = 50000, token_quota_period = "Daily" }
+  enable_response_headers = true                       # the UAIG-* debug response headers
+  jwt_required            = false                      # see 6.3
+}]
+```
+
+| Property | Default | Generates |
+|---|---|---|
+| `allowed_models` | `[]` (every model) | `allowedModels` and the `validate-model-access` fragment: a model outside the list gets `401`. Entries are model or alias names (letters, digits, `. _ : / -`). |
+| `token_limit` | `null` (no limit) | an `llm-token-limit` per subscription. Set `tokens_per_minute` and / or `token_quota`; `token_quota_period` is `Hourly`, `Daily`, `Weekly`, `Monthly` (default) or `Yearly`. |
+| `enable_response_headers` | `true` | `enableResponseHeaders`, which makes the `set-response-headers` fragment add the `UAIG-*` headers |
+| `jwt_required` | `false` | the JWT validation variables of 6.3 |
+
+Every policy also calls `set-llm-requested-model` and carries the commented hint for
+raising throttling events in `on-error`. The template is
+[modules/access-contract/policies/product-policy.xml.tftpl](modules/access-contract/policies/product-policy.xml.tftpl).
+
+For anything the properties don't cover (PII handling, content safety, app-role
+authorization, per-model limits) set `policy_xml` to a **complete** policy. It replaces
+the generated one, and the properties above are then ignored. The validation notebooks
+do this to test custom policies.
 
 ---
 

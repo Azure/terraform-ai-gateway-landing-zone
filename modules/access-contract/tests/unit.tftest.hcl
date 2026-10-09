@@ -43,8 +43,8 @@ run "products_apis_and_keyless_subscriptions" {
     error_message = "One subscription per product, scoped to it (azapi: APIM never returns keys on GET)."
   }
   assert {
-    condition     = strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<policies>") && azurerm_api_management_product_policy.service["DOC"].xml_content == var.services[1].policy_xml
-    error_message = "Default policy unless policy_xml is set."
+    condition     = azurerm_api_management_product_policy.service["DOC"].xml_content == var.services[1].policy_xml
+    error_message = "A complete policy_xml replaces the generated policy."
   }
   assert {
     condition     = output.endpoints == { LLM = "https://apim-aigw-dev.azure-api.net/models", DOC = "https://apim-aigw-dev.azure-api.net/documentintelligence" }
@@ -130,4 +130,183 @@ run "foundry_rejects_api_key_header_in_managed_identity_mode" {
   }
 
   expect_failures = [var.foundry_config]
+}
+
+# --- generated product policy --------------------------------------------------
+
+run "default_policy_restricts_nothing" {
+  command = plan
+
+  assert {
+    condition = (
+      startswith(azurerm_api_management_product_policy.service["LLM"].xml_content, "<policies>") &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "set-llm-requested-model") &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "name=\"enableResponseHeaders\" value=\"@(true)\"") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "allowedModels") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "llm-token-limit") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "jwtRequired")
+    )
+    error_message = "With no properties: every model, no token limit, no JWT, response headers on."
+  }
+  assert {
+    condition     = !can(regex("\n[ \t]*\n", azurerm_api_management_product_policy.service["LLM"].xml_content))
+    error_message = "The template's directive lines leave no blank lines."
+  }
+}
+
+run "policy_from_properties" {
+  command = plan
+
+  variables {
+    services = [{
+      code                 = "LLM"
+      endpoint_secret_name = "HR_LLM_ENDPOINT"
+      api_key_secret_name  = "HR_LLM_KEY"
+      allowed_models       = ["gpt-5.4-mini", "fast"]
+      token_limit          = { tokens_per_minute = 2000, token_quota = 50000, token_quota_period = "Daily" }
+    }]
+  }
+
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"allowedModels\" value=\"gpt-5.4-mini,fast\" />") &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "validate-model-access") &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<llm-token-limit counter-key=\"@(context.Subscription.Id)\" tokens-per-minute=\"2000\" token-quota=\"50000\" token-quota-period=\"Daily\" estimate-prompt-tokens=\"false\" />")
+    )
+    error_message = "Allowed models and the token limit come from the properties."
+  }
+}
+
+run "token_limit_parts_are_optional" {
+  command = plan
+
+  variables {
+    services = [
+      { code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", token_limit = { tokens_per_minute = 500 } },
+      { code = "DOC", endpoint_secret_name = "C", api_key_secret_name = "D", token_limit = { token_quota = 1000 } },
+    ]
+  }
+
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "tokens-per-minute=\"500\" estimate-prompt-tokens") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "token-quota")
+    )
+    error_message = "A per-minute limit alone sets no quota."
+  }
+  assert {
+    condition     = strcontains(azurerm_api_management_product_policy.service["DOC"].xml_content, "token-quota=\"1000\" token-quota-period=\"Monthly\" estimate-prompt-tokens") && !strcontains(azurerm_api_management_product_policy.service["DOC"].xml_content, "tokens-per-minute")
+    error_message = "A quota alone defaults to a monthly period."
+  }
+}
+
+run "response_headers_can_be_switched_off" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", enable_response_headers = false }]
+  }
+
+  assert {
+    condition     = !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "enableResponseHeaders")
+    error_message = "enable_response_headers = false leaves the variable out."
+  }
+}
+
+run "jwt_policy_uses_the_connection_audience_and_the_tenant" {
+  command = plan
+
+  variables {
+    tenant_id      = "11111111-2222-3333-4444-555555555555"
+    foundry_config = { managed_identity_audience = "api://custom-gateway" }
+    services       = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true }]
+  }
+
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"jwtRequired\" value=\"true\" />") &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"jwtAudience\" value=\"api://custom-gateway\" />") &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "value=\"https://sts.windows.net/11111111-2222-3333-4444-555555555555/\"") &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "value=\"https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0/.well-known/openid-configuration\"")
+    )
+    error_message = "jwt_required validates the audience the Foundry connection sends, for the tenant."
+  }
+}
+
+run "jwt_audience_is_xml_escaped" {
+  command = plan
+
+  variables {
+    tenant_id      = "11111111-2222-3333-4444-555555555555"
+    foundry_config = { managed_identity_audience = "api://a&b\"<c" }
+    services       = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true }]
+  }
+
+  assert {
+    condition     = strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "value=\"api://a&amp;b&quot;&lt;c\"")
+    error_message = "The audience can't break out of the XML attribute."
+  }
+}
+
+run "jwt_needs_a_tenant" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true }]
+  }
+
+  expect_failures = [var.tenant_id]
+}
+
+run "jwt_with_a_custom_policy_needs_no_tenant" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true, policy_xml = "<policies />" }]
+  }
+
+  assert {
+    condition     = azurerm_api_management_product_policy.service["LLM"].xml_content == "<policies />"
+    error_message = "policy_xml wins over the generated policy and the properties."
+  }
+}
+
+run "model_names_cannot_inject_xml" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", allowed_models = ["gpt-4o\" /><x a=\""] }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "token_limit_needs_a_limit" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", token_limit = {} }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "token_limit_rejects_unknown_period" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", token_limit = { token_quota = 10, token_quota_period = "Yearish" } }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "token_limit_must_be_positive" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", token_limit = { tokens_per_minute = 0 } }]
+  }
+
+  expect_failures = [var.services]
 }
