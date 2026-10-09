@@ -29,7 +29,6 @@ Before running any notebook, ensure the following are in place:
   ```bash
   pip install -r requirements.txt
   ```
-  (or the equivalent comprehensive list in [`shared/requirements.txt`](shared/requirements.txt))
 - **VS Code** with the Jupyter extension (recommended for running notebooks)
 
 ### Optional (per notebook)

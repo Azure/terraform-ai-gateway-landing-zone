@@ -129,7 +129,7 @@ model aliases. They write tfvars into `environments/<env>/` and deploy through
 the stacks. See [validation/README.md](validation/README.md).
 
 ```bash
-pip install -r validation/shared/requirements.txt
+pip install -r validation/requirements.txt
 ```
 
 ---
