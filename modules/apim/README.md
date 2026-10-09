@@ -1,8 +1,25 @@
-# API Management (AI gateway)
+# API Management service
 
-Creates the API Management service and everything that runs on it today: loggers and diagnostics, policy fragments, LLM backends and pools, the Universal LLM / Azure OpenAI / Unified AI APIs, the extra service APIs, named values and API Center onboarding. It's split into smaller modules in Phase 1 of the implementation plan.
+Creates the API Management **service** and its own network, DNS and cache setup, on the Azure Verified Module `avm-res-apimanagement-service`. Called by [stacks/platform](../../stacks/platform/apim.tf); the caller passes the providers in.
 
-This module is called by the root configuration (`main.tf`). It configures no providers; the caller passes them in.
+## What it does
+
+| Area | Behavior |
+|---|---|
+| SKU and scale | `Developer`, `Premium`, `StandardV2` or `PremiumV2`. Developer is fixed at one unit. Availability zones (`apim_zones`) need Premium and at least one unit per zone; the platform stack sets them for Premium with more than one unit. |
+| Network model (`vnet_mode`) | `none`, `external` / `internal` (classic injection, Developer and Premium), `integration` (outbound VNet integration, StandardV2 and PremiumV2) or `injection` (PremiumV2, private VIP). Anything the SKU doesn't support fails at plan time. `public_ip_address_id` is for classic `external` / `internal` only. |
+| Identity | One user-assigned managed identity (`managed_identity_id`). |
+| Inbound private endpoint | For v2 SKUs with `vnet_mode` `none` or `integration` (`apim_v2_use_private_endpoint`). The zone group `apim-dns-group` is created unless Azure Policy owns it (`dns_zone_group_managed_by_policy`). |
+| Public access (v2) | Azure rejects creating a v2 service with public access off, so a new service is created public and the next apply applies `apim_v2_public_network_access`. Turning public access off requires the private endpoint (or `injection`). Classic SKUs always keep public access. |
+| Private DNS for a private VIP | With `internal` (five hostnames: gateway, portal, developer, management, scm) or `injection` (gateway only) and `create_internal_dns`, one private DNS zone per hostname, an `@` A record to the private IPs, and a link to `vnet_id`. Never an apex `azure-api.net` zone. Set `create_internal_dns = false` when the hub owns the zones. |
+| External cache | `enable_redis_cache` links an existing Azure Managed Redis (`redis_cache_connection_string`) as the `Default` cache. |
+| Hardening | Legacy protocols and weak ciphers stay off. Classic SKUs set the minimum management API version to 2021-08-01 (v2 SKUs don't take the setting). |
+
+## Not in this module
+
+Everything configured on the service lives elsewhere: loggers and diagnostics in [modules/apim-telemetry](../apim-telemetry/), policy fragments, named values, shared backends and service APIs in [stacks/gateway-config](../../stacks/gateway-config/), LLM backends, pools and APIs in [stacks/llm-backend-onboarding](../../stacks/llm-backend-onboarding/), and products and subscriptions in [stacks/access-contracts](../../stacks/access-contracts/).
+
+Unit tests: [tests/unit.tftest.hcl](tests/unit.tftest.hcl) (mocked providers, `terraform test`).
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
