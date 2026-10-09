@@ -48,7 +48,7 @@ run "contract_without_secrets" {
 
   override_module {
     target  = module.contract
-    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {} }
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
   }
 
   assert {
@@ -66,7 +66,7 @@ run "secrets_go_to_the_platform_key_vault" {
 
   override_module {
     target  = module.contract
-    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {} }
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
   }
 
   assert {
@@ -85,7 +85,7 @@ run "team_key_vault_and_foundry_project" {
 
   override_module {
     target  = module.contract
-    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {} }
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
   }
 
   assert {
@@ -96,4 +96,19 @@ run "team_key_vault_and_foundry_project" {
     condition     = endswith(local.foundry_project_id, "/accounts/aif-aigw-dev-${module.naming.seed}-0/projects/citadel-governance-project")
     error_message = "The connection goes to the default project of platform's primary Foundry account."
   }
+}
+
+run "foundry_auth_type_is_validated" {
+  command = plan
+
+  variables {
+    foundry_config = { auth_type = "Basic" }
+  }
+
+  override_module {
+    target  = module.contract
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ApiKey", managed_identity_audience = "" } }
+  }
+
+  expect_failures = [var.foundry_config]
 }

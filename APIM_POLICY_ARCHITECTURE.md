@@ -527,7 +527,7 @@ policy_xml }`). Per service `code` it creates:
 - An optional Foundry connection (`var.foundry`) via
   `azapi_resource.foundry_connection`, type
   `Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01`
-  (auth `ApiKey`, key via `sensitive_body`, metadata from `var.foundry_config`).
+  (auth `ProjectManagedIdentity` by default: the project identity's JWT plus the subscription key as the `api-key` custom header, both write-only via `sensitive_body`; `ApiKey` stores the key as the credential; metadata from `var.foundry_config`). The product policy must validate the JWT: see [DEPLOYMENT_GUIDE §6.3](DEPLOYMENT_GUIDE.md#63-foundry-connection-authentication).
 
 ### 9.2 LLM backend onboarding
 

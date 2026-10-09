@@ -39,3 +39,6 @@ product_terms = "Quickstart sample contract"
 key_vault = { enabled = true }
 # Foundry connection on the platform's default project:
 # foundry = { enabled = true }
+# The connection then uses the Foundry project's managed identity (foundry_config.auth_type =
+# "ProjectManagedIdentity"): add the jwt* variables from examples/dev-greenfield-private to the
+# policy above, or set foundry_config = { auth_type = "ApiKey" } for a key-only connection.

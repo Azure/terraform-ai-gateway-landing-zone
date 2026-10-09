@@ -30,7 +30,7 @@ Declared identically in every stack's `variables.common.tf`.
 | platform | `apim`, `network` (alz_spoke / byo), `features`, `foundry`, `key_vault`, `redis`, `api_center`, `apim_logging`, `usage_pipeline` (incl. `logic_app.private_endpoint` / `public_network_access` / `private_endpoint_name`), `monitoring` (incl. `policy_managed_diagnostics`), `dev_access`, `secret_writer_principal_ids`, `secret_reader_principal_ids`, `deny_storage_shared_key` | [stacks/platform](stacks/platform/README.md) |
 | gateway-config | `entra_auth`, `features`, `ai_search_instances`, `embeddings_backend_url`, `ms_learn_mcp_backend_url`, `api_diagnostics` | [stacks/gateway-config](stacks/gateway-config/README.md) |
 | llm-backend-onboarding | `foundry_backends`, `llm_backend_config`, `extra_llm_backends`, `model_aliases`, `inference_api_type`, `features`, `aws`, `configure_circuit_breaker` | [stacks/llm-backend-onboarding](stacks/llm-backend-onboarding/README.md) |
-| access-contracts | `use_case`, `api_name_mapping`, `services`, `key_vault`, `foundry`, `foundry_config`, `secret_rotation_days`, `secret_validity_days` | [stacks/access-contracts](stacks/access-contracts/README.md) |
+| access-contracts | `use_case`, `api_name_mapping`, `services`, `key_vault`, `foundry`, `foundry_config` (incl. `auth_type`, `managed_identity_audience`), `secret_rotation_days`, `secret_validity_days` | [stacks/access-contracts](stacks/access-contracts/README.md) |
 
 ## Where the old root inputs went
 

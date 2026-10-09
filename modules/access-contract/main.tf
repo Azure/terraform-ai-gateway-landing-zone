@@ -120,8 +120,16 @@ resource "azurerm_key_vault_secret" "key" {
 
 # --- Foundry connection ----------------------------------------------------------
 # customHeaders is always sent: the Foundry portal needs the field to render the connection.
+#
+# auth_type = ProjectManagedIdentity (upstream accelerator PR #159): the project's managed
+# identity presents an Entra JWT for managed_identity_audience, and the subscription key
+# travels as the `api-key` custom header, so there is no stored credential. That header
+# value is the key, so customHeaders is sent only through the write-only sensitive_body.
+# auth_type = ApiKey: the key is the stored credential (credentials.key).
 
 locals {
+  foundry_mi = var.foundry_config.auth_type == "ProjectManagedIdentity"
+
   foundry_prefix               = var.foundry_config.connection_name_prefix != "" ? var.foundry_config.connection_name_prefix : "Hub-${local.postfix}"
   foundry_has_custom_discovery = var.foundry_config.list_models_endpoint != "" && var.foundry_config.get_model_endpoint != "" && var.foundry_config.deployment_provider != ""
 
@@ -137,9 +145,19 @@ locals {
       })
     } : {},
     length(var.foundry_config.static_models) > 0 && !local.foundry_has_custom_discovery ? { models = jsonencode(var.foundry_config.static_models) } : {},
-    { customHeaders = length(var.foundry_config.custom_headers) > 0 ? jsonencode(var.foundry_config.custom_headers) : "{}" },
+    local.foundry_mi ? {} : { customHeaders = length(var.foundry_config.custom_headers) > 0 ? jsonencode(var.foundry_config.custom_headers) : "{}" },
+    local.foundry_mi ? { audience = var.foundry_config.managed_identity_audience } : {},
     length(var.foundry_config.auth_config) > 0 ? { authConfig = jsonencode(var.foundry_config.auth_config) } : {},
   )
+}
+
+# The product policy has to validate the project identity's JWT (the key alone no
+# longer identifies the caller). Warn rather than fail: custom policies are free-form.
+check "foundry_mi_policy_validates_jwt" {
+  assert {
+    condition     = var.foundry_project_id == null || !local.foundry_mi || alltrue([for s in var.services : strcontains(s.policy_xml, "jwtRequired")])
+    error_message = "foundry_config.auth_type = ProjectManagedIdentity: every service's product policy_xml must set jwtRequired=true with jwtAudience = managed_identity_audience, jwtIssuer and jwtOpenIdConfigUrl, otherwise the project identity's JWT is sent but never validated (see DEPLOYMENT_GUIDE, Foundry connection authentication). Use auth_type = ApiKey to skip JWT validation."
+  }
 }
 
 resource "azapi_resource" "foundry_connection" {
@@ -151,25 +169,40 @@ resource "azapi_resource" "foundry_connection" {
 
   schema_validation_enabled = false
 
+  # Export nothing: Foundry echoes customHeaders (the api-key) in ProjectManagedIdentity mode,
+  # and azapi would otherwise store the response in state as `output`.
+  response_export_values = []
+
   body = {
-    properties = {
+    properties = merge({
       category      = var.foundry_config.connection_category
       target        = local.endpoint_url[each.key]
-      authType      = "ApiKey"
+      authType      = var.foundry_config.auth_type
       isSharedToAll = var.foundry_config.is_shared_to_all
       metadata      = local.foundry_metadata
-    }
+    }, local.foundry_mi ? { audience = var.foundry_config.managed_identity_audience } : {})
   }
 
-  # Write-only: merged into the request, never stored in state.
-  sensitive_body = {
+  # Write-only: merged into the request, never stored in state. The two shapes differ,
+  # so they are chosen as JSON (a conditional can't return objects of different types).
+  sensitive_body = jsondecode(local.foundry_mi ? jsonencode({
+    properties = {
+      metadata = {
+        customHeaders = jsonencode(merge(var.foundry_config.custom_headers, {
+          "api-key" = ephemeral.azapi_resource_action.keys[each.key].output.primaryKey
+        }))
+      }
+    }
+    }) : jsonencode({
     properties = {
       credentials = {
         key = ephemeral.azapi_resource_action.keys[each.key].output.primaryKey
       }
     }
-  }
-  sensitive_body_version = {
+  }))
+  sensitive_body_version = local.foundry_mi ? {
+    "properties.metadata.customHeaders" = tostring(local.key_version)
+    } : {
     "properties.credentials.key" = tostring(local.key_version)
   }
 }

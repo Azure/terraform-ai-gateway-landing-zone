@@ -55,6 +55,11 @@ variable "foundry_config" {
     Foundry connection settings (Bicep foundryConfig).
       connection_name_prefix  "" = Hub-<bu>-<usecase>-<env>
       connection_category     ApiManagement | ModelGateway
+      auth_type               ProjectManagedIdentity (default) | ApiKey. With ProjectManagedIdentity the
+                              Foundry project's managed identity sends an Entra JWT for
+                              managed_identity_audience and the subscription key travels as the api-key
+                              custom header; the product policy must validate that JWT (see modules/access-contract).
+      managed_identity_audience  token audience; must equal the jwtAudience the product policy validates
       deployment_in_path      "true" (model in path) | "false" (model in body)
       is_shared_to_all, inference_api_version, deployment_api_version, static_models,
       list_models_endpoint, get_model_endpoint, deployment_provider ("" | AzureOpenAI | OpenAI),
@@ -63,6 +68,7 @@ variable "foundry_config" {
   type = object({
     connection_name_prefix = optional(string, "")
     connection_category    = optional(string, "ApiManagement")
+    auth_type              = optional(string, "ProjectManagedIdentity")
     deployment_in_path     = optional(string, "false")
     is_shared_to_all       = optional(bool, false)
     inference_api_version  = optional(string, "")
@@ -73,9 +79,15 @@ variable "foundry_config" {
     deployment_provider    = optional(string, "")
     custom_headers         = optional(map(string), {})
     auth_config            = optional(map(string), {})
+
+    managed_identity_audience = optional(string, "https://cognitiveservices.azure.com")
   })
   default = {}
 
+  validation {
+    condition     = contains(["ProjectManagedIdentity", "ApiKey"], var.foundry_config.auth_type)
+    error_message = "foundry_config.auth_type must be ProjectManagedIdentity or ApiKey."
+  }
 }
 
 variable "secret_rotation_days" {

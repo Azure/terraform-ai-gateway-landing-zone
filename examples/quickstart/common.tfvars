@@ -4,4 +4,11 @@ environment     = "dev"
 location        = "swedencentral"
 subscription_id = "<workload-subscription-id>"
 network_mode    = "greenfield"
-tags            = { workload = "ai-gateway", environment = "dev" }
+tags = {
+  Workload        = "ai-gateway",
+  Environment     = "dev",
+  SecurityControl = "ignore",
+  CostCenter      = "tbd",
+  Project         = "tbd",
+  Owner           = "tbd"
+}

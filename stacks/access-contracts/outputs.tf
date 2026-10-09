@@ -18,6 +18,11 @@ output "key_vault_secret_names" {
   value       = module.contract.key_vault_secret_names
 }
 
+output "foundry_connection_auth" {
+  description = "Foundry connection authentication: auth_type and the token audience the product policy must validate (empty for ApiKey)."
+  value       = module.contract.foundry_connection_auth
+}
+
 output "foundry_connections" {
   description = "Service code => Foundry connection name."
   value       = module.contract.foundry_connections

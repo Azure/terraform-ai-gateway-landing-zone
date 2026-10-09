@@ -88,14 +88,25 @@ variable "foundry_config" {
     Foundry connection settings (Bicep foundryConfig).
       connection_name_prefix  "" = Hub-<bu>-<usecase>-<env>
       connection_category     ApiManagement | ModelGateway
+      auth_type               ProjectManagedIdentity (default) | ApiKey.
+                              ProjectManagedIdentity: the Foundry project's managed identity sends an
+                              Entra JWT for managed_identity_audience AND the subscription key travels
+                              as the `api-key` custom header (no stored credential). The product policy
+                              must validate that JWT (jwtRequired + jwtAudience/jwtIssuer/jwtOpenIdConfigUrl,
+                              see DEPLOYMENT_GUIDE "Foundry connection authentication"); a check warns when
+                              it doesn't. ApiKey: the subscription key is the stored credential.
+      managed_identity_audience
+                              Audience the project identity requests a token for; must equal the audience
+                              the product policy validates. Only for ProjectManagedIdentity.
       deployment_in_path      "true" (model in path) | "false" (model in body)
       is_shared_to_all, inference_api_version, deployment_api_version, static_models,
       list_models_endpoint, get_model_endpoint, deployment_provider ("" | AzureOpenAI | OpenAI),
-      custom_headers, auth_config
+      custom_headers (the api-key header is added automatically for ProjectManagedIdentity), auth_config
   EOT
   type = object({
     connection_name_prefix = optional(string, "")
     connection_category    = optional(string, "ApiManagement")
+    auth_type              = optional(string, "ProjectManagedIdentity")
     deployment_in_path     = optional(string, "false")
     is_shared_to_all       = optional(bool, false)
     inference_api_version  = optional(string, "")
@@ -106,8 +117,23 @@ variable "foundry_config" {
     deployment_provider    = optional(string, "")
     custom_headers         = optional(map(string), {})
     auth_config            = optional(map(string), {})
+
+    managed_identity_audience = optional(string, "https://cognitiveservices.azure.com")
   })
   default = {}
+
+  validation {
+    condition     = contains(["ProjectManagedIdentity", "ApiKey"], var.foundry_config.auth_type)
+    error_message = "foundry_config.auth_type must be ProjectManagedIdentity or ApiKey."
+  }
+  validation {
+    condition     = var.foundry_config.auth_type != "ProjectManagedIdentity" || trimspace(var.foundry_config.managed_identity_audience) != ""
+    error_message = "foundry_config.managed_identity_audience can't be empty with auth_type = ProjectManagedIdentity."
+  }
+  validation {
+    condition     = !contains(keys(var.foundry_config.custom_headers), "api-key") || var.foundry_config.auth_type != "ProjectManagedIdentity"
+    error_message = "foundry_config.custom_headers can't set api-key with auth_type = ProjectManagedIdentity: the subscription key is added automatically."
+  }
 
   validation {
     condition     = contains(["ApiManagement", "ModelGateway"], var.foundry_config.connection_category)

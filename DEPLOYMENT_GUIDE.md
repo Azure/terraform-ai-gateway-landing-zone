@@ -338,6 +338,58 @@ Rules and limits:
   return the private IP from inside the VNet; `az webapp show -g <rg> -n <site> --query publicNetworkAccess`
   returns `Disabled`; the workflows list under the site's *Workflows* after a publish.
 
+### 6.3 Foundry connection authentication
+
+An access contract with `foundry = { enabled = true }` creates a Foundry connection
+per service that calls the gateway. `foundry_config.auth_type` (ported from upstream
+accelerator PR [#159](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/pull/159))
+picks how the Foundry project authenticates:
+
+| `auth_type` | What Foundry sends | Stored credential |
+|---|---|---|
+| `ProjectManagedIdentity` (**default**) | an Entra JWT issued to the project's managed identity for `managed_identity_audience` (default `https://cognitiveservices.azure.com`) **and** the subscription key as the `api-key` custom header | none |
+| `ApiKey` | the subscription key only | the key (`credentials.key`) |
+
+Both write the key through the write-only `sensitive_body`, so it is never in
+state. In `ProjectManagedIdentity` mode the key sits in the connection's
+`customHeaders`, and the module tells azapi not to export the API response
+(Foundry echoes the header back), so state stays clean.
+
+**The product policy must validate the JWT**, otherwise it is sent and never
+checked. Add this to the service's `policy_xml` inbound section (the
+`security-handler` fragment already honours these variables):
+
+```xml
+<inbound>
+  <base />
+  <set-variable name="jwtRequired" value="true" />
+  <set-variable name="jwtAudience" value="https://cognitiveservices.azure.com" />
+  <set-variable name="jwtIssuer" value="https://sts.windows.net/<tenant-id>/" />
+  <set-variable name="jwtOpenIdConfigUrl" value="https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration" />
+  <!-- model access, capacity, ... -->
+</inbound>
+```
+
+| Variable | Value | Notes |
+|---|---|---|
+| `jwtAudience` | the connection's `managed_identity_audience` | must be identical on both sides |
+| `jwtIssuer` | `https://sts.windows.net/<tenant-id>/` | managed identity tokens are v1 tokens |
+| `jwtOpenIdConfigUrl` | `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration` | the v2.0 keys validate v1 signatures |
+
+- **Use the literal tenant ID.** `{{JWT-TenantId}}` holds the real tenant only when
+  gateway-config has `entra_auth.enabled = true`; otherwise it is `not-configured`.
+- A `check` warns on every plan when a Foundry contract uses `ProjectManagedIdentity`
+  and a service's policy has no `jwtRequired`. The default product policy has none,
+  so a Foundry contract needs a custom `policy_xml` or `auth_type = "ApiKey"`.
+- **Direct callers are affected too.** With `jwtRequired` the product accepts only
+  requests that carry the key **and** a valid token for that audience. Apps that read
+  the same key from Key Vault must send a token as well (for example
+  `az account get-access-token --resource https://cognitiveservices.azure.com`), or
+  use a separate contract without Foundry.
+- Optional hardening: the handler checks audience and issuer only. To pin the
+  caller to the project identity, also check the token's `appid` / `azp` claim.
+- Verified live: key only, a garbage token, or a token only → `401`; key plus valid token → `200`.
+
 ---
 
 ## 7. CI/CD (GitHub Actions)

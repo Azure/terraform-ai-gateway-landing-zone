@@ -35,6 +35,6 @@ run "example" {
 
   override_module {
     target  = module.contract
-    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {} }
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
   }
 }

@@ -20,6 +20,11 @@ services = [
       <policies>
         <inbound>
           <base />
+          <!-- Foundry ProjectManagedIdentity (the default): validate the project identity's JWT next to the api-key. -->
+          <set-variable name="jwtRequired" value="true" />
+          <set-variable name="jwtAudience" value="https://cognitiveservices.azure.com" />
+          <set-variable name="jwtIssuer" value="https://sts.windows.net/<tenant-id>/" />
+          <set-variable name="jwtOpenIdConfigUrl" value="https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration" />
           <include-fragment fragment-id="set-llm-requested-model" />
           <set-variable name="allowedModels" value="gpt-5.4-mini,fast" />
           <include-fragment fragment-id="validate-model-access" />
@@ -37,3 +42,4 @@ product_terms = "Dev sample contract"
 
 key_vault = { enabled = true }
 foundry   = { enabled = true } # connection on the platform's default Foundry project
+# foundry_config = { auth_type = "ApiKey" } # key-only connection: then drop the jwt* lines from the policy above

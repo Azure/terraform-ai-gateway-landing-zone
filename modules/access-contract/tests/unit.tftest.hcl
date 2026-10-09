@@ -66,3 +66,68 @@ run "secret_validity_must_exceed_rotation" {
 
   expect_failures = [var.secret_validity_days]
 }
+
+run "foundry_defaults_to_project_managed_identity" {
+  command = plan
+
+  assert {
+    condition     = output.foundry_connection_auth == { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" }
+    error_message = "Foundry connections default to project managed identity with the cognitive services audience."
+  }
+}
+
+run "foundry_api_key_mode_has_no_audience" {
+  command = plan
+
+  variables {
+    foundry_config = { auth_type = "ApiKey" }
+  }
+
+  assert {
+    condition     = output.foundry_connection_auth == { auth_type = "ApiKey", managed_identity_audience = "" }
+    error_message = "ApiKey mode reports no token audience."
+  }
+}
+
+run "foundry_custom_audience" {
+  command = plan
+
+  variables {
+    foundry_config = { managed_identity_audience = "api://custom-gateway" }
+  }
+
+  assert {
+    condition     = output.foundry_connection_auth.managed_identity_audience == "api://custom-gateway"
+    error_message = "The audience can be overridden."
+  }
+}
+
+run "foundry_rejects_unknown_auth_type" {
+  command = plan
+
+  variables {
+    foundry_config = { auth_type = "Basic" }
+  }
+
+  expect_failures = [var.foundry_config]
+}
+
+run "foundry_rejects_empty_audience" {
+  command = plan
+
+  variables {
+    foundry_config = { managed_identity_audience = "  " }
+  }
+
+  expect_failures = [var.foundry_config]
+}
+
+run "foundry_rejects_api_key_header_in_managed_identity_mode" {
+  command = plan
+
+  variables {
+    foundry_config = { custom_headers = { "api-key" = "x" } }
+  }
+
+  expect_failures = [var.foundry_config]
+}

@@ -101,7 +101,7 @@ exercises the corresponding integration.
 |---|---|
 | `llm-backend-onboarding-runner` | `env`<br>`backend_mode` (`foundry` \| `extra` \| `override`)<br>`llm_backends_config` (inline JSON, for `extra` / `override`)<br>*`model_aliases`*<br>*`inference_api_type` / `features`*<br>*`aws_*` Key Vault secret URIs + region*<br>*`llm_backend_tfvars_name`* |
 | `citadel-universal-llm-api-all-models-tests` | `env` |
-| `citadel-access-contracts-tests` | `env`<br>*`keyvault_id`* (`""` = platform Key Vault)<br>*`foundry_account_name` / `foundry_project_name` / `foundry_project_id`* (`""` = platform defaults) |
+| `citadel-access-contracts-tests` | `env`<br>*`keyvault_id`* (`""` = platform Key Vault)<br>*`foundry_account_name` / `foundry_project_name` / `foundry_project_id`* (`""` = platform defaults)<br>*`foundry_auth_type`* (`ProjectManagedIdentity` default \| `ApiKey`)<br>*`foundry_managed_identity_audience`* (default `https://cognitiveservices.azure.com`) |
 | `citadel-model-aliases-tests` | `env`<br>`backend_mode`<br>`llm_backends_config` (inline JSON)<br>`model_aliases`<br>`direct_test_model` |
 
 All notebooks also accept `governance_hub_resource_group` / `location` overrides.
@@ -251,7 +251,7 @@ This notebook provisions three distinct access contracts, each representing a di
 | Contract | Business Unit | Integration | Description |
 |---|---|---|---|
 | **Sales-Assistant** | Sales | Key Vault only | Secrets (endpoint + API key) resolved from Azure Key Vault |
-| **HR-ChatAgent** | HR | Key Vault + Foundry | Optionally creates a Foundry project connection for agent integration |
+| **HR-ChatAgent** | HR | Key Vault + Foundry | Optionally creates a Foundry project connection for agent integration (`ProjectManagedIdentity` by default: project-MI JWT + `api-key` header, with a matching JWT validation policy) |
 | **Support-Bot** | Support | Direct output | No external integrations — uses direct APIM subscription output |
 
 #### Steps
@@ -283,13 +283,36 @@ use_foundry_integration = True
 foundry_account_name = ""     # "" = platform primary Foundry account
 foundry_project_name = ""     # "" = its default project
 foundry_project_id   = ""     # full project resource ID (overrides both names)
+
+# Foundry connection auth -> foundry_config.auth_type / managed_identity_audience in the tfvars
+foundry_auth_type = "ProjectManagedIdentity"                       # or "ApiKey" (subscription key only)
+foundry_managed_identity_audience = "https://cognitiveservices.azure.com"
 ```
+
+#### Foundry Connection Auth (`ProjectManagedIdentity`)
+
+By default, Foundry-targeted contracts (`use_foundry = True`) create the connection with `auth_type = "ProjectManagedIdentity"`:
+the Foundry **project's** managed identity presents an Entra ID JWT for `foundry_managed_identity_audience` and the APIM
+subscription key is sent as the `api-key` custom header (no credential is stored in the connection). The notebook therefore:
+
+- **Generates the product policy with JWT validation** — after `<base />` it sets `jwtRequired = "true"`, `jwtAudience` (the audience),
+  `jwtIssuer = https://sts.windows.net/<tenant>/` and `jwtOpenIdConfigUrl = https://login.microsoftonline.com/<tenant>/v2.0/.well-known/openid-configuration`,
+  consumed by the gateway's `security-handler` fragment. The tenant ID is baked in as a literal (from `az account show`) because the
+  `{{JWT-TenantId}}` named value is `not-configured` unless Entra auth is enabled in `gateway-config`. Model RBAC and capacity policy content is unchanged.
+- **Sends both credentials in the direct tests** — for these contracts the HTTP tests send the subscription key as `api-key` plus
+  `Authorization: Bearer <token>` where the token comes from `az account get-access-token --resource <audience>`. A negative check confirms
+  the key alone (no token) is rejected with `401`.
+- Contracts that are not Foundry-targeted, or `foundry_auth_type = "ApiKey"`, behave exactly as before (api-key only, no JWT policy).
+
+> **Caveat:** when the product policy requires JWT, any app that uses the contract's subscription key directly (for example the key
+> read from Key Vault) must **also** present an Entra ID token for the same audience, otherwise the gateway returns `401`.
+> The Foundry project must have a managed identity enabled (Project → Identity).
 
 #### Output
 
 - Three deployed APIM products with subscription keys
 - Key Vault secrets populated (if enabled)
-- Foundry connection created (if enabled)
+- Foundry connection created (if enabled), with `ProjectManagedIdentity` JWT validation in the product policy
 - Performance charts comparing all contracts
 - Token bucket behavior visualization
 
