@@ -1,7 +1,7 @@
 # Key Vault (RBAC). The deployer (apply identity in CI) is Key Vault
 # Administrator; access contracts write their secrets here.
-module "security" {
-  source = "../../modules/security"
+module "key_vault" {
+  source = "../../modules/key-vault"
 
   resource_group_name = local.resource_group_name
   location            = var.location

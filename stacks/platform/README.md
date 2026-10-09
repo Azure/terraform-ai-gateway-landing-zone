@@ -34,12 +34,12 @@
 | <a name="module_eventhub"></a> [eventhub](#module\_eventhub) | ../../modules/eventhub | n/a |
 | <a name="module_foundry"></a> [foundry](#module\_foundry) | ../../modules/foundry | n/a |
 | <a name="module_identity"></a> [identity](#module\_identity) | Azure/avm-res-managedidentity-userassignedidentity/azurerm | 0.5.3 |
+| <a name="module_key_vault"></a> [key\_vault](#module\_key\_vault) | ../../modules/key-vault | n/a |
 | <a name="module_language_service"></a> [language\_service](#module\_language\_service) | ../../modules/cognitive-service | n/a |
 | <a name="module_logic_app"></a> [logic\_app](#module\_logic\_app) | ../../modules/logic-app | n/a |
 | <a name="module_monitoring"></a> [monitoring](#module\_monitoring) | ../../modules/monitoring | n/a |
 | <a name="module_naming"></a> [naming](#module\_naming) | ../../modules/naming | n/a |
 | <a name="module_redis"></a> [redis](#module\_redis) | ../../modules/redis | n/a |
-| <a name="module_security"></a> [security](#module\_security) | ../../modules/security | n/a |
 
 ## Resources
 

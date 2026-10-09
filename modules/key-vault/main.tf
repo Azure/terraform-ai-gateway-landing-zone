@@ -1,6 +1,6 @@
 # =============================================================================
-# MODULE: Security
-# Key Vault + RBAC Role Assignments for Managed Identity
+# MODULE: Key Vault
+# Key Vault, its private endpoint and network rules, and the RBAC role assignments
 # =============================================================================
 
 # -----------------------------------------------------------------------------

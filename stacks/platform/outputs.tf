@@ -34,12 +34,12 @@ output "apim_private_ip_addresses" {
 
 output "key_vault_name" {
   description = "Key Vault name."
-  value       = module.security.key_vault_name
+  value       = module.key_vault.key_vault_name
 }
 
 output "key_vault_uri" {
   description = "Key Vault URI."
-  value       = module.security.key_vault_uri
+  value       = module.key_vault.key_vault_uri
 }
 
 output "foundry_account_names" {
