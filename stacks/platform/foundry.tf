@@ -10,9 +10,10 @@ module "foundry" {
   account_names      = module.naming.foundry_account_names
 
   foundry_external_access = var.foundry.external_access
-  foundry_instances       = local.foundry_instances
-  foundry_models          = var.foundry.models
-  outbound_allowed_fqdns  = var.foundry.outbound_allowed_fqdns
+  # Empty when foundry.enabled = false (locals.tf): the module then creates no accounts.
+  foundry_instances      = local.foundry_instances
+  foundry_models         = var.foundry.models
+  outbound_allowed_fqdns = var.foundry.outbound_allowed_fqdns
 
   apim_principal_id  = module.identity["apim"].principal_id
   deployer_object_id = data.azurerm_client_config.current.object_id
