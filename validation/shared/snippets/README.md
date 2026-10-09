@@ -7,7 +7,7 @@ We use snippets to reduce redundancy and improve maintainability. Snippets are r
 Jupyter notebooks will have Python code blocks similar to this one:
 
 ```python
-# %load ../../shared/snippets/openai-api-requests.py
+# %load shared/snippets/openai-api-requests.py
 
 import time
 from openai import AzureOpenAI
@@ -25,7 +25,7 @@ While this is generally very maintable, the loading is static, unlike a function
 1. Uncomment the `%load` command. The cell should then look similar to this:
 
     ```python
-    %load ../../shared/snippets/openai-api-requests.py
+    %load shared/snippets/openai-api-requests.py
     ```
 
 1. Press the _Play_ button in the code cell to execute the `%load` command.

@@ -89,8 +89,8 @@ class Output(object):
 # another environment or checkout.
 # =============================================================================
 
-# Repository root (Taskfile.yml, stacks/, environments/). `shared/` sits at the root.
-REPO_ROOT = os.path.abspath(os.environ.get("CITADEL_REPO_ROOT", os.path.join(os.path.dirname(__file__), "..")))
+# Repository root (Taskfile.yml, stacks/, environments/). This file is validation/shared/utils.py.
+REPO_ROOT = os.path.abspath(os.environ.get("CITADEL_REPO_ROOT", os.path.join(os.path.dirname(__file__), "..", "..")))
 DEFAULT_ENV = os.environ.get("CITADEL_ENV", "dev")
 
 # azd env var name -> (stack, terraform output name); stack "common" = environments/<env>/common.tfvars

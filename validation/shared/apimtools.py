@@ -1,5 +1,5 @@
 import os, sys, json, requests
-sys.path.insert(1, '../shared')  # add the shared directory to the Python path
+sys.path.insert(1, os.path.dirname(os.path.abspath(__file__)))  # make `utils` importable
 import utils
 from azure.identity import DefaultAzureCredential, AzureCliCredential
 from azure.mgmt.apimanagement import ApiManagementClient

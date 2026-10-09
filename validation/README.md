@@ -29,7 +29,7 @@ Before running any notebook, ensure the following are in place:
   ```bash
   pip install -r requirements.txt
   ```
-  (or the equivalent comprehensive list in [`../shared/requirements.txt`](../shared/requirements.txt))
+  (or the equivalent comprehensive list in [`shared/requirements.txt`](shared/requirements.txt))
 - **VS Code** with the Jupyter extension (recommended for running notebooks)
 
 ### Optional (per notebook)
@@ -70,7 +70,7 @@ are read from the `platform` stack outputs and `environments/<env>/common.tfvars
 
 Notebooks that deploy (backend onboarding, access contracts, model aliases,
 all-models) write their variable files into the environment folder and deploy
-them with `utils.run_stack(...)` from [`../shared/utils.py`](../shared/utils.py):
+them with `utils.run_stack(...)` from [`shared/utils.py`](shared/utils.py):
 
 | Stack | Generated file | Equivalent command |
 |---|---|---|
@@ -429,7 +429,7 @@ inference_api_version = "2024-05-01-preview"
 
 ## Shared Utilities
 
-All notebooks import shared helper modules from the [`../shared/`](../shared/) directory:
+All notebooks import shared helper modules from the [`shared/`](shared/) directory:
 
 | Module | Description |
 |---|---|

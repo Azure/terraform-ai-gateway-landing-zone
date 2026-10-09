@@ -123,13 +123,13 @@ curl -X POST "$URL/chat/completions" -H "Content-Type: application/json" -H "api
 ## 🧪 Validation notebooks
 
 [validation/](validation/) holds the Jupyter notebooks ported from the upstream
-accelerator (helpers in [shared/](shared/)). They exercise a **live**
+accelerator (helpers in [validation/shared/](validation/shared/)). They exercise a **live**
 environment: LLM backend onboarding, all-models tests, access contracts and
 model aliases. They write tfvars into `environments/<env>/` and deploy through
 the stacks. See [validation/README.md](validation/README.md).
 
 ```bash
-pip install -r shared/requirements.txt
+pip install -r validation/shared/requirements.txt
 ```
 
 ---
@@ -148,7 +148,7 @@ pip install -r shared/requirements.txt
 ├── examples/<scenario>/         # environment templates to copy
 ├── logicapp-src/                # usage-ingestion Logic App project
 ├── scripts/                     # preflight.py (policy check), validate.sh / .ps1, ci/ (repository rules)
-├── validation/  shared/         # notebooks and helpers
+├── validation/                  # notebooks; shared/ holds their Python helpers
 └── docs/                        # scenarios, operations runbooks
 ```
 
