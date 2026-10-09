@@ -432,7 +432,7 @@ run "foundry_can_be_disabled" {
   }
 
   assert {
-    condition     = length(local.foundry_instances) == 0 && length(module.foundry.foundry_names) == 0 && output.foundry_account_names == []
+    condition     = length(module.foundry) == 0 && output.foundry_account_names == []
     error_message = "foundry.enabled = false: no Foundry accounts or projects."
   }
   assert {
@@ -469,7 +469,7 @@ run "dedicated_language_and_content_safety_accounts" {
     error_message = "One Foundry account plus the two dedicated accounts keep workload diagnostics."
   }
   assert {
-    condition     = length(module.foundry.foundry_names) == 1
+    condition     = length(module.foundry) == 1 && length(output.foundry_account_names) == 1
     error_message = "The dedicated services are additions: Foundry stays."
   }
 }
@@ -483,7 +483,7 @@ run "dedicated_services_without_foundry" {
   }
 
   assert {
-    condition     = length(module.foundry.foundry_names) == 0 && length(module.language_service) == 1 && length(module.content_safety_service) == 1
+    condition     = length(module.foundry) == 0 && length(module.language_service) == 1 && length(module.content_safety_service) == 1
     error_message = "Language and Content Safety without any Foundry account."
   }
   assert {

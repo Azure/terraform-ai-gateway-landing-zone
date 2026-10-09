@@ -1,7 +1,8 @@
-# Microsoft Foundry accounts, default projects and model deployments.
+# Microsoft Foundry accounts, default projects and model deployments (none with foundry.enabled = false).
 # Foundry -> APIM connections are access contracts (stacks/access-contracts).
 module "foundry" {
   source = "../../modules/foundry"
+  count  = var.foundry.enabled ? 1 : 0
 
   resource_group_id  = local.resource_group_id
   tags               = local.tags
@@ -10,10 +11,9 @@ module "foundry" {
   account_names      = module.naming.foundry_account_names
 
   foundry_external_access = var.foundry.external_access
-  # Empty when foundry.enabled = false (locals.tf): the module then creates no accounts.
-  foundry_instances      = local.foundry_instances
-  foundry_models         = var.foundry.models
-  outbound_allowed_fqdns = var.foundry.outbound_allowed_fqdns
+  foundry_instances       = var.foundry.instances
+  foundry_models          = var.foundry.models
+  outbound_allowed_fqdns  = var.foundry.outbound_allowed_fqdns
 
   apim_principal_id  = module.identity["apim"].principal_id
   deployer_object_id = data.azurerm_client_config.current.object_id

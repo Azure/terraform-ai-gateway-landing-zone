@@ -14,7 +14,7 @@ module "security" {
   deployer_object_id = data.azurerm_client_config.current.object_id
 
   managed_identity_principal_id = module.identity["apim"].principal_id
-  foundry_principal_ids         = module.foundry.foundry_principal_ids
+  foundry_principal_ids         = flatten(module.foundry[*].foundry_principal_ids)
   foundry_principal_count       = length(local.foundry_instances)
   secret_writer_principal_ids   = var.secret_writer_principal_ids
   secret_reader_principal_ids   = var.secret_reader_principal_ids

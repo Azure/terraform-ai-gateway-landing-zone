@@ -7,7 +7,7 @@ output "diagnostic_setting_names" {
     apim      = module.apim_telemetry.diagnostic_setting_names
     cosmosdb  = module.cosmosdb.diagnostic_setting_names
     eventhub  = module.eventhub.diagnostic_setting_names
-    foundry   = concat(module.foundry.diagnostic_setting_names, compact(concat(module.language_service[*].diagnostic_setting_name, module.content_safety_service[*].diagnostic_setting_name)))
+    foundry   = concat(flatten(module.foundry[*].diagnostic_setting_names), compact(concat(module.language_service[*].diagnostic_setting_name, module.content_safety_service[*].diagnostic_setting_name)))
     logic_app = module.logic_app.diagnostic_setting_names
   }
 }
@@ -44,17 +44,17 @@ output "key_vault_uri" {
 
 output "foundry_account_names" {
   description = "Foundry (AI Services) account names, one per instance."
-  value       = module.foundry.foundry_names
+  value       = flatten(module.foundry[*].foundry_names)
 }
 
 output "foundry_endpoints" {
   description = "Foundry account endpoints, one per instance."
-  value       = module.foundry.foundry_endpoints
+  value       = flatten(module.foundry[*].foundry_endpoints)
 }
 
 output "foundry_project_names" {
   description = "Default Foundry project per instance."
-  value       = module.foundry.project_names
+  value       = flatten(module.foundry[*].project_names)
 }
 
 output "language_service_endpoint" {
