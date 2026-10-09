@@ -460,6 +460,14 @@ task down ENV=dev            # contracts, then stacks in reverse order; keeps bo
 task destroy STACK=bootstrap ENV=dev   # only when the environment is gone for good
 ```
 
+`task destroy` plans again and retries (3 attempts, `DESTROY_ATTEMPTS=n` to
+change) when the apply hits a transient Azure error such as a connection reset
+or a 409 while a parent resource is still deleting. If it still fails, re-run
+the same command: Terraform continues from what is left. Destroy in order
+(`task down` does): a stack's data lookups need the stacks it depends on, so
+destroying `gateway-config` before `llm-backend-onboarding` leaves the latter
+unable to plan. The resource group itself belongs to bootstrap, so it stays
+(empty) after `task down`.
 Soft-deleted Key Vaults, APIM services and Foundry accounts are purged only
 with `purge_soft_delete_on_destroy = true` in `platform.tfvars`, which needs
 subscription-level purge rights the pipeline identities don't have — purge as

@@ -75,12 +75,20 @@ tasks:
       - terraform -chdir=stacks/{{.STACK}} apply -input=false tfplan
 
   destroy:
-    desc: "Destroy one stack: task destroy STACK=platform ENV=dev"
+    desc: "Destroy one stack (replans and retries up to DESTROY_ATTEMPTS=3 times on transient Azure errors): task destroy STACK=platform ENV=dev"
     requires: { vars: [STACK] }
     cmds:
-      - task: plan
-        vars: { STACK: "{{.STACK}}", ENV: "{{.ENV}}", STATE_KEY: "{{.STATE_KEY}}", VAR_FILE: "{{.VAR_FILE}}", PLAN_ARGS: "-destroy" }
-      - terraform -chdir=stacks/{{.STACK}} apply -input=false tfplan
+      # A saved plan can't be re-applied after a partial apply, so each attempt plans again.
+      - |
+        attempts={{.DESTROY_ATTEMPTS | default 3}}
+        for i in $(seq 1 "$attempts"); do
+          {{.TASK_EXE}} plan STACK={{.STACK}} ENV={{.ENV}} STATE_KEY={{.STATE_KEY}} VAR_FILE={{.VAR_FILE}} PLAN_ARGS=-destroy || exit 1
+          if terraform -chdir=stacks/{{.STACK}} apply -input=false tfplan; then exit 0; fi
+          [ "$i" -lt "$attempts" ] || break
+          echo "destroy attempt $i of $attempts failed (transient Azure errors are common: connection resets, 409 while a parent is still deleting); retrying in 60s"
+          sleep 60
+        done
+        exit 1
 
   output:
     desc: 'Stack outputs: task output STACK=identity ENV=dev [NAME=client_id | NAME="-raw client_id"] (stdout is only the output)'

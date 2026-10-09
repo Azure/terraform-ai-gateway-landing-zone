@@ -53,6 +53,13 @@ module "account" {
   tags             = var.tags
   enable_telemetry = var.enable_telemetry
 
+  # Deleting the account can race the asynchronous delete of its projects and
+  # deployments: Azure answers 409 until the provisioning state is terminal.
+  retry = {
+    error_message_regex = ["RequestConflict", "provisioning state is not terminal"]
+    interval_seconds    = 30
+  }
+
   kind                     = "AIServices"
   sku_name                 = "S0"
   allow_project_management = true # required to enable AI Foundry (projects) on the account
