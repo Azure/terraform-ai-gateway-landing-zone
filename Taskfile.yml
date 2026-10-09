@@ -141,9 +141,15 @@ tasks:
             -target=module.logic_app.azapi_resource_action.sync_triggers
 
   # ── whole environment ───────────────────────────────────────────────────────
-  up:
-    desc: "Every configured stack in order, then every access contract: task up ENV=dev"
+  preflight:
+    desc: "Azure Policy check before deploying (Deny policies this repo trips over): task preflight ENV=dev"
     cmds:
+      - python3 scripts/preflight.py {{.ENV}}
+
+  up:
+    desc: "Preflight, every configured stack in order, then every access contract: task up ENV=dev [PREFLIGHT=false to skip the policy check]"
+    cmds:
+      - '[ "{{.PREFLIGHT}}" = false ] || {{.TASK_EXE}} preflight ENV={{.ENV}}'
       - for: { var: ORDERED_STACKS }
         task: apply-if-configured
         vars: { STACK: "{{.ITEM}}", ENV: "{{.ENV}}" }

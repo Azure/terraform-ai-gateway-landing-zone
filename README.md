@@ -146,7 +146,7 @@ pip install -r shared/requirements.txt
 ├── environments/<env>/          # local, gitignored inputs (only .gitkeep is tracked)
 ├── examples/<scenario>/         # environment templates to copy
 ├── logicapp-src/                # usage-ingestion Logic App project
-├── scripts/                     # validate.sh / .ps1, ci/ (repository rules)
+├── scripts/                     # preflight.py (policy check), validate.sh / .ps1, ci/ (repository rules)
 ├── validation/  shared/         # notebooks and helpers
 └── docs/                        # scenarios, operations runbooks
 ```

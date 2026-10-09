@@ -136,8 +136,17 @@ bootstrap then only adds the state account and the role assignments.
 ### 4.2 Whole environment
 
 ```bash
-task up ENV=dev
+task preflight ENV=dev   # optional, read-only: Azure Policy Deny rules this repo trips over
+task up ENV=dev          # runs the preflight first (PREFLIGHT=false skips it), then every stack
 ```
+
+The preflight lists the policy assignments that apply to the workload resource
+group (the subscription while the group doesn't exist yet) and fails when a
+known Deny policy isn't exempted, so you find out before the 30 to 60 minute
+APIM creation instead of after it. It needs only Reader, and only warns if
+Azure Policy can't be queried. Today it knows *API Management calls to API
+backends should be authenticated*; see
+[platform-team-requests.md](docs/operations/platform-team-requests.md#apim-backend-authentication-policy-microsoft-cloud-security-benchmark).
 
 Applies every configured stack in order, then every access contract. Each step
 runs `init` → `plan -out=tfplan` → `apply tfplan`. Check the result:
@@ -491,6 +500,7 @@ a human, or keep the names and let `recover_soft_deleted_key_vaults` recover.
 | `llm-backend-onboarding`: `Missing shared fragments (apply stacks/gateway-config first)` | stacks applied out of order | apply `gateway-config` |
 | `llm-backend-onboarding` plans no backends | no Foundry deployments yet, or accounts named outside the naming contract | apply `platform` first, or set `foundry_backends.account_names` |
 | `AuthorizationFailure` / `ForbiddenByFirewall` on Key Vault or the package blob | the machine running Terraform can't reach the private data plane | run from a runner in `snet-cicd`, or `dev_access` (greenfield non-prod); behind a proxy use a runner |
+| `RequestDisallowedByPolicy` on `Microsoft.ApiManagement/service/backends` (policy *API Management calls to API backends should be authenticated*) | the customer's policy (often the Microsoft cloud security benchmark with the effect raised to `Deny`) doesn't recognise managed-identity / policy-applied backend authentication: a false positive | request the exemption in [platform-team-requests.md](docs/operations/platform-team-requests.md#apim-backend-authentication-policy-microsoft-cloud-security-benchmark); `task preflight ENV=<env>` detects it up front |
 | `RequestDisallowedByPolicy` on the Logic App storage account | ALZ `Deny-Storage-Shared-Key` vs Workflow Standard | `usage_pipeline.logic_app.hosting = "ase_v3"` (decision D3) |
 | Workflow Standard: workflow publish fails with `504 GatewayTimeout`, the Logic App host reports `ServiceUnavailable`, and every plan wants `allowSharedKeyAccess = false -> true` | tenant or management-group governance turns shared-key access off on storage accounts after they're created (seen in MCAPS tenants); the WS runtime needs the key | use `usage_pipeline.logic_app.hosting = "ase_v3"` (keyless) in that tenant, or get an exemption |
 | `ServiceModelDeprecating` on a Foundry deployment | the model version can't take new deployments any more | pick a current version: `az cognitiveservices model list -l <region>` |

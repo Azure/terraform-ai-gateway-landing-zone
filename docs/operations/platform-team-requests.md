@@ -19,7 +19,7 @@ Track each request here. Update the status when the ticket is acknowledged or do
 | P3 | | not submitted | | `alz_spoke` only |
 | P4 | | not submitted | | `alz_spoke` only |
 | P5 | | not submitted | | |
-| P6 | | not submitted | | only for V2 APIM SKUs / WS Logic App in dev |
+| P6 | | not submitted | | APIM backend-authentication policy (any environment under the Microsoft cloud security benchmark with it set to Deny); V2 APIM SKUs; WS Logic App in dev |
 | P7 | | not submitted | | or created by `stacks/bootstrap` (Phase 3) |
 | P8 | | not submitted | | |
 | P9 | | not submitted | | |
@@ -34,7 +34,7 @@ Track each request here. Update the status when the ticket is acknowledged or do
 | P3 | Hub DNS (platform) — **`alz_spoke` only** (greenfield creates its own zones) | Zones in the connectivity subscription and linked to the resolver: `privatelink.openai.azure.com`, `privatelink.services.ai.azure.com`, `privatelink.azure-api.net`, `privatelink.redis.azure.net` (not in the ALZ DINE set). `privatelink.azurewebsites.net` when the Workflow Standard Logic App gets a private endpoint (`usage_pipeline.logic_app.private_endpoint`; in the ALZ DINE set, so policy normally binds the zone group). Plus resolution of `<ase>.appserviceenvironment.net` (`ase_v3`), either by a VNet link from the workload zone to the hub/resolver VNet or by a forwarding ruleset. **APIM `internal`/`injection` (D12):** resolution of the per-FQDN zones `<apim>.azure-api.net` (+ `.portal.`, `.developer.`, `.management.`, `.scm.` for classic). Never an apex `azure-api.net` zone. | Phase 2 #6 / 2b |
 | P4 | DNS / network RBAC (platform) — `alz_spoke` only | For the apply identity (D13): `Microsoft.Network/privateDnsZones/join/action` on the four zones above; `Microsoft.Network/virtualNetworks/join/action` (e.g. Network Contributor) on the hub or resolver VNet when the ASE zone is linked to it (`app-hosting.tfvars` `dns.vnet_link_ids`); Network Contributor on the vended spoke VNet (subnets). For both pipeline identities: Reader on the central Log Analytics workspace when `monitoring.log_analytics_workspace_id` points at it | Phase 2 #7 |
 | P5 | Firewall rules (platform) | APIM per D12: classic `external`/`internal` management-plane dependencies (inbound 3443 from `ApiManagement`, the `ApiManagement` → Internet route, Storage/SQL/KV/Monitor outbound); v2 `injection`/`integration` outbound 443 to `AzureKeyVault` plus backends. Foundry agent egress (allow-list), ASE v3 outbound dependencies when egress goes through the hub (`ase_v3`; Windows Update, monitoring, etc.), AWS Bedrock / external LLM endpoints, GitHub runner egress | Phase 2 #8 / 2b |
-| P6 | Policy exemptions (platform) | Only if D6/D12 use any V2 SKU (StandardV2 or PremiumV2, **including PremiumV2 injection**): an exemption on `Enforce-GR-APIM` `Deny-Apim-Sku-Vnet`, scoped to the APIM resource. The built-in's allowed-SKU parameter has no V2 values, so a parameter override can't work. `Deny-Apim-without-Vnet` doesn't evaluate V2 SKUs. Also a time-boxed `Deny-Storage-Shared-Key` exemption for sandbox/dev WS Logic Apps (D3: dev / quick-start keep `workflow_standard`, a documented shared-key exception). `ase_v3` environments need no storage exemption. | Phase 2b |
+| P6 | Policy exemptions (platform) | **Every environment where `API Management calls to API backends should be authenticated` is `Deny`** (usually through the *Microsoft cloud security benchmark* initiative; check with `task preflight ENV=<env>`): an exemption on the workload resource group — see [below](#apim-backend-authentication-policy-microsoft-cloud-security-benchmark). Also, only if D6/D12 use any V2 SKU (StandardV2 or PremiumV2, **including PremiumV2 injection**): an exemption on `Enforce-GR-APIM` `Deny-Apim-Sku-Vnet`, scoped to the APIM resource. The built-in's allowed-SKU parameter has no V2 values, so a parameter override can't work. `Deny-Apim-without-Vnet` doesn't evaluate V2 SKUs. Also a time-boxed `Deny-Storage-Shared-Key` exemption for sandbox/dev WS Logic Apps (D3: dev / quick-start keep `workflow_standard`, a documented shared-key exception). `ase_v3` environments need no storage exemption. | Phase 2b |
 | P7 | Pipeline identities (platform or bootstrap) | **Two UAMIs per environment** (D13): `id-tf-<workload>-<env>-plan` with Reader + *Terraform Plan Reader* + state Blob Data Reader + Graph `Application.Read.All`, federated to GitHub environment `<env>-plan`; `id-tf-<workload>-<env>-apply` with Contributor + conditioned RBAC Administrator (+ Resource Policy Contributor) on the workload resource group, state Blob Data Contributor, Graph `Application.ReadWrite.OwnedBy` + `Application.Read.All`, federated to `<env>` (see the implementation plan, decision D13) | Phase 3 |
 | P8 | Private CI runners (platform/DevOps) | GitHub-hosted private networking (network settings resource + delegated subnet) or a self-hosted runner subnet with the UDR. For `ase_v3` the runner that runs `apply` must reach the Logic App storage **blob private endpoint** (run-from-package upload) and, for `deployment = "zip_deploy"`, resolve and reach `*.scm.<ase>.appserviceenvironment.net` | Phase 2b |
 | P9 | ALZ-shaped sandbox MG (platform) | A sandbox MG with the ALZ `landing_zones` + `corp` archetypes, `Enforce-GR-*` set to `Default`, used for the weekly convergence gate | Phase 4 |
@@ -61,6 +61,54 @@ No `Deny-Storage-Shared-Key` exemption is needed for these environments; if
 the platform doesn't assign that policy, set `deny_storage_shared_key = true`
 in `platform.tfvars` to assign it on the resource group.
 
+## APIM backend authentication policy (Microsoft cloud security benchmark)
+
+The built-in policy **API Management calls to API backends should be
+authenticated** (definition `c15dcc82-b93c-4dcb-9332-fbf121685b54`, reference
+`aPIManagementServiceShouldHaveBackendCallsAuthenticated` in the *Microsoft
+cloud security benchmark* initiative) is `Audit` by default. Some customers
+raise it to `Deny` (an initiative effect override or a custom assignment);
+the deployment then fails at `stacks/gateway-config` or
+`stacks/llm-backend-onboarding`, **after** the platform stack (and any 30 to
+60 minute APIM creation) is already done:
+
+```text
+RequestDisallowedByPolicy ... Microsoft.ApiManagement/service/backends ...
+policyDefinitionDisplayName: API Management calls to API backends should be authenticated
+```
+
+It is a **false positive** for this repository. The definition denies a
+backend that has a `url` and neither `credentials.certificate` nor
+`credentials.authorization.scheme`. Every backend here (Foundry/Azure OpenAI
+LLM backends, content safety, embeddings, AI Search, the MS Learn MCP
+sample) is authenticated by the gateway, not by a backend-level certificate or
+authorization scheme: with the APIM user-assigned managed identity
+(`credentials.managedIdentity`, or `authentication-managed-identity` in the
+policy fragments), or with a Key Vault key / AWS SigV4 applied by the policy
+fragments; the MS Learn MCP sample is a public endpoint. The definition
+recognises none of these. Backend pools have no URL and aren't affected.
+
+Request an **exemption**, category *Mitigated* (not a waiver of the control:
+authentication is done with the managed identity), scoped to the workload
+resource group (the APIM service doesn't exist yet when the request is made),
+limited to the one reference ID so the rest of the initiative stays enforced:
+
+```bash
+az policy exemption create --name aigw-apim-backend-auth \
+  --policy-assignment <assignment id of the initiative / policy> \
+  --policy-definition-reference-ids aPIManagementServiceShouldHaveBackendCallsAuthenticated \
+  --exemption-category Mitigated \
+  --scope /subscriptions/<sub>/resourceGroups/rg-<workload>-<env> \
+  --description "APIM backends authenticate with the APIM managed identity"
+```
+
+`task preflight ENV=<env>` (also the first step of `task up`) finds the
+assignment and prints this command filled in. It is the check to run
+**before** the ticket and again before the first apply; it needs only Reader.
+It reports `[FAIL]` while the policy is `Deny` and not exempted, `[OK]` once
+exempted or when the effect is `Audit`/`Disabled`. An exemption scoped to the
+APIM service itself isn't visible until the service exists.
+
 ## Ticket template
 
 Copy this into the subscription-vending / platform ticket and fill in the placeholders.
@@ -83,7 +131,7 @@ Firewall: APIM per vnet_mode (classic: management plane + dependencies; v2: Azur
 Runner (ase_v3): deployment runner with private access to the Logic App storage private endpoint (+ ASE SCM endpoint for zip_deploy)
 Identities (2): id-tf-<workload>-<env>-plan  → OIDC subject repo:<org>/<repo>:environment:<env>-plan  (Reader + Terraform Plan Reader; state Blob Data Reader; Graph Application.Read.All)
                 id-tf-<workload>-<env>-apply → OIDC subject repo:<org>/<repo>:environment:<env>        (Contributor + RBAC Admin conditioned; state Blob Data Contributor; Graph Application.ReadWrite.OwnedBy + Application.Read.All)
-Exemptions (if applicable): Enforce-GR-APIM Deny-Apim-Sku-Vnet for ANY V2 SKU (incl. PremiumV2 injection) scoped to APIM — no parameter override possible; Deny-Storage-Shared-Key (dev WS Logic App, time-boxed)
+Exemptions (if applicable): API Management calls to API backends should be authenticated (reference aPIManagementServiceShouldHaveBackendCallsAuthenticated) on the workload resource group, category Mitigated (backends use the APIM managed identity); Enforce-GR-APIM Deny-Apim-Sku-Vnet for ANY V2 SKU (incl. PremiumV2 injection) scoped to APIM — no parameter override possible; Deny-Storage-Shared-Key (dev WS Logic App, time-boxed)
 Diagnostics: central LAW id for BYO; confirm Deploy-Diag-LogsCat scope
 ```
 

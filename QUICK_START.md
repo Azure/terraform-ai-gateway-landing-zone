@@ -41,8 +41,13 @@ in `platform.tfvars` (`foundry.models`).
 
 ```bash
 task bootstrap ENV=dev     # ~3 min: state account, rg-aigw-dev, pipeline identity; writes backend.hcl
-task up ENV=dev            # ~60 min: network → platform → gateway-config → llm-backend-onboarding → contract
+task up ENV=dev            # preflight (Azure Policy), then ~60 min: network → platform → gateway-config → llm-backend-onboarding → contract
 ```
+
+Behind a customer policy set (e.g. the Microsoft cloud security benchmark with
+Deny effects) run `task preflight ENV=dev` first; it reports known policy
+blockers before anything is deployed (see
+[docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md)).
 
 `task up` skips stacks without a tfvars file (the quickstart has no
 `identity.tfvars` or `app-hosting.tfvars`).
