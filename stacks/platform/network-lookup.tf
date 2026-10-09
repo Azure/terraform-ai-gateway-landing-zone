@@ -10,7 +10,7 @@ locals {
     { pe = local.names.subnet_pe },
     local.apim_cfg.vnet_mode != "none" ? { apim = local.names.subnet_apim } : {},
     var.usage_pipeline.logic_app.hosting == "workflow_standard" ? { logic_app = local.names.subnet_logic_app } : {},
-    var.foundry.network_injection_enabled ? { agent = local.names.subnet_agent } : {},
+    var.foundry.enabled && var.foundry.network_injection_enabled ? { agent = local.names.subnet_agent } : {},
   )
 }
 

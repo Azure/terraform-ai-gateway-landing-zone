@@ -79,6 +79,7 @@ One stack at a time: `task apply STACK=platform ENV=dev`; one use case:
 | [shared-ase](examples/shared-ase/) | greenfield + extra DNS links | StandardV2, integration + PE | shared ASE v3 | ASE owned by another team |
 | [multi-provider-llm](examples/multi-provider-llm/) | greenfield | StandardV2, integration | Workflow Standard | Azure OpenAI, third party, AWS Bedrock |
 | [existing-apim-platform](examples/existing-apim-platform/) | byo (name overrides) | existing APIM | not deployed | gateway config on an APIM you run |
+| [no-foundry-ai-services](examples/no-foundry-ai-services/) | greenfield | StandardV2, integration | Workflow Standard | no Foundry; standalone Language + Content Safety |
 | [all-features](examples/all-features/) | greenfield | StandardV2, integration + PE | Workflow Standard | every optional switch, to copy from |
 
 ---

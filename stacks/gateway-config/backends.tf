@@ -11,7 +11,7 @@ resource "azapi_resource" "content_safety_backend" {
   body = {
     properties = {
       description = "Content Safety Service Backend"
-      url         = local.foundry_endpoint
+      url         = local.content_safety_endpoint
       protocol    = "http"
       tls = {
         validateCertificateChain = true

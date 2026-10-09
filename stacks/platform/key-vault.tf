@@ -15,7 +15,7 @@ module "security" {
 
   managed_identity_principal_id = module.identity["apim"].principal_id
   foundry_principal_ids         = module.foundry.foundry_principal_ids
-  foundry_principal_count       = length(var.foundry.instances)
+  foundry_principal_count       = length(local.foundry_instances)
   secret_writer_principal_ids   = var.secret_writer_principal_ids
   secret_reader_principal_ids   = var.secret_reader_principal_ids
 

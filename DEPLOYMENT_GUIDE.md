@@ -399,6 +399,52 @@ checked. Add this to the service's `policy_xml` inbound section (the
   caller to the project identity, also check the token's `appid` / `azp` claim.
 - Verified live: key only, a garbage token, or a token only → `401`; key plus valid token → `200`.
 
+### 6.4 Without Foundry: standalone Language and Content Safety
+
+Some customers don't deploy Foundry accounts but still want the gateway's PII
+redaction (Language) and content safety. Foundry is optional in
+`platform.tfvars`, and those two services can be deployed on their own, as the
+same kind of Azure resource (`Microsoft.CognitiveServices/accounts`) with a
+different `kind`:
+
+```hcl
+# platform.tfvars
+foundry                = { enabled = false }  # no accounts, projects, models, Foundry App Insights
+language_service       = { enabled = true }   # kind TextAnalytics, name lang-<workload>-<env>-<seed>
+content_safety_service = { enabled = true }   # kind ContentSafety, name cs-<workload>-<env>-<seed>
+```
+
+```hcl
+# gateway-config.tfvars
+pii_service            = { source = "dedicated" }   # foundry (default) | dedicated | url
+content_safety_service = { source = "dedicated" }
+```
+
+- Each account has a private endpoint (zone `privatelink.cognitiveservices.azure.com`),
+  Entra-only authentication (no keys) and `Cognitive Services User` for the APIM
+  identity. Their location defaults to the stack's; set `location` if the service
+  isn't available there. Content Safety's SKU is `S0`, Language's `S`.
+- The two flags are independent of each other and of Foundry: Foundry plus a
+  dedicated Language account is valid too. With Foundry enabled and both sources
+  left at `foundry`, nothing changes from before.
+- `source = "url"` (with `url = "https://<name>.cognitiveservices.azure.com/"`)
+  points at services you already have; the APIM identity needs `Cognitive Services
+  User` on them. Gateway-config finds the dedicated accounts by name, like every
+  other resource, so apply `platform` first.
+- Without Foundry there are no deployments to derive LLM backends from: list your
+  models in `llm-backend-onboarding.tfvars` `extra_llm_backends` (a `check` warns
+  when there are none). Set `subnets_enabled.agent = false` in `network.tfvars`, and
+  leave `foundry` off in access contracts unless a team brings its own Foundry
+  project (`foundry.project_id`).
+- `monitoring.policy_managed_diagnostics = ["foundry"]` covers all three kinds of
+  account.
+- The `ContentSafety` kind rejects the trusted-service bypass in its network ACLs
+  (`NetworkAclsBypassNotSupported`); the module omits it for that kind.
+- Verified live: both kinds deploy through the module, and APIM's calls work with an
+  Entra token (Language `language/:analyze-text` redacts the entities; Content
+  Safety `contentsafety/text:analyze` scores the text). Example:
+  [examples/no-foundry-ai-services](examples/no-foundry-ai-services/).
+
 ---
 
 ## 7. CI/CD (GitHub Actions)

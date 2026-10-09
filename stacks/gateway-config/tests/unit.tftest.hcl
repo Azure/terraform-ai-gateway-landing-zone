@@ -127,3 +127,105 @@ run "service_apis" {
     error_message = "No Foundry lookup when PII and Content Safety are off."
   }
 }
+
+# --- Language / Content Safety endpoint sources --------------------------------
+
+run "dedicated_language_and_content_safety_accounts" {
+  command = plan
+
+  variables {
+    pii_service            = { source = "dedicated" }
+    content_safety_service = { source = "dedicated" }
+  }
+  override_data {
+    target = data.azurerm_cognitive_account.language[0]
+    values = { endpoint = "https://lang-aigw-dev.cognitiveservices.azure.com/" }
+  }
+  override_data {
+    target = data.azurerm_cognitive_account.content_safety[0]
+    values = { endpoint = "https://cs-aigw-dev.cognitiveservices.azure.com/" }
+  }
+
+  assert {
+    condition     = local.plain_named_values["piiServiceUrl"] == "https://lang-aigw-dev.cognitiveservices.azure.com/" && local.plain_named_values["contentSafetyServiceUrl"] == "https://cs-aigw-dev.cognitiveservices.azure.com/"
+    error_message = "PII uses the dedicated Language account, content safety the dedicated Content Safety account."
+  }
+  assert {
+    condition     = length(data.azurerm_cognitive_account.primary) == 0
+    error_message = "No Foundry lookup when neither feature takes its endpoint from Foundry (a deployment without Foundry)."
+  }
+  assert {
+    condition     = azapi_resource.content_safety_backend[0].body.properties.url == "https://cs-aigw-dev.cognitiveservices.azure.com/"
+    error_message = "The content-safety backend points at the dedicated account."
+  }
+  assert {
+    condition     = data.azurerm_cognitive_account.language[0].name == local.names.language_service && data.azurerm_cognitive_account.content_safety[0].name == local.names.content_safety
+    error_message = "The dedicated accounts are found by their deterministic names."
+  }
+}
+
+run "explicit_urls_need_no_lookup" {
+  command = plan
+
+  variables {
+    pii_service            = { source = "url", url = "https://existing-language.cognitiveservices.azure.com/" }
+    content_safety_service = { source = "url", url = "https://existing-cs.cognitiveservices.azure.com/" }
+  }
+
+  assert {
+    condition     = local.plain_named_values["piiServiceUrl"] == "https://existing-language.cognitiveservices.azure.com/" && local.plain_named_values["contentSafetyServiceUrl"] == "https://existing-cs.cognitiveservices.azure.com/"
+    error_message = "Explicit endpoints are used as given."
+  }
+  assert {
+    condition     = length(data.azurerm_cognitive_account.primary) == 0 && length(data.azurerm_cognitive_account.language) == 0 && length(data.azurerm_cognitive_account.content_safety) == 0
+    error_message = "Nothing is looked up for explicit URLs."
+  }
+}
+
+run "sources_can_be_mixed" {
+  command = plan
+
+  variables {
+    content_safety_service = { source = "url", url = "https://existing-cs.cognitiveservices.azure.com/" }
+  }
+
+  assert {
+    condition     = local.plain_named_values["piiServiceUrl"] == "https://aif-aigw-dev.cognitiveservices.azure.com/" && local.plain_named_values["contentSafetyServiceUrl"] == "https://existing-cs.cognitiveservices.azure.com/"
+    error_message = "PII from Foundry, content safety from its own URL."
+  }
+}
+
+run "features_off_need_no_endpoint_lookups" {
+  command = plan
+
+  variables {
+    features               = { pii_redaction = false, pii_anonymization = false, content_safety = false }
+    pii_service            = { source = "dedicated" }
+    content_safety_service = { source = "dedicated" }
+  }
+
+  assert {
+    condition     = length(data.azurerm_cognitive_account.primary) == 0 && length(data.azurerm_cognitive_account.language) == 0 && length(data.azurerm_cognitive_account.content_safety) == 0
+    error_message = "With the features off nothing is looked up, so a deployment without these services still plans."
+  }
+}
+
+run "url_source_needs_a_url" {
+  command = plan
+
+  variables {
+    pii_service = { source = "url" }
+  }
+
+  expect_failures = [var.pii_service]
+}
+
+run "unknown_source_is_rejected" {
+  command = plan
+
+  variables {
+    content_safety_service = { source = "nowhere" }
+  }
+
+  expect_failures = [var.content_safety_service]
+}

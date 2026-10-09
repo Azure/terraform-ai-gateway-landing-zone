@@ -37,23 +37,23 @@ output "logic_app_insights_connection_string" {
 }
 
 output "foundry_app_insights_id" {
-  description = "Resource ID of the Foundry Application Insights component."
-  value       = module.app_insights["foundry"].resource_id
+  description = "Resource ID of the Foundry Application Insights component (null without Foundry)."
+  value       = try(module.app_insights["foundry"].resource_id, null)
 }
 
 output "foundry_app_insights_name" {
   description = "Name of the Foundry Application Insights component."
-  value       = module.app_insights["foundry"].name
+  value       = try(module.app_insights["foundry"].name, null)
 }
 
 output "foundry_app_insights_instrumentation_key" {
   description = "Instrumentation key of the Foundry Application Insights component."
-  value       = module.app_insights["foundry"].instrumentation_key
+  value       = try(module.app_insights["foundry"].instrumentation_key, null)
   sensitive   = true
 }
 
 output "foundry_app_insights_connection_string" {
   description = "Connection string of the Foundry Application Insights component."
-  value       = module.app_insights["foundry"].connection_string
+  value       = try(module.app_insights["foundry"].connection_string, null)
   sensitive   = true
 }

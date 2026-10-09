@@ -422,3 +422,95 @@ run "shared_key_deny_needs_ase" {
   }
   expect_failures = [azurerm_resource_group_policy_assignment.deny_storage_shared_key]
 }
+
+# --- Foundry optional; standalone Language and Content Safety ------------------
+
+run "foundry_can_be_disabled" {
+  command = plan
+  variables {
+    foundry = { enabled = false }
+  }
+
+  assert {
+    condition     = length(local.foundry_instances) == 0 && length(module.foundry.foundry_names) == 0 && output.foundry_account_names == []
+    error_message = "foundry.enabled = false: no Foundry accounts or projects."
+  }
+  assert {
+    condition     = !contains(keys(data.azurerm_subnet.greenfield), "agent")
+    error_message = "No Foundry: the agent subnet isn't looked up."
+  }
+  assert {
+    condition     = output.diagnostic_setting_names.foundry == []
+    error_message = "No Foundry and no dedicated services: no Foundry-family diagnostic settings."
+  }
+  assert {
+    condition     = length(module.language_service) == 0 && length(module.content_safety_service) == 0
+    error_message = "The dedicated services are off unless asked for."
+  }
+}
+
+run "dedicated_language_and_content_safety_accounts" {
+  command = plan
+  variables {
+    language_service       = { enabled = true }
+    content_safety_service = { enabled = true, location = "northeurope" }
+  }
+
+  assert {
+    condition     = output.language_service_endpoint == "https://${lower(local.names.language_service)}.cognitiveservices.azure.com/"
+    error_message = "The Language endpoint is the account's custom subdomain."
+  }
+  assert {
+    condition     = output.content_safety_service_endpoint == "https://${lower(local.names.content_safety)}.cognitiveservices.azure.com/"
+    error_message = "The Content Safety endpoint is the account's custom subdomain."
+  }
+  assert {
+    condition     = length(output.diagnostic_setting_names.foundry) == 3
+    error_message = "One Foundry account plus the two dedicated accounts keep workload diagnostics."
+  }
+  assert {
+    condition     = length(module.foundry.foundry_names) == 1
+    error_message = "The dedicated services are additions: Foundry stays."
+  }
+}
+
+run "dedicated_services_without_foundry" {
+  command = plan
+  variables {
+    foundry                = { enabled = false }
+    language_service       = { enabled = true }
+    content_safety_service = { enabled = true }
+  }
+
+  assert {
+    condition     = length(module.foundry.foundry_names) == 0 && length(module.language_service) == 1 && length(module.content_safety_service) == 1
+    error_message = "Language and Content Safety without any Foundry account."
+  }
+  assert {
+    condition     = output.language_service_endpoint != null && output.content_safety_service_endpoint != null
+    error_message = "Both endpoints are exposed."
+  }
+}
+
+run "dedicated_services_leave_diagnostics_to_policy" {
+  command = plan
+  variables {
+    language_service       = { enabled = true }
+    content_safety_service = { enabled = true }
+    monitoring             = { policy_managed_diagnostics = ["foundry"] }
+  }
+
+  assert {
+    condition     = output.diagnostic_setting_names.foundry == []
+    error_message = "policy_managed_diagnostics = foundry covers the Language and Content Safety accounts too."
+  }
+}
+
+run "dedicated_services_are_off_by_default" {
+  command = plan
+
+  assert {
+    condition     = output.language_service_endpoint == null && output.content_safety_service_endpoint == null
+    error_message = "No dedicated account, no endpoint."
+  }
+}

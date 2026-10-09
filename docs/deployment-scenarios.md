@@ -22,6 +22,7 @@ stay valid as the stacks evolve.
 | [shared-ase](../examples/shared-ase/) | greenfield (+ extra DNS links) | network, platform, gateway-config, llm, 1 contract | StandardV2, integration + PE, public off | ASE v3 owned by another team (`ase.app_service_environment_id`) | pair; keys | runner in `snet-cicd` |
 | [multi-provider-llm](../examples/multi-provider-llm/) | greenfield | network, platform, gateway-config, llm, 1 contract | StandardV2, integration | Workflow Standard | single identity; keys | laptop (`dev_access`) |
 | [existing-apim-platform](../examples/existing-apim-platform/) | byo (name overrides) | gateway-config, llm, 1 contract | an APIM you already run | none (not deployed) | pair; Entra JWT (explicit values) | runner with APIM access |
+| [no-foundry-ai-services](../examples/no-foundry-ai-services/) | greenfield | network, platform, gateway-config, llm, 1 contract | StandardV2, integration | Workflow Standard | single identity; keys | laptop (`dev_access`) |
 | [all-features](../examples/all-features/) | greenfield (+ AMPLS zone, extra DNS links) | all but app-hosting, incl. identity | StandardV2, integration + PE | Workflow Standard | pair; Entra JWT | runner in `snet-cicd` |
 
 ## Choosing
@@ -41,6 +42,9 @@ stay valid as the stacks evolve.
   configuration only).
 - **Several model providers (Azure OpenAI, third party, AWS Bedrock):**
   `multi-provider-llm`.
+- **No Foundry accounts, but PII redaction and content safety:**
+  `no-foundry-ai-services` (standalone Language and Content Safety accounts,
+  models from `extra_llm_backends`).
 - **Every optional switch in one place (to copy from):** `all-features`.
 - **APIM network variants:** `apim-v2-private-endpoint`,
   `apim-premiumv2-injection`, `premium-internal-vnet` and `apim-external-vnet`;

@@ -23,8 +23,8 @@ locals {
       "JWT-Issuer"            = local.entra_on ? "${var.entra_auth.login_endpoint}${local.jwt_tenant}/v2.0" : "not-configured"
       "JWT-OpenIdConfigUrl"   = local.entra_on ? "${var.entra_auth.login_endpoint}${local.jwt_tenant}/v2.0/.well-known/openid-configuration" : "not-configured"
     },
-    var.features.pii_redaction ? { piiServiceUrl = local.foundry_endpoint } : {},
-    var.features.content_safety ? { contentSafetyServiceUrl = local.foundry_endpoint } : {},
+    var.features.pii_redaction ? { piiServiceUrl = local.pii_endpoint } : {},
+    var.features.content_safety ? { contentSafetyServiceUrl = local.content_safety_endpoint } : {},
   )
 }
 

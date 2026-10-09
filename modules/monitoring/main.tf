@@ -31,15 +31,17 @@ module "log_analytics" {
 }
 
 # -----------------------------------------------------------------------------
-# APPLICATION INSIGHTS (for APIM monitoring)
+# APPLICATION INSIGHTS
 # -----------------------------------------------------------------------------
 
 locals {
-  app_insights = {
-    apim      = "appi-apim-${var.environment_name}"
-    logic_app = "appi-logic-${var.environment_name}"
-    foundry   = "appi-aif-${var.environment_name}"
-  }
+  app_insights = merge(
+    {
+      apim      = "appi-apim-${var.environment_name}"
+      logic_app = "appi-logic-${var.environment_name}"
+    },
+    var.create_foundry_app_insights ? { foundry = "appi-aif-${var.environment_name}" } : {},
+  )
 }
 
 module "app_insights" {
@@ -57,23 +59,12 @@ module "app_insights" {
 }
 
 # -----------------------------------------------------------------------------
-# APPLICATION INSIGHTS (for Logic App monitoring)
-# -----------------------------------------------------------------------------
-
-
-# -----------------------------------------------------------------------------
-# APPLICATION INSIGHTS (for AI Foundry monitoring — Bicep: appi-aif-*)
-# -----------------------------------------------------------------------------
-
-
-# -----------------------------------------------------------------------------
-# DASHBOARDS — Bicep parity (applicationinsights-dashboard.bicep deployed 3×)
 # One dashboard per App Insights component (APIM / Logic App / Foundry),
 # rendered from the shared template in ./dashboards/.
 # -----------------------------------------------------------------------------
 
 locals {
-  dashboard_components = var.create_dashboards ? {
+  dashboard_components = var.create_dashboards ? merge({
     apim = {
       suffix  = "apim"
       ai_id   = module.app_insights["apim"].resource_id
@@ -84,12 +75,15 @@ locals {
       ai_id   = module.app_insights["logic_app"].resource_id
       ai_name = module.app_insights["logic_app"].name
     }
-    foundry = {
-      suffix  = "aif"
-      ai_id   = module.app_insights["foundry"].resource_id
-      ai_name = module.app_insights["foundry"].name
-    }
-  } : {}
+    },
+    var.create_foundry_app_insights ? {
+      foundry = {
+        suffix  = "aif"
+        ai_id   = module.app_insights["foundry"].resource_id
+        ai_name = module.app_insights["foundry"].name
+      }
+    } : {},
+  ) : {}
 }
 
 resource "azurerm_portal_dashboard" "app_insights" {
@@ -145,7 +139,7 @@ resource "azurerm_monitor_private_link_scoped_service" "appi_logic" {
 }
 
 resource "azurerm_monitor_private_link_scoped_service" "appi_foundry" {
-  count               = var.use_azure_monitor_private_link_scope ? 1 : 0
+  count               = var.use_azure_monitor_private_link_scope && var.create_foundry_app_insights ? 1 : 0
   name                = "scoped-appi-foundry"
   resource_group_name = var.resource_group_name
   scope_name          = azurerm_monitor_private_link_scope.ampls[0].name

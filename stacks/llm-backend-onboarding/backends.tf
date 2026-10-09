@@ -47,3 +47,12 @@ module "llm_routing" {
   model_aliases              = var.model_aliases
   configure_circuit_breaker  = var.configure_circuit_breaker
 }
+
+# Without Foundry (platform foundry.enabled = false) the backends come from
+# extra_llm_backends / llm_backend_config; with none the LLM APIs route nowhere.
+check "llm_backends_exist" {
+  assert {
+    condition     = length(local.llm_backend_config) > 0
+    error_message = "No LLM backends: no Foundry account was found and neither extra_llm_backends nor llm_backend_config is set, so the LLM APIs have nothing to route to. Deploy Foundry in stacks/platform, or list your backends in extra_llm_backends."
+  }
+}

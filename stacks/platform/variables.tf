@@ -116,6 +116,10 @@ variable "features" {
 variable "foundry" {
   description = <<-EOT
     Microsoft Foundry (AI Services) accounts, projects and model deployments.
+      enabled                    false = no Foundry accounts, projects, models or Foundry Application
+                                 Insights (e.g. a customer that only wants the Language and Content
+                                 Safety services below, or brings its own models through
+                                 llm-backend-onboarding extra_llm_backends).
       instances                  One account (+ default project) per entry; name "" = generated.
       models                     Deployments; ai_service_index selects the instance.
       external_access            Public network access to the accounts.
@@ -123,6 +127,7 @@ variable "foundry" {
       outbound_allowed_fqdns     Restrict the accounts' outbound access to these FQDNs (null = unrestricted).
   EOT
   type = object({
+    enabled = optional(bool, true)
     instances = optional(list(object({
       name                      = optional(string, "")
       location                  = string
@@ -141,6 +146,48 @@ variable "foundry" {
     external_access           = optional(bool, false)
     network_injection_enabled = optional(bool, true)
     outbound_allowed_fqdns    = optional(list(string))
+  })
+  default  = {}
+  nullable = false
+}
+
+variable "language_service" {
+  description = <<-EOT
+    A standalone Language service account (kind TextAnalytics) for PII redaction and
+    anonymization, for customers that don't deploy Foundry or want the service separate
+    from it. It is a Microsoft.CognitiveServices account like the Foundry ones, with a
+    private endpoint, Entra-only auth and Cognitive Services User for the APIM identity.
+    stacks/gateway-config then uses it with pii_service = { source = "dedicated" }.
+      enabled                Deploy the account.
+      location               null = the stack location (the service must be available there).
+      sku                    S (standard).
+      public_network_access  false = private endpoint only.
+  EOT
+  type = object({
+    enabled               = optional(bool, false)
+    location              = optional(string)
+    sku                   = optional(string, "S")
+    public_network_access = optional(bool, false)
+  })
+  default  = {}
+  nullable = false
+}
+
+variable "content_safety_service" {
+  description = <<-EOT
+    A standalone Azure AI Content Safety account (kind ContentSafety), the counterpart of
+    language_service for content safety; stacks/gateway-config uses it with
+    content_safety_service = { source = "dedicated" }.
+      enabled                Deploy the account.
+      location               null = the stack location (the service must be available there).
+      sku                    S0.
+      public_network_access  false = private endpoint only.
+  EOT
+  type = object({
+    enabled               = optional(bool, false)
+    location              = optional(string)
+    sku                   = optional(string, "S0")
+    public_network_access = optional(bool, false)
   })
   default  = {}
   nullable = false
@@ -313,7 +360,9 @@ variable "monitoring" {
       app_insights_dashboards          Create the Application Insights dashboards.
       policy_managed_diagnostics       Services whose Azure Monitor settings belong to Policy:
                                        apim, cosmosdb, eventhub, foundry, logic_app. No workload
-                                       settings are created/overwritten for these services.
+                                       settings are created/overwritten for these services. foundry
+                                       covers every Cognitive Services account (Foundry, Language,
+                                       Content Safety).
   EOT
   type = object({
     log_analytics_workspace_id    = optional(string)

@@ -35,7 +35,8 @@ mock_provider "azapi" {
   }
 }
 
-# Two platform accounts (+ one unrelated account) and their deployments.
+# Two platform accounts (+ one unrelated account) and their deployments, for each
+# environment name the examples use (the prefix is aif-<workload>-<environment>-).
 override_data {
   target = data.azapi_resource_list.foundry_accounts[0]
   values = {
@@ -43,6 +44,8 @@ override_data {
       accounts = [
         { name = "aif-aigw-dev-27cbb-1", location = "eastus2", endpoint = "https://b" },
         { name = "aif-aigw-dev-27cbb-0", location = "swedencentral", endpoint = "https://a" },
+        { name = "aif-aigw-test-27cbb-0", location = "swedencentral", endpoint = "https://a" },
+        { name = "aif-aigw-prod-27cbb-0", location = "swedencentral", endpoint = "https://a" },
         { name = "other-account", location = "westeurope", endpoint = "https://c" },
       ]
     }

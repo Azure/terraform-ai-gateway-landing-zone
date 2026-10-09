@@ -191,3 +191,41 @@ run "extra_backends_with_mixed_shapes_are_appended" {
     error_message = "Foundry-derived backends first, then the extra ones in order."
   }
 }
+
+# A deployment without Foundry and without other backends plans (the routing
+# module copes with none) but is flagged.
+run "no_backends_is_flagged" {
+  command = plan
+
+  variables {
+    foundry_backends = { enabled = false }
+  }
+
+  assert {
+    condition     = length(local.llm_backend_config) == 0 && length(module.llm_routing.pool_ids) == 0
+    error_message = "No Foundry and no extra backends: nothing to route to."
+  }
+
+  expect_failures = [check.llm_backends_exist]
+}
+
+# Without Foundry the backends are the extra ones alone.
+run "extra_backends_stand_alone_without_foundry" {
+  command = plan
+
+  variables {
+    foundry_backends = { enabled = false }
+    extra_llm_backends = [{
+      backend_id       = "aoai-mi"
+      backend_type     = "azure-openai"
+      endpoint         = "https://aoai.openai.azure.com/"
+      auth_type        = "managed-identity"
+      supported_models = [{ name = "gpt-4.1" }]
+    }]
+  }
+
+  assert {
+    condition     = [for b in local.llm_backend_config : b.backend_id] == ["aoai-mi"] && length(data.azapi_resource_list.foundry_accounts) == 0
+    error_message = "Only the extra backends; no Foundry lookup."
+  }
+}

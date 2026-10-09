@@ -252,8 +252,8 @@ policy or fragment that references them. Each one has a single owner:
 | Named value | File | Populated from |
 |---|---|---|
 | `uami-client-id` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | Client ID of the APIM user-assigned identity of `stacks/platform` (looked up by name) |
-| `piiServiceUrl` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | Endpoint of the primary Foundry account (only with `features.pii_redaction`) |
-| `contentSafetyServiceUrl` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | Endpoint of the primary Foundry account (only with `features.content_safety`) |
+| `piiServiceUrl` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | Language endpoint (only with `features.pii_redaction`): the primary Foundry account (`pii_service.source = foundry`, default), the standalone Language account of `stacks/platform` (`dedicated`) or `pii_service.url` |
+| `contentSafetyServiceUrl` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | Content Safety endpoint (only with `features.content_safety`): the primary Foundry account (`content_safety_service.source = foundry`, default), the standalone Content Safety account of `stacks/platform` (`dedicated`) or `content_safety_service.url` |
 | `tenant-id`, `client-id`, `audience`, `entra-auth` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | With `entra_auth.enabled`: `entra_auth.*`, or the gateway app of `stacks/identity` looked up by name when no explicit IDs are set. Otherwise safe placeholders, and `entra-auth = "false"` |
 | `JWT-TenantId`, `JWT-AppRegistrationId`, `JWT-Issuer`, `JWT-OpenIdConfigUrl` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | Derived from the same Entra values and `entra_auth.login_endpoint`, or `not-configured` |
 | `aws-access-key`, `aws-secret-key`, `aws-region` | [stacks/llm-backend-onboarding/named-values.tf](stacks/llm-backend-onboarding/named-values.tf) | Key Vault references from `aws.access_key_secret_uri` / `aws.secret_key_secret_uri` and `aws.region`, otherwise non-secret `NOT_CONFIGURED` placeholders. Always created so the `set-backend-authorization` fragment compiles without an AWS Bedrock backend |
@@ -468,7 +468,7 @@ named value referenced by a fragment) — the graph doesn't know about
 | llm `features.unified_ai_api` | Creates 3 unified-AI fragments (`central-cache-manager`, `request-processor`, `path-builder`) | Creates unified-AI API + its policy + 2 op policies + product + product policy |
 | gateway-config `features.pii_anonymization` | Creates 3 PII fragments via `azapi_resource.this` in `module.shared_fragments` | No direct policy; referenced from universal-llm + unified-ai |
 | gateway-config `features.pii_redaction` | — | Creates the `piiServiceUrl` named value (the `pii-usage-eventhub-logger` is always created by `module.apim_telemetry` in the platform; Language service auth uses the APIM managed identity) |
-| gateway-config `features.content_safety` | — | Creates `contentSafetyServiceUrl` named value + content-safety backend |
+| gateway-config `features.content_safety` | — | Creates `contentSafetyServiceUrl` named value + content-safety backend (both from `content_safety_service`) |
 | gateway-config `entra_auth.enabled` | — | Populates `tenant-id`, `client-id`, `audience`, `entra-auth` and the 4 JWT-* named values (else placeholders); the LLM APIs then don't require a subscription key |
 | gateway-config `features.azure_ai_search` | — | Creates `azure-ai-search-index-api` + its policy + `ai_search` backends |
 | gateway-config `features.document_intelligence` | — | Creates two document intelligence APIs + policies |

@@ -152,7 +152,9 @@ jobs:
           if [ -d tests/unit ]; then
             terraform test -no-color -test-directory=tests/unit
           elif ls tests/*.tftest.hcl >/dev/null 2>&1; then
-            terraform test -no-color
+            # tests/examples.tftest.hcl needs an example's var-files: the examples job runs it.
+            if [ -f tests/unit.tftest.hcl ]; then FILTER=-filter=tests/unit.tftest.hcl; fi
+            terraform test -no-color ${FILTER:-}
           else
             echo "no tests in ${{ matrix.dir }}"
           fi

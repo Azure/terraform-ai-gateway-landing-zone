@@ -140,6 +140,15 @@ Diagnostics: central LAW id for BYO; confirm Deploy-Diag-LogsCat scope
 - Every subnet the network stack creates (`greenfield` and `alz_spoke`) gets its
   own NSG (ALZ `Deny-Subnet-Without-Nsg`); in `byo` mode the subnets and their
   NSGs belong to the platform.
+- Standalone Language and Content Safety accounts (`platform.tfvars`
+  `language_service` / `content_safety_service`, for environments without Foundry)
+  are `Microsoft.CognitiveServices/accounts` of kind `TextAnalytics` /
+  `ContentSafety`. They reuse the zone `privatelink.cognitiveservices.azure.com`
+  already requested under P3, have public access off, no local (key) auth and a
+  `Deny` network ACL, so the usual Cognitive Services governance policies are met.
+  Both services must be available in the chosen region, and the subscription needs
+  quota for them. `monitoring.policy_managed_diagnostics = ["foundry"]` covers
+  them too.
 - Access-contract secrets (`environments/<env>/access-contracts/<use-case>.tfvars`)
   expire after `secret_validity_days` (default 90, the most `Enforce-GR-KeyVault`
   allows) and are renewed every `secret_rotation_days` (default 60).

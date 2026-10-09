@@ -11,9 +11,26 @@ data "azurerm_user_assigned_identity" "apim" {
   resource_group_name = local.names.resource_group
 }
 
+# The Language / Content Safety endpoint comes from the primary Foundry account, a
+# standalone account of stacks/platform (found by name) or an explicit URL.
 data "azurerm_cognitive_account" "primary" {
-  count               = var.features.pii_redaction || var.features.content_safety ? 1 : 0
+  count = (
+    (var.features.pii_redaction && var.pii_service.source == "foundry") ||
+    (var.features.content_safety && var.content_safety_service.source == "foundry")
+  ) ? 1 : 0
   name                = module.naming.foundry_account_names[0]
+  resource_group_name = local.names.resource_group
+}
+
+data "azurerm_cognitive_account" "language" {
+  count               = var.features.pii_redaction && var.pii_service.source == "dedicated" ? 1 : 0
+  name                = local.names.language_service
+  resource_group_name = local.names.resource_group
+}
+
+data "azurerm_cognitive_account" "content_safety" {
+  count               = var.features.content_safety && var.content_safety_service.source == "dedicated" ? 1 : 0
+  name                = local.names.content_safety
   resource_group_name = local.names.resource_group
 }
 
@@ -42,6 +59,18 @@ locals {
   azure_monitor_logger_id = "${local.apim_id}/loggers/azuremonitor"
 
   foundry_endpoint = try(data.azurerm_cognitive_account.primary[0].endpoint, "")
+
+  pii_endpoint = {
+    foundry   = local.foundry_endpoint
+    dedicated = try(data.azurerm_cognitive_account.language[0].endpoint, "")
+    url       = var.pii_service.url != null ? var.pii_service.url : ""
+  }[var.pii_service.source]
+
+  content_safety_endpoint = {
+    foundry   = local.foundry_endpoint
+    dedicated = try(data.azurerm_cognitive_account.content_safety[0].endpoint, "")
+    url       = var.content_safety_service.url != null ? var.content_safety_service.url : ""
+  }[var.content_safety_service.source]
 
   entra = {
     tenant_id = coalesce(var.entra_auth.tenant_id, data.azuread_client_config.current.tenant_id)

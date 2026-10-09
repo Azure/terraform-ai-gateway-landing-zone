@@ -31,6 +31,12 @@ variable "create_dashboards" {
   type        = bool
 }
 
+variable "create_foundry_app_insights" {
+  description = "Create the Foundry Application Insights component (appi-aif-*), its dashboard and its Private Link Scope entry. false when no Foundry accounts are deployed."
+  type        = bool
+  default     = true
+}
+
 variable "subscription_id" {
   description = "Subscription ID used when rendering the App Insights dashboard templates."
   type        = string

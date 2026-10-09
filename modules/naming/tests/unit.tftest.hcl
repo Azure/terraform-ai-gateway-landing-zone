@@ -35,6 +35,8 @@ run "snapshot" {
       uami_usage              = "id-aigw-dev-usage"
       redis                   = "redis-aigw-dev-27cbb"
       api_center              = "apic-aigw-dev-27cbb"
+      language_service        = "lang-aigw-dev-27cbb"
+      content_safety          = "cs-aigw-dev-27cbb"
       storage_logic           = "staigwdev27cbb"
       logic_app               = "logic-aigw-dev-27cbb"
       logic_content_share     = "logic-content-27cbb"

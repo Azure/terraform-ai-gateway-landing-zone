@@ -232,7 +232,8 @@ tasks:
         sh: ls -d modules/*/ stacks/*/ | sed 's#/$##'
     cmds:
       - for: { var: DIRS }
-        cmd: terraform -chdir={{.ITEM}} init -backend=false -input=false >/dev/null && terraform -chdir={{.ITEM}} test
+        # tests/examples.tftest.hcl needs an example's var-files: scripts/ci/check-examples.sh runs it.
+        cmd: terraform -chdir={{.ITEM}} init -backend=false -input=false >/dev/null && terraform -chdir={{.ITEM}} test $(test -f {{.ITEM}}/tests/unit.tftest.hcl && echo -filter=tests/unit.tftest.hcl)
 
   lint:
     desc: "fmt, tflint and the repository rules (scripts/ci)"

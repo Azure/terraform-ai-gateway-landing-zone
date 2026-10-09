@@ -15,7 +15,9 @@ module "monitoring" {
   tags                = local.tags
   environment_name    = module.naming.base
   subscription_id     = var.subscription_id
-  enable_telemetry    = var.enable_telemetry
+
+  create_foundry_app_insights = var.foundry.enabled
+  enable_telemetry            = var.enable_telemetry
 
   log_analytics_name = local.names.log_analytics
   existing_log_analytics_workspace = local.byo_workspace ? {

@@ -35,6 +35,61 @@ variable "features" {
   nullable = false
 }
 
+variable "pii_service" {
+  description = <<-EOT
+    Where PII redaction and anonymization (features.pii_redaction) call the Language API.
+      source  foundry    the primary Foundry account of stacks/platform (an AIServices account
+                         serves Language too); the default.
+              dedicated  the standalone Language account of stacks/platform
+                         (language_service.enabled), found by name.
+              url        an existing Language / AIServices endpoint you give in url
+                         (the APIM identity needs Cognitive Services User on it).
+      url     Endpoint when source = url, e.g. https://<name>.cognitiveservices.azure.com/.
+  EOT
+  type = object({
+    source = optional(string, "foundry")
+    url    = optional(string)
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = contains(["foundry", "dedicated", "url"], var.pii_service.source)
+    error_message = "pii_service.source must be foundry, dedicated or url."
+  }
+  validation {
+    condition     = var.pii_service.source != "url" || (var.pii_service.url != null && var.pii_service.url != "")
+    error_message = "pii_service.url is required when pii_service.source = url."
+  }
+}
+
+variable "content_safety_service" {
+  description = <<-EOT
+    Where the content-safety backend and named value (features.content_safety) point.
+      source  foundry    the primary Foundry account of stacks/platform (an AIServices account
+                         serves Content Safety too); the default.
+              dedicated  the standalone Content Safety account of stacks/platform
+                         (content_safety_service.enabled), found by name.
+              url        an existing Content Safety / AIServices endpoint you give in url.
+      url     Endpoint when source = url.
+  EOT
+  type = object({
+    source = optional(string, "foundry")
+    url    = optional(string)
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = contains(["foundry", "dedicated", "url"], var.content_safety_service.source)
+    error_message = "content_safety_service.source must be foundry, dedicated or url."
+  }
+  validation {
+    condition     = var.content_safety_service.source != "url" || (var.content_safety_service.url != null && var.content_safety_service.url != "")
+    error_message = "content_safety_service.url is required when content_safety_service.source = url."
+  }
+}
+
 variable "foundry_primary_account_name" {
   description = "Name of the primary Foundry account (PII and Content Safety endpoint). \"\" = the generated name of platform's first instance."
   type        = string

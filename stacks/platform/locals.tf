@@ -1,6 +1,7 @@
 locals {
   stack                  = "platform"
-  foundry_instance_names = [for i in var.foundry.instances : i.name]
+  foundry_instances      = var.foundry.enabled ? var.foundry.instances : []
+  foundry_instance_names = [for i in local.foundry_instances : i.name]
   greenfield             = var.network_mode == "greenfield"
 
   apim_cfg = {
