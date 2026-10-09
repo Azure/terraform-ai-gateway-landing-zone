@@ -8,20 +8,32 @@
         <set-variable name="jwtIssuer" value="https://sts.windows.net/${tenant_id}/" />
         <set-variable name="jwtOpenIdConfigUrl" value="https://login.microsoftonline.com/${tenant_id}/v2.0/.well-known/openid-configuration" />
 %{ endif }
-        <!-- Extract and validate model parameter from request -->
-        <include-fragment fragment-id="set-llm-requested-model" />
-%{ if allowed_models != "" }
-        <!-- Model-level RBAC: only these models (and aliases) are allowed for this contract -->
-        <set-variable name="allowedModels" value="${allowed_models}" />
-        <include-fragment fragment-id="validate-model-access" />
+%{ if multi_asset }
+        <!-- Classify the request as llm | tool | agent. APIM doesn't expose the API type to policy, so the granted
+             tool (MCP) and agent (A2A) APIs are listed by resource name; any other API is an LLM request. -->
+        <set-variable name="contractToolApis" value="${tool_apis}" />
+        <set-variable name="contractAgentApis" value="${agent_apis}" />
+        <include-fragment fragment-id="set-asset-kind" />
+        <choose>
+            <!-- LLM: model RBAC + token capacity -->
+            <when condition="@(context.Variables.GetValueOrDefault<string>("assetKind","llm") == "llm")">
+                ${indent(16, llm_rules)}
+            </when>
+%{ if tool_rules != "" }
+            <!-- TOOL (MCP): request-based rate limit + call quota -->
+            <when condition="@(context.Variables.GetValueOrDefault<string>("assetKind","") == "tool")">
+                ${indent(16, tool_rules)}
+            </when>
 %{ endif }
-%{ if token_limit_attributes != "" }
-        <!-- Capacity management - subscription level -->
-        <llm-token-limit counter-key="@(context.Subscription.Id)" ${token_limit_attributes} estimate-prompt-tokens="false" />
+%{ if agent_rules != "" }
+            <!-- AGENT (A2A): request-based rate limit + call quota -->
+            <when condition="@(context.Variables.GetValueOrDefault<string>("assetKind","") == "agent")">
+                ${indent(16, agent_rules)}
+            </when>
 %{ endif }
-%{ if enable_response_headers }
-        <!-- Enable advanced response headers offered by set-response-headers fragment -->
-        <set-variable name="enableResponseHeaders" value="@(true)" />
+        </choose>
+%{ else }
+        ${indent(8, llm_rules)}
 %{ endif }
     </inbound>
     <backend>

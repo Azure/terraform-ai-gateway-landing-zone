@@ -1,0 +1,15 @@
+<!-- Extract and validate model parameter from request -->
+<include-fragment fragment-id="set-llm-requested-model" />
+%{ if allowed_models != "" }
+<!-- Model-level RBAC: only these models (and aliases) are allowed for this contract -->
+<set-variable name="allowedModels" value="${allowed_models}" />
+<include-fragment fragment-id="validate-model-access" />
+%{ endif }
+%{ if token_limit_attributes != "" }
+<!-- Capacity management - subscription level -->
+<llm-token-limit counter-key="@(context.Subscription.Id)" ${token_limit_attributes} estimate-prompt-tokens="false" />
+%{ endif }
+%{ if enable_response_headers }
+<!-- Enable advanced response headers offered by set-response-headers fragment -->
+<set-variable name="enableResponseHeaders" value="@(true)" />
+%{ endif }

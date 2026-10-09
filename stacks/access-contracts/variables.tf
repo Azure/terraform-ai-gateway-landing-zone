@@ -26,6 +26,14 @@ variable "services" {
       enable_response_headers  the UAIG-* debug response headers (default true)
       jwt_required             also validate the Entra token the Foundry connection sends
                                (audience = foundry_config.managed_identity_audience, tenant = the deploying identity's)
+    One product can grant a mix of asset types (LLM + tools (MCP) + agents (A2A)). List the granted
+    tool and agent APIs by APIM API name (they must be in api_name_mapping[code]); every other API of the
+    service is an LLM API, and allowed_models, token_limit and enable_response_headers apply to those only:
+      tool_apis / agent_apis   API names granted as tools / agents ([] = none)
+      tool_limit / agent_limit per-subscription request limits (rate-limit-by-key + quota-by-key):
+                               calls_per_minute and / or call_quota, with call_quota_period
+                               (Hourly | Daily | Weekly | Monthly | Yearly); null = no limit.
+                               Needs the matching *_apis.
     policy_xml                 advanced: a complete product policy that replaces the generated one
                                (the properties above are then ignored)
   EOT
@@ -42,6 +50,19 @@ variable "services" {
     }))
     enable_response_headers = optional(bool, true)
     jwt_required            = optional(bool, false)
+
+    tool_apis = optional(list(string), [])
+    tool_limit = optional(object({
+      calls_per_minute  = optional(number)
+      call_quota        = optional(number)
+      call_quota_period = optional(string, "Monthly")
+    }))
+    agent_apis = optional(list(string), [])
+    agent_limit = optional(object({
+      calls_per_minute  = optional(number)
+      call_quota        = optional(number)
+      call_quota_period = optional(string, "Monthly")
+    }))
 
     policy_xml = optional(string, "")
   }))
@@ -65,6 +86,29 @@ variable "services" {
   validation {
     condition     = alltrue([for s in var.services : s.token_limit == null ? true : contains(["Hourly", "Daily", "Weekly", "Monthly", "Yearly"], s.token_limit.token_quota_period)])
     error_message = "services[*].token_limit.token_quota_period must be Hourly, Daily, Weekly, Monthly or Yearly."
+  }
+  validation {
+    condition = alltrue([for s in var.services : alltrue([for a in concat(s.tool_apis, s.agent_apis) : can(regex("^[A-Za-z0-9][A-Za-z0-9._-]*$", a))])]) && alltrue([
+      for s in var.services : length(setintersection(toset(s.tool_apis), toset(s.agent_apis))) == 0
+    ])
+    error_message = "services[*].tool_apis / agent_apis entries must be APIM API names (letters, digits and . _ -), and an API can't be both a tool and an agent."
+  }
+  validation {
+    condition     = alltrue([for s in var.services : alltrue([for a in concat(s.tool_apis, s.agent_apis) : contains(lookup(var.api_name_mapping, s.code, []), a)])])
+    error_message = "Every API in services[*].tool_apis / agent_apis must also be listed in api_name_mapping for that service code, otherwise the product doesn't grant it."
+  }
+  validation {
+    condition = alltrue([for s in var.services : alltrue([for l in [s.tool_limit, s.agent_limit] : l == null ? true : (
+      (l.calls_per_minute != null || l.call_quota != null) &&
+      coalesce(l.calls_per_minute, 1) > 0 &&
+      coalesce(l.call_quota, 1) > 0 &&
+      contains(["Hourly", "Daily", "Weekly", "Monthly", "Yearly"], l.call_quota_period)
+    )])])
+    error_message = "services[*].tool_limit / agent_limit need calls_per_minute and / or call_quota (each greater than 0) and a call_quota_period of Hourly, Daily, Weekly, Monthly or Yearly."
+  }
+  validation {
+    condition     = alltrue([for s in var.services : (s.tool_limit == null || length(s.tool_apis) > 0) && (s.agent_limit == null || length(s.agent_apis) > 0)])
+    error_message = "services[*].tool_limit needs tool_apis, and agent_limit needs agent_apis: without them no request is classified as a tool or agent and the limit would never apply."
   }
 }
 

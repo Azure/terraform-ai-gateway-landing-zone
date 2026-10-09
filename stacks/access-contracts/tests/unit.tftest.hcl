@@ -175,3 +175,79 @@ run "token_limit_is_validated" {
 
   expect_failures = [var.services]
 }
+
+# --- multi-asset policy properties ----------------------------------------------
+
+run "multi_asset_properties_are_accepted" {
+  command = plan
+
+  variables {
+    api_name_mapping = { MULTI = ["universal-llm-api", "weather-mcp", "hr-agent"] }
+    services = [{
+      code                 = "MULTI"
+      endpoint_secret_name = "HR_MULTI_ENDPOINT"
+      api_key_secret_name  = "HR_MULTI_KEY"
+      allowed_models       = ["fast"]
+      tool_apis            = ["weather-mcp"]
+      tool_limit           = { calls_per_minute = 60, call_quota = 10000, call_quota_period = "Monthly" }
+      agent_apis           = ["hr-agent"]
+      agent_limit          = { calls_per_minute = 30 }
+    }]
+  }
+
+  override_module {
+    target  = module.contract
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
+  }
+
+  assert {
+    condition     = contains(var.services[0].tool_apis, "weather-mcp") && var.services[0].agent_limit.call_quota_period == "Monthly"
+    error_message = "Tool and agent APIs and limits are part of the service."
+  }
+}
+
+run "tool_apis_must_be_in_the_api_mapping" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", tool_apis = ["weather-mcp"] }]
+  }
+
+  override_module {
+    target  = module.contract
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
+  }
+
+  expect_failures = [var.services]
+}
+
+run "tool_limit_needs_tool_apis" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", tool_limit = { calls_per_minute = 5 } }]
+  }
+
+  override_module {
+    target  = module.contract
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
+  }
+
+  expect_failures = [var.services]
+}
+
+run "asset_limit_period_is_validated" {
+  command = plan
+
+  variables {
+    api_name_mapping = { LLM = ["universal-llm-api", "weather-mcp"] }
+    services         = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", tool_apis = ["weather-mcp"], tool_limit = { call_quota = 5, call_quota_period = "Sometimes" } }]
+  }
+
+  override_module {
+    target  = module.contract
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" } }
+  }
+
+  expect_failures = [var.services]
+}

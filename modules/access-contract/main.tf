@@ -14,20 +14,45 @@ locals {
 
   endpoint_url = { for code, s in local.services : code => "${var.api_management.gateway_url}/${var.api_paths[code]}" }
 
-  # Product policy: generated from the service's properties (policies/product-policy.xml.tftpl),
-  # unless the service brings a complete policy_xml.
+  # Product policy: generated from the service's properties (policies/*.tftpl), unless the
+  # service brings a complete policy_xml. Services that list tool or agent APIs get the
+  # asset-type-aware layout (a <choose> on the asset kind set by the set-asset-kind fragment).
+  period_seconds = { Hourly = 3600, Daily = 86400, Weekly = 604800, Monthly = 2592000, Yearly = 31536000 }
+
+  asset_limits = { for code, s in local.services : code => {
+    tool  = s.tool_limit
+    agent = s.agent_limit
+  } }
+
+  # The templates' directive lines leave blank lines; "/\n([ \t]*\n)+/" collapses them.
+  policy_llm_rules = { for code, s in local.services : code => trimspace(replace(templatefile("${path.module}/policies/llm-rules.xml.tftpl", {
+    allowed_models          = join(",", s.allowed_models)
+    enable_response_headers = s.enable_response_headers
+    token_limit_attributes = s.token_limit == null ? "" : join(" ", compact([
+      s.token_limit.tokens_per_minute == null ? "" : "tokens-per-minute=\"${s.token_limit.tokens_per_minute}\"",
+      s.token_limit.token_quota == null ? "" : "token-quota=\"${s.token_limit.token_quota}\" token-quota-period=\"${s.token_limit.token_quota_period}\"",
+    ]))
+  }), "/\n([ \t]*\n)+/", "\n")) }
+
+  policy_asset_rules = { for code, s in local.services : code => { for kind, limit in local.asset_limits[code] : kind => limit == null ? "" : trimspace(replace(templatefile("${path.module}/policies/asset-rules.xml.tftpl", {
+    kind                 = kind
+    calls_per_minute     = limit.calls_per_minute == null ? "" : tostring(limit.calls_per_minute)
+    call_quota           = limit.call_quota == null ? "" : tostring(limit.call_quota)
+    quota_period_seconds = local.period_seconds[limit.call_quota_period]
+  }), "/\n([ \t]*\n)+/", "\n")) } }
+
   product_policy_xml = {
     for code, s in local.services : code => s.policy_xml != "" ? s.policy_xml : replace(templatefile("${path.module}/policies/product-policy.xml.tftpl", {
-      allowed_models          = join(",", s.allowed_models)
-      enable_response_headers = s.enable_response_headers
-      jwt_required            = s.jwt_required
-      jwt_audience            = replace(replace(replace(var.foundry_config.managed_identity_audience, "&", "&amp;"), "\"", "&quot;"), "<", "&lt;")
-      tenant_id               = var.tenant_id
-      token_limit_attributes = s.token_limit == null ? "" : join(" ", compact([
-        s.token_limit.tokens_per_minute == null ? "" : "tokens-per-minute=\"${s.token_limit.tokens_per_minute}\"",
-        s.token_limit.token_quota == null ? "" : "token-quota=\"${s.token_limit.token_quota}\" token-quota-period=\"${s.token_limit.token_quota_period}\"",
-      ]))
-    }), "/\n([ \t]*\n)+/", "\n") # the template's directive lines leave blank lines
+      jwt_required = s.jwt_required
+      jwt_audience = replace(replace(replace(var.foundry_config.managed_identity_audience, "&", "&amp;"), "\"", "&quot;"), "<", "&lt;")
+      tenant_id    = var.tenant_id
+      llm_rules    = local.policy_llm_rules[code]
+      multi_asset  = length(s.tool_apis) + length(s.agent_apis) > 0
+      tool_apis    = join(",", s.tool_apis)
+      agent_apis   = join(",", s.agent_apis)
+      tool_rules   = local.policy_asset_rules[code].tool
+      agent_rules  = local.policy_asset_rules[code].agent
+    }), "/\n([ \t]*\n)+/", "\n")
   }
 
   product_apis = merge([

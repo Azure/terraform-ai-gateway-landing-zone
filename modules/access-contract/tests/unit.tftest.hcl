@@ -310,3 +310,211 @@ run "token_limit_must_be_positive" {
 
   expect_failures = [var.services]
 }
+
+# --- asset-type-aware (multi-asset) product policy --------------------------------
+
+run "llm_only_service_is_not_classified" {
+  command = plan
+
+  assert {
+    condition     = !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "set-asset-kind") && !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<choose>")
+    error_message = "Without tool or agent APIs the policy has no classification and no <choose>."
+  }
+}
+
+# Golden file: the policy upstream's default-multi-product-policy.xml describes (same elements,
+# same order, same attributes), with the granted tool and agent APIs listed.
+run "multi_asset_policy_matches_the_upstream_default" {
+  command = plan
+
+  variables {
+    api_name_mapping = { MULTI = ["universal-llm-api", "weather-mcp", "hr-agent"] }
+    api_paths        = { MULTI = "models" }
+    services = [{
+      code                 = "MULTI"
+      endpoint_secret_name = "A"
+      api_key_secret_name  = "B"
+      allowed_models       = ["gpt-4o", "gpt-4.1", "gpt-5.4-mini"]
+      token_limit          = { tokens_per_minute = 1000, token_quota = 100000, token_quota_period = "Monthly" }
+      tool_apis            = ["weather-mcp"]
+      tool_limit           = { calls_per_minute = 60, call_quota = 10000 }
+      agent_apis           = ["hr-agent"]
+      agent_limit          = { calls_per_minute = 30, call_quota = 5000 }
+    }]
+  }
+
+  assert {
+    condition     = azurerm_api_management_product_policy.service["MULTI"].xml_content == file("${path.module}/tests/fixtures/multi-asset-policy.golden")
+    error_message = "The generated multi-asset policy changed (tests/fixtures/multi-asset-policy.golden)."
+  }
+}
+
+run "multi_asset_policy_classifies_then_branches" {
+  command = plan
+
+  variables {
+    api_name_mapping = { MULTI = ["universal-llm-api", "weather-mcp", "ms-learn-mcp"] }
+    api_paths        = { MULTI = "models" }
+    services = [{
+      code                 = "MULTI"
+      endpoint_secret_name = "A"
+      api_key_secret_name  = "B"
+      allowed_models       = ["fast"]
+      tool_apis            = ["weather-mcp", "ms-learn-mcp"]
+      tool_limit           = { calls_per_minute = 60, call_quota = 5000, call_quota_period = "Daily" }
+    }]
+  }
+
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "<set-variable name=\"contractToolApis\" value=\"weather-mcp,ms-learn-mcp\" />") &&
+      strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "<set-variable name=\"contractAgentApis\" value=\"\" />") &&
+      strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "<include-fragment fragment-id=\"set-asset-kind\" />")
+    )
+    error_message = "The granted tool APIs are listed by name before the set-asset-kind fragment."
+  }
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "<rate-limit-by-key calls=\"60\" renewal-period=\"60\"") &&
+      strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "<quota-by-key calls=\"5000\" renewal-period=\"86400\"") &&
+      !strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "\"agent\")")
+    )
+    error_message = "Tool limits become a per-minute rate limit and a quota whose period is in seconds; no agent branch without agent limits."
+  }
+  assert {
+    condition     = length(split("allowedModels", azurerm_api_management_product_policy.service["MULTI"].xml_content)[0]) > length(split("assetKind\",\"llm\"", azurerm_api_management_product_policy.service["MULTI"].xml_content)[0])
+    error_message = "Model RBAC sits inside the LLM branch, so tool calls are never model-checked."
+  }
+}
+
+run "tool_apis_without_limits_still_keep_llm_rules_off_tool_calls" {
+  command = plan
+
+  variables {
+    api_name_mapping = { MULTI = ["universal-llm-api", "weather-mcp"] }
+    api_paths        = { MULTI = "models" }
+    services         = [{ code = "MULTI", endpoint_secret_name = "A", api_key_secret_name = "B", tool_apis = ["weather-mcp"] }]
+  }
+
+  assert {
+    condition     = strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "set-asset-kind") && strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "== \"llm\")") && !strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "== \"tool\")")
+    error_message = "Classification is needed even without tool limits, so the LLM rules run for LLM requests only."
+  }
+}
+
+run "tool_and_agent_limit_parts_are_optional" {
+  command = plan
+
+  variables {
+    api_name_mapping = { MULTI = ["universal-llm-api", "weather-mcp", "hr-agent"] }
+    api_paths        = { MULTI = "models" }
+    services = [{
+      code                 = "MULTI"
+      endpoint_secret_name = "A"
+      api_key_secret_name  = "B"
+      tool_apis            = ["weather-mcp"]
+      tool_limit           = { calls_per_minute = 10 }
+      agent_apis           = ["hr-agent"]
+      agent_limit          = { call_quota = 100, call_quota_period = "Hourly" }
+    }]
+  }
+
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "<rate-limit-by-key calls=\"10\"") &&
+      strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "<quota-by-key calls=\"100\" renewal-period=\"3600\" counter-key=\"@(context.Subscription.Id + \":agent\")\" />") &&
+      !strcontains(azurerm_api_management_product_policy.service["MULTI"].xml_content, "\":tool\")\" />\n")
+    )
+    error_message = "A per-minute limit alone sets no quota; a quota alone sets no rate limit."
+  }
+}
+
+run "multi_asset_jwt_is_checked_before_classification" {
+  command = plan
+
+  variables {
+    tenant_id        = "11111111-2222-3333-4444-555555555555"
+    api_name_mapping = { MULTI = ["universal-llm-api", "weather-mcp"] }
+    api_paths        = { MULTI = "models" }
+    services         = [{ code = "MULTI", endpoint_secret_name = "A", api_key_secret_name = "B", tool_apis = ["weather-mcp"], jwt_required = true }]
+  }
+
+  assert {
+    condition     = length(split("jwtRequired", azurerm_api_management_product_policy.service["MULTI"].xml_content)[0]) < length(split("contractToolApis", azurerm_api_management_product_policy.service["MULTI"].xml_content)[0])
+    error_message = "The JWT variables are common policies: they come before the asset classification."
+  }
+}
+
+run "tool_limit_needs_tool_apis" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", tool_limit = { calls_per_minute = 10 } }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "agent_limit_needs_agent_apis" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", agent_limit = { calls_per_minute = 10 } }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "tool_apis_must_be_granted_by_the_product" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", tool_apis = ["weather-mcp"] }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "an_api_cannot_be_both_tool_and_agent" {
+  command = plan
+
+  variables {
+    api_name_mapping = { LLM = ["universal-llm-api", "x"], DOC = ["document-intelligence-api"] }
+    services         = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", tool_apis = ["x"], agent_apis = ["x"] }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "api_names_cannot_inject_xml" {
+  command = plan
+
+  variables {
+    api_name_mapping = { LLM = ["a\" /><x a=\""] }
+    services         = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", tool_apis = ["a\" /><x a=\""] }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "asset_limits_are_validated" {
+  command = plan
+
+  variables {
+    api_name_mapping = { LLM = ["universal-llm-api", "weather-mcp"] }
+    services         = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", tool_apis = ["weather-mcp"], tool_limit = { calls_per_minute = 0 } }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "asset_limit_period_is_validated" {
+  command = plan
+
+  variables {
+    api_name_mapping = { LLM = ["universal-llm-api", "weather-mcp"] }
+    services         = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", tool_apis = ["weather-mcp"], tool_limit = { call_quota = 5, call_quota_period = "Fortnightly" } }]
+  }
+
+  expect_failures = [var.services]
+}

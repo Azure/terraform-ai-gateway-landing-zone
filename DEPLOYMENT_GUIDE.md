@@ -476,6 +476,52 @@ Every policy also calls `set-llm-requested-model` and carries the commented hint
 raising throttling events in `on-error`. The template is
 [modules/access-contract/policies/product-policy.xml.tftpl](modules/access-contract/policies/product-policy.xml.tftpl).
 
+#### One product for several asset types (LLM, tools, agents)
+
+A product can grant LLM APIs together with published **tools (MCP)** and **agents (A2A)**.
+APIM doesn't expose the API type to policy, so the generated policy classifies each
+request with the `set-asset-kind` fragment (gateway-config) and branches with a `<choose>`:
+
+```hcl
+api_name_mapping = {
+  MULTI = ["universal-llm-api", "azure-openai-api", "weather-mcp", "ms-learn-mcp"]   # the LLM API first
+}
+
+services = [{
+  code                 = "MULTI"
+  endpoint_secret_name = "HR-MULTI-ENDPOINT"
+  api_key_secret_name  = "HR-MULTI-KEY"
+
+  allowed_models = ["fast", "balanced"]                      # LLM controls: the LLM APIs only
+  token_limit    = { tokens_per_minute = 20000, token_quota = 2000000, token_quota_period = "Monthly" }
+
+  tool_apis  = ["weather-mcp", "ms-learn-mcp"]               # granted tool APIs, by APIM API name
+  tool_limit = { calls_per_minute = 60, call_quota = 10000, call_quota_period = "Monthly" }
+
+  # agent_apis  = ["hr-chat-agent"]                          # the same for agents (A2A)
+  # agent_limit = { calls_per_minute = 30, call_quota = 5000, call_quota_period = "Monthly" }
+}]
+```
+
+| Property | Meaning |
+|---|---|
+| `tool_apis`, `agent_apis` | the granted tool / agent APIs by APIM API name (the resource name, e.g. `weather-mcp`). They must also be in `api_name_mapping` for the service. Every other API of the service is an LLM API. |
+| `tool_limit`, `agent_limit` | request-count limits: `calls_per_minute` (`rate-limit-by-key`) and / or `call_quota` per `call_quota_period` (`quota-by-key`; Hourly, Daily, Weekly, Monthly or Yearly). They need the matching `*_apis`. Tokens don't exist for a tool call or an agent turn, so `llm-token-limit` can't be used. |
+
+- The LLM controls (`allowed_models`, `token_limit`, `enable_response_headers`) sit in the LLM branch:
+  they never run for tool or agent calls. JWT validation (`jwt_required`) is common and runs first.
+- With `tool_apis` or `agent_apis` set, the policy always classifies, even without limits, so the
+  LLM rules don't run for tool calls. Without them, the policy is the plain LLM one.
+- The product's endpoint secret (and a Foundry connection, if any) point at the **first** API of
+  the mapping, so list the LLM API first. Per-asset endpoint secrets aren't generated.
+- The code is free (`LLM`, `TOOL`, `AGENT`, `MULTI` follow upstream's naming convention). A
+  tools-only contract (`TOOL`) is `examples/all-features/access-contracts/tools-only.tfvars`; the
+  mixed one is `hr-assistant-multi.tfvars`.
+- This repository publishes the MCP sample APIs (`weather-mcp`, `ms-learn-mcp`, with
+  `features.mcp_sample`) but no A2A agent APIs: publish yours to APIM first, then list them.
+- Common policies for every asset type (for example opt-in content safety) aren't a property:
+  use a complete `policy_xml`.
+
 For anything the properties don't cover (PII handling, content safety, app-role
 authorization, per-model limits) set `policy_xml` to a **complete** policy. It replaces
 the generated one, and the properties above are then ignored. The validation notebooks

@@ -19,6 +19,7 @@ locals {
     "ai-foundry-compatibility" = "Foundry CORS compatibility"
     "set-response-headers"     = "Adds UAIG-* response headers"
     "strip-backend-headers"    = "Removes browser, App Service/ARR, and X-Forwarded-* headers before forwarding to AI backends"
+    "set-asset-kind"           = "Classifies a request as llm, tool or agent for access-contract product policies that grant a mix of asset types"
   }
 
   # PII fragments use policy elements azurerm doesn't validate yet (azapi).

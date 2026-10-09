@@ -182,7 +182,7 @@ has the same shape, over `local.llm_fragments`.
 
 | Catalogue | Always on? | Fragment IDs |
 |---|---|---|
-| gateway-config `local.shared_fragments` | Yes | `ai-usage`, `raise-throttling-events`, `throttling-events`, `security-handler`, `entra-auth`, `aad-auth`, `aad-auth-custom`, `llm-usage`, `openai-usage`, `openai-usage-streaming`, `ai-foundry-compatibility`, `set-response-headers`, `strip-backend-headers` |
+| gateway-config `local.shared_fragments` | Yes | `ai-usage`, `raise-throttling-events`, `throttling-events`, `security-handler`, `entra-auth`, `aad-auth`, `aad-auth-custom`, `llm-usage`, `openai-usage`, `openai-usage-streaming`, `ai-foundry-compatibility`, `set-response-headers`, `strip-backend-headers`, `set-asset-kind` |
 | gateway-config `local.pii_fragments` | `features.pii_anonymization = true` | `pii-anonymization`, `pii-deanonymization`, `pii-state-saving` |
 | llm-backend-onboarding `local.llm_fragments` | Yes | `set-backend-authorization`, `set-target-backend-pool`, `set-llm-usage`, `set-llm-requested-model`, `validate-model-access`, `responses-id-security`, `responses-id-cache-store`, `ai-foundry-deployments` |
 | llm-backend-onboarding `local.llm_fragments` | `features.unified_ai_api = true` | `central-cache-manager`, `request-processor`, `path-builder` |
@@ -198,7 +198,12 @@ has the same shape, over `local.llm_fragments`.
 > **`responses-id-security` / `responses-id-cache-store`** enforce
 > per-subscription ownership of Responses API objects; **`strip-backend-headers`**
 > removes browser / App Service (ARR) / `X-Forwarded-*` headers before the
-> request is forwarded to an AI backend.
+> request is forwarded to an AI backend. **`set-asset-kind`** classifies a request as
+> `llm`, `tool` or `agent` for access-contract product policies that grant a mix of
+> asset types: APIM doesn't expose the API type to policy, so the product policy lists
+> the granted tool and agent APIs by name (`contractToolApis`, `contractAgentApis`) and
+> the fragment sets `assetKind` (anything unlisted is `llm`). It is used only by the
+> [multi-asset product policy](modules/access-contract/policies/product-policy.xml.tftpl).
 
 ### 3.2 Dynamic fragments (computed from the LLM backend config + `var.model_aliases`)
 
@@ -513,12 +518,12 @@ applied with `task contract`) by calling
 `var.use_case` (`{ business_unit, use_case_name, environment }`),
 `var.api_name_mapping` (service code → existing APIM API names), and
 `var.services` (list of `{ code, endpoint_secret_name, api_key_secret_name,
-allowed_models, token_limit, enable_response_headers, jwt_required, policy_xml }`).
+allowed_models, token_limit, enable_response_headers, jwt_required, tool_apis, tool_limit, agent_apis, agent_limit, policy_xml }`).
 Per service `code` it creates:
 
 - An APIM product `<code>-<business_unit>-<use_case_name>-<environment>`.
 - Product→API links from `var.api_name_mapping[code]`.
-- A product policy generated from `allowed_models`, `token_limit`, `enable_response_headers` and `jwt_required` (`policies/product-policy.xml.tftpl`), or the service's complete `policy_xml` when set.
+- A product policy generated from `allowed_models`, `token_limit`, `enable_response_headers` and `jwt_required` (`policies/product-policy.xml.tftpl`), or the service's complete `policy_xml` when set. A service that lists `tool_apis` / `agent_apis` gets the asset-type-aware layout (see section 6.5 of the deployment guide).
 - A subscription `<…>-SUB-01`, created with `azapi_resource` so the keys never
   enter state. The key is read through an ephemeral `azapi_resource_action`
   (`listSecrets`) and written only to write-only arguments.
