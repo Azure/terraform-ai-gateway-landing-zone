@@ -28,7 +28,12 @@ locals {
     }
   ]
 
-  llm_backend_config = length(var.llm_backend_config) > 0 ? var.llm_backend_config : concat(local.foundry_derived, var.extra_llm_backends)
+  # Two for-expressions instead of a conditional: the branch types differ (a typed
+  # variable vs. a tuple of heterogeneous objects) and a conditional needs one type.
+  llm_backend_config = concat(
+    [for b in var.llm_backend_config : b],
+    [for b in concat(local.foundry_derived, var.extra_llm_backends) : b if length(var.llm_backend_config) == 0],
+  )
 }
 
 # Backends, pools, circuit breakers and the generated routing fragments

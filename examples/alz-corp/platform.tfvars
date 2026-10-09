@@ -38,8 +38,12 @@ usage_pipeline = {
   eventhub  = { public_network_access = "Disabled" }
 }
 
-# Diagnostics: the platform DINE sends most to the central workspace (D10).
-monitoring = { log_analytics_workspace_id = "/subscriptions/<mgmt-sub>/resourceGroups/<rg-mgmt>/providers/Microsoft.OperationalInsights/workspaces/<law>" }
+# Diagnostics: the platform DINE sends most to the central workspace (D10). Those services'
+# settings belong to Policy, so no workload settings are created for them.
+monitoring = {
+  log_analytics_workspace_id = "/subscriptions/<mgmt-sub>/resourceGroups/<rg-mgmt>/providers/Microsoft.OperationalInsights/workspaces/<law>"
+  policy_managed_diagnostics = ["cosmosdb", "eventhub", "foundry"]
+}
 
 deny_storage_shared_key = false # ALZ assigns Deny-Storage-Shared-Key at the MG
 

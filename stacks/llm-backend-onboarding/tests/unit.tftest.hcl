@@ -160,3 +160,34 @@ run "plaintext_backend_secret_is_flagged" {
 
   expect_failures = [check.no_plaintext_backend_secrets]
 }
+
+# extra_llm_backends with differently shaped entries (key vs. managed identity)
+# are appended to the Foundry-derived ones.
+run "extra_backends_with_mixed_shapes_are_appended" {
+  command = plan
+
+  variables {
+    extra_llm_backends = [
+      {
+        backend_id       = "aoai-mi"
+        backend_type     = "azure-openai"
+        endpoint         = "https://aoai.openai.azure.com/"
+        auth_type        = "managed-identity"
+        supported_models = [{ name = "gpt-4.1" }]
+      },
+      {
+        backend_id       = "partner"
+        backend_type     = "external"
+        endpoint         = "https://partner.example.com"
+        auth_type        = "api-key-bearer"
+        auth_config      = { named_value_key = "partner-key", key_vault_secret_uri = "https://kv.vault.azure.net/secrets/partner-key" }
+        supported_models = [{ name = "partner-large" }]
+      },
+    ]
+  }
+
+  assert {
+    condition     = [for b in local.llm_backend_config : b.backend_id] == ["foundry-swedencentral-0", "foundry-swedencentral-1", "aoai-mi", "partner"]
+    error_message = "Foundry-derived backends first, then the extra ones in order."
+  }
+}

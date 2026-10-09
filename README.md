@@ -74,6 +74,12 @@ One stack at a time: `task apply STACK=platform ENV=dev`; one use case:
 | [premium-internal-vnet](examples/premium-internal-vnet/) | greenfield | Premium ×3, internal | ASE v3 | classic private VIP |
 | [apim-v2-private-endpoint](examples/apim-v2-private-endpoint/) | greenfield | StandardV2, integration + PE | ASE v3 | v2 private |
 | [apim-premiumv2-injection](examples/apim-premiumv2-injection/) | greenfield | PremiumV2, injection | ASE v3 | v2 private VIP |
+| [dev-greenfield-private-ws](examples/dev-greenfield-private-ws/) | greenfield + CI runner subnet | StandardV2, integration + PE, public off | Workflow Standard, private endpoint | private dev/test, faster than ASE |
+| [apim-external-vnet](examples/apim-external-vnet/) | greenfield | Developer, external | Workflow Standard | classic public VIP in a VNet |
+| [shared-ase](examples/shared-ase/) | greenfield + extra DNS links | StandardV2, integration + PE | shared ASE v3 | ASE owned by another team |
+| [multi-provider-llm](examples/multi-provider-llm/) | greenfield | StandardV2, integration | Workflow Standard | Azure OpenAI, third party, AWS Bedrock |
+| [existing-apim-platform](examples/existing-apim-platform/) | byo (name overrides) | existing APIM | not deployed | gateway config on an APIM you run |
+| [all-features](examples/all-features/) | greenfield | StandardV2, integration + PE | Workflow Standard | every optional switch, to copy from |
 
 ---
 
