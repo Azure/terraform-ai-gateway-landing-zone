@@ -29,10 +29,20 @@ services = [
           <set-variable name="allowedModels" value="gpt-5.4-mini,fast" />
           <include-fragment fragment-id="validate-model-access" />
           <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="2000" estimate-prompt-tokens="false" token-quota="50000" token-quota-period="Daily" />
+          <!-- Enable advanced response headers offered by set-response-headers fragment -->
+          <set-variable name="enableResponseHeaders" value="@(true)" />
         </inbound>
         <backend><base /></backend>
         <outbound><base /></outbound>
-        <on-error><base /></on-error>
+        <on-error>
+          <base />
+          <!-- Raising throttling events (http 429 only) can help in setting up alerts in App Insights -->
+          <!-- Set the following variables to customize the throttling event details -->
+          <!-- <set-variable name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
+          <set-variable name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "DefaultModel"))" />
+          <set-variable name="appId" value="@((string)context.Variables.GetValueOrDefault<string>("appId", context.Subscription?.Id ?? "Portal-Admin-Sub"))" />
+          <include-fragment fragment-id="raise-throttling-events" /> -->
+        </on-error>
       </policies>
     XML
   },
