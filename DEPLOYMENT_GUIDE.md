@@ -42,9 +42,9 @@ group.
 
 | Tool | Version | Why |
 |---|---|---|
-| Terraform | `.terraform-version` (1.16.x) | Stacks pin `~> 1.11`; `tenv`/`tfenv` read the file |
+| [Terraform](https://developer.hashicorp.com/terraform/install) | `.terraform-version` (1.16.x) | Stacks pin `~> 1.11`; `tenv`/`tfenv` read the file |
 | [Task](https://taskfile.dev) | ≥ 3.40 | `Taskfile.yml`. Install: `brew install go-task` · `winget install Task.Task` · `npm i -g @go-task/cli` |
-| Azure CLI | current | Sign-in; `zip_deploy` workflow publishing; `scripts/validate.sh` |
+| [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest) | current | Sign-in; `zip_deploy` workflow publishing; `scripts/validate.sh` |
 | `gh` (optional) | current | GitHub environments and variables (§7) |
 
 ```bash
