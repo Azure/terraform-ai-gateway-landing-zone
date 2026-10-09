@@ -8,6 +8,8 @@ Creates the dedicated App Service Environment v3 that hosts the keyless usage-in
 
 Creating an ASE typically takes 2 to 4 hours; it changes rarely.
 
+A reference environment that explains every setting is [examples/ase-hosting](../../examples/ase-hosting/).
+
 Called by [stacks/app-hosting](../../stacks/app-hosting/ase.tf), which runs only when the environment folder has an `app-hosting.tfvars`. [stacks/platform](../../stacks/platform/usage-pipeline.tf) finds the ASE by its deterministic name, or uses a shared ASE given as `usage_pipeline.ase.app_service_environment_id`. The caller passes the providers in.
 
 <!-- BEGIN_TF_DOCS -->

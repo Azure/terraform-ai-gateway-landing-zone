@@ -76,6 +76,7 @@ One stack at a time: `task apply STACK=platform ENV=dev`; one use case:
 | [apim-premiumv2-injection](examples/apim-premiumv2-injection/) | greenfield | PremiumV2, injection | ASE v3 | v2 private VIP |
 | [dev-greenfield-private-ws](examples/dev-greenfield-private-ws/) | greenfield + CI runner subnet | StandardV2, integration + PE, public off | Workflow Standard, private endpoint | private dev/test, faster than ASE |
 | [apim-external-vnet](examples/apim-external-vnet/) | greenfield | Developer, external | Workflow Standard | classic public VIP in a VNet |
+| [ase-hosting](examples/ase-hosting/) | greenfield + CI runner subnet | StandardV2, integration | ASE v3 reference (zones, sizing, DNS) | every ASE setting explained |
 | [shared-ase](examples/shared-ase/) | greenfield + extra DNS links | StandardV2, integration + PE | shared ASE v3 | ASE owned by another team |
 | [multi-provider-llm](examples/multi-provider-llm/) | greenfield | StandardV2, integration | Workflow Standard | Azure OpenAI, third party, AWS Bedrock |
 | [existing-apim-platform](examples/existing-apim-platform/) | byo (name overrides) | existing APIM | not deployed | gateway config on an APIM you run |

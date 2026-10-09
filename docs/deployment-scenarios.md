@@ -19,6 +19,7 @@ stay valid as the stacks evolve.
 | [apim-premiumv2-injection](../examples/apim-premiumv2-injection/) | greenfield | same | PremiumV2, injection (private VIP) | ASE v3 | pair; keys | runner in `snet-cicd` |
 | [dev-greenfield-private-ws](../examples/dev-greenfield-private-ws/) | greenfield (+ `snet-cicd`, `privatelink.azurewebsites.net`) | network, platform, gateway-config, llm, 1 contract | StandardV2, integration + PE, public off | Workflow Standard with `sites` private endpoint, public off | pair; keys | runner in `snet-cicd` |
 | [apim-external-vnet](../examples/apim-external-vnet/) | greenfield | network, platform, gateway-config, llm, 1 contract | Developer, external (public VIP) | Workflow Standard | single identity; keys | laptop (`dev_access`) |
+| [ase-hosting](../examples/ase-hosting/) | greenfield (+ `snet-cicd`) | network, app-hosting, platform, gateway-config, llm, 1 contract | StandardV2, integration | ASE v3 reference: zone redundant, I2v2 autoscaling 2 to 6, run-from-package | pair; keys | runner in `snet-cicd` |
 | [shared-ase](../examples/shared-ase/) | greenfield (+ extra DNS links) | network, platform, gateway-config, llm, 1 contract | StandardV2, integration + PE, public off | ASE v3 owned by another team (`ase.app_service_environment_id`) | pair; keys | runner in `snet-cicd` |
 | [multi-provider-llm](../examples/multi-provider-llm/) | greenfield | network, platform, gateway-config, llm, 1 contract | StandardV2, integration | Workflow Standard | single identity; keys | laptop (`dev_access`) |
 | [existing-apim-platform](../examples/existing-apim-platform/) | byo (name overrides) | gateway-config, llm, 1 contract | an APIM you already run | none (not deployed) | pair; Entra JWT (explicit values) | runner with APIM access |
@@ -37,7 +38,9 @@ stay valid as the stacks evolve.
   In Corp, APIM v2 SKUs need an `Enforce-GR-APIM` exemption; classic Premium
   `internal` doesn't.
 - **Existing hub-spoke owned by a network team:** `byo-hub-spoke-network`.
-- **An ASE someone else runs:** `shared-ase`.
+- **How to configure the ASE (size, autoscale, zones, DNS, deployment method):**
+  `ase-hosting`, a reference with every setting explained. **An ASE someone else
+  runs:** `shared-ase`.
 - **An APIM service you already have:** `existing-apim-platform` (gateway
   configuration only).
 - **Several model providers (Azure OpenAI, third party, AWS Bedrock):**

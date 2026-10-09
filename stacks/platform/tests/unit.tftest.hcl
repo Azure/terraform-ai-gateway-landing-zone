@@ -223,6 +223,28 @@ run "rejects_wrong_logic_app_sku_for_hosting" {
   expect_failures = [var.usage_pipeline]
 }
 
+# The App Service plan module only knows I1v2..I6v2: reject the memory-optimised sizes up front
+# instead of failing inside the module.
+run "rejects_memory_optimised_isolated_sku" {
+  command = plan
+  variables {
+    usage_pipeline = { logic_app = { hosting = "ase_v3", sku = "I3mv2" } }
+  }
+  expect_failures = [var.usage_pipeline]
+}
+
+run "accepts_larger_isolated_sku_with_autoscale" {
+  command = plan
+  variables {
+    usage_pipeline = { logic_app = { hosting = "ase_v3", sku = "I3v2", worker_count = 2, max_worker_count = 6 } }
+  }
+
+  assert {
+    condition     = local.usage_cfg.logic_app.ase_sku == "I3v2" && local.usage_cfg.logic_app.worker_count == 2 && local.usage_cfg.logic_app.max_worker_count == 6
+    error_message = "An Isolated v2 size and an autoscale range are passed to the Logic App module."
+  }
+}
+
 run "rejects_unknown_redis_sku" {
   command = plan
   variables {

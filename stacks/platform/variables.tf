@@ -353,10 +353,10 @@ variable "usage_pipeline" {
   validation {
     condition = var.usage_pipeline.logic_app.sku == null || (
       var.usage_pipeline.logic_app.hosting == "ase_v3"
-      ? can(regex("^I[1-6]m?v2$", coalesce(var.usage_pipeline.logic_app.sku, "-")))
+      ? can(regex("^I[1-6]v2$", coalesce(var.usage_pipeline.logic_app.sku, "-")))
       : can(regex("^WS[1-3]$", coalesce(var.usage_pipeline.logic_app.sku, "-")))
     )
-    error_message = "usage_pipeline.logic_app.sku: ase_v3 needs an Isolated v2 SKU (I1v2..I6v2, I1mv2..I5mv2); workflow_standard needs WS1, WS2 or WS3."
+    error_message = "usage_pipeline.logic_app.sku: ase_v3 needs an Isolated v2 SKU (I1v2..I6v2; the memory-optimised I1mv2..I5mv2 aren't supported by the App Service plan module); workflow_standard needs WS1, WS2 or WS3."
   }
   validation {
     condition     = contains(["run_from_package", "zip_deploy"], var.usage_pipeline.logic_app.deployment)
