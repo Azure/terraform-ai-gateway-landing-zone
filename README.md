@@ -45,7 +45,7 @@ touches only its own contract state. Details: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_G
 ## ⚡ Quick start
 
 Prerequisites: Terraform (`.terraform-version`), [Task](https://taskfile.dev),
-Python ≥ 3.9 (`python3`), Azure CLI, Owner on a subscription.
+Azure CLI, Owner on a subscription.
 
 ```bash
 az login && az account set --subscription <subscription-id>

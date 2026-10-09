@@ -89,17 +89,32 @@ locals {
 
 # -----------------------------------------------------------------------------
 # DIAGNOSTIC SETTINGS
+#
+# Azure Policy (DeployIfNotExists) may create a setting with this name first.
+# An ARM PUT is a true create-or-update, so it succeeds whether the setting
+# exists or not (azurerm / azapi_resource would fail with "already exists").
+# Azure deletes the setting together with the account.
 # -----------------------------------------------------------------------------
 
-resource "azurerm_monitor_diagnostic_setting" "cosmos" {
-  count                      = var.enable_diagnostics ? 1 : 0
-  name                       = "diag-cosmos-${var.account_name}"
-  target_resource_id         = local.account_id
-  log_analytics_workspace_id = var.log_analytics_id
+resource "azapi_resource_action" "cosmos_diagnostics" {
+  count = var.enable_diagnostics ? 1 : 0
 
-  enabled_log { category = "DataPlaneRequests" }
-  enabled_log { category = "QueryRuntimeStatistics" }
-  enabled_metric { category = "Requests" }
+  type        = "Microsoft.Insights/diagnosticSettings@2021-05-01-preview"
+  resource_id = "${local.account_id}/providers/Microsoft.Insights/diagnosticSettings/diag-cosmos-${var.account_name}"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      workspaceId = var.log_analytics_id
+      logs = [
+        { category = "DataPlaneRequests", enabled = true },
+        { category = "QueryRuntimeStatistics", enabled = true },
+      ]
+      metrics = [
+        { category = "Requests", enabled = true },
+      ]
+    }
+  }
 }
 
 # -----------------------------------------------------------------------------

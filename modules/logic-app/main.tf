@@ -490,14 +490,22 @@ data "azurerm_client_config" "current" {}
 # DIAGNOSTIC SETTINGS
 # -----------------------------------------------------------------------------
 
-resource "azurerm_monitor_diagnostic_setting" "logic_app" {
-  count                      = var.enable_diagnostics ? 1 : 0
-  name                       = "diag-logic-${var.environment_name}"
-  target_resource_id         = local.logic_app_id
-  log_analytics_workspace_id = var.log_analytics_id
+# An ARM PUT is a create-or-update: it succeeds even when Azure Policy already
+# created a setting with this name. Azure deletes it with the site.
+resource "azapi_resource_action" "logic_app_diagnostics" {
+  count = var.enable_diagnostics ? 1 : 0
 
-  enabled_log { category = "WorkflowRuntime" }
-  enabled_metric { category = "AllMetrics" }
+  type        = "Microsoft.Insights/diagnosticSettings@2021-05-01-preview"
+  resource_id = "${local.logic_app_id}/providers/Microsoft.Insights/diagnosticSettings/diag-logic-${var.environment_name}"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      workspaceId = var.log_analytics_id
+      logs        = [{ category = "WorkflowRuntime", enabled = true }]
+      metrics     = [{ category = "AllMetrics", enabled = true }]
+    }
+  }
 }
 
 # -----------------------------------------------------------------------------

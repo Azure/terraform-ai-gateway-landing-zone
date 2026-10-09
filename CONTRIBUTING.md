@@ -34,7 +34,7 @@ bash 4 or later (macOS: `brew install bash`).
   CI runs `terraform init -lockfile=readonly`. Refresh them with `task lock`.
 - **Environment files are ignored.** Only `environments/.gitkeep` is tracked;
   commit reusable placeholder templates in `examples/`. Deployment workflows
-  restore actual inputs from GitHub environment secrets (see Deployment Guide §7).
+  read the actual inputs from a private configuration repository (Deployment Guide §7).
 - **Three tiers only:** stack → custom module → AVM module. A custom module never
   calls another custom module; one version per AVM module across the repo.
 - **Stacks find each other by name** (modules/naming + data sources), never with

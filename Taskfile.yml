@@ -72,10 +72,7 @@ tasks:
     cmds:
       - task: plan
         vars: { STACK: "{{.STACK}}", ENV: "{{.ENV}}", STATE_KEY: "{{.STATE_KEY}}", VAR_FILE: "{{.VAR_FILE}}", PLAN_ARGS: "{{.PLAN_ARGS}}" }
-      - >-
-        python3 scripts/apply-stack.py stacks/{{.STACK}} --
-        -var-file={{.ENV_DIR}}/common.tfvars
-        -var-file={{.VAR_FILE | default (printf "%s/%s.tfvars" .ENV_DIR .STACK)}} {{.PLAN_ARGS}}
+      - terraform -chdir=stacks/{{.STACK}} apply -input=false tfplan
 
   destroy:
     desc: "Destroy one stack: task destroy STACK=platform ENV=dev"

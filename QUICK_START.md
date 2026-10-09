@@ -8,7 +8,7 @@ see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) and
 
 ## Prerequisites
 
-- Terraform (version in `.terraform-version`), [Task](https://taskfile.dev) ≥ 3.40, Python ≥ 3.9 (`python3`), Azure CLI
+- Terraform (version in `.terraform-version`), [Task](https://taskfile.dev) ≥ 3.40, Azure CLI
 - **Owner** on the target subscription (bootstrap assigns roles and registers resource providers)
 - A region with quota for APIM StandardV2 and your Foundry model (examples use `swedencentral`)
 

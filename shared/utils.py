@@ -1,4 +1,4 @@
-import datetime, json, os, subprocess, requests, sys, time, traceback
+import datetime, json, os, subprocess, requests, time, traceback
 
 # Define ANSI escape code constants vor clarity in the print commands below
 RESET_FORMATTING = "\x1b[0m"
@@ -225,11 +225,7 @@ def run_stack(stack, env=None, var_file=None, state_key=None, auto_approve=True,
         steps.append(None)  # init
         steps.append(plan)
         if auto_approve:
-            if destroy:
-                steps.append([_exe("terraform"), f"-chdir={sdir}", "apply", "-input=false", "tfplan"])
-            else:
-                steps.append([sys.executable, os.path.join(root, "scripts", "apply-stack.py"),
-                              sdir, "--", f"-var-file={common}", f"-var-file={var_file}"])
+            steps.append([_exe("terraform"), f"-chdir={sdir}", "apply", "-input=false", "tfplan"])
 
     text, success = "", True
     for args in steps:
@@ -771,3 +767,4 @@ def get_trace(apim_service_id, trace_id) -> str | None:
     output = run(f"az rest --method post --uri {apim_service_id}/gateways/managed/listTrace?api-version=2023-05-01-preview --body \"{str(request)}\"",
             "Retrieved trace details", "Failed to get the trace details")
     return output.json_data if output.success and output.json_data else None
+

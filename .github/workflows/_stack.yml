@@ -60,11 +60,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: restore ignored environment inputs
+      # environments/ is gitignored: the environment inputs live in a private
+      # configuration repository laid out as <env>/{common.tfvars,backend.hcl,...}.
+      - name: checkout environment configuration
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ vars.ENVIRONMENTS_REPOSITORY }}
+          token: ${{ secrets.ENVIRONMENTS_REPOSITORY_TOKEN }}
+          path: .environments-config
+          persist-credentials: false
+
+      - name: place environment inputs
         env:
-          ENVIRONMENT_CONFIG_JSON: ${{ secrets.ENVIRONMENT_CONFIG_JSON }}
           DEPLOY_ENV: ${{ inputs.env }}
-        run: python3 scripts/restore-environment.py "$DEPLOY_ENV"
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_ENV" =~ ^[a-z0-9]{2,10}$ ]]
+          test -f ".environments-config/$DEPLOY_ENV/common.tfvars"
+          mkdir -p "environments/$DEPLOY_ENV"
+          cp -R ".environments-config/$DEPLOY_ENV/." "environments/$DEPLOY_ENV/"
 
       - id: tfver
         run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"

@@ -207,14 +207,20 @@ resource "azurerm_role_assignment" "apim_cognitive_services_user" {
 # Diagnostic settings → Log Analytics (AllMetrics)
 # Bicep: diagnosticSettings
 # -----------------------------------------------------------------------------
-resource "azurerm_monitor_diagnostic_setting" "foundry" {
-  count                      = var.enable_diagnostics ? length(local.instances) : 0
-  name                       = "${local.instance_names[count.index]}-diagnostics"
-  target_resource_id         = local.account_ids[count.index]
-  log_analytics_workspace_id = var.log_analytics_id
+# An ARM PUT is a create-or-update: it succeeds even when Azure Policy already
+# created a setting with this name. Azure deletes it with the account.
+resource "azapi_resource_action" "foundry_diagnostics" {
+  count = var.enable_diagnostics ? length(local.instances) : 0
 
-  enabled_metric {
-    category = "AllMetrics"
+  type        = "Microsoft.Insights/diagnosticSettings@2021-05-01-preview"
+  resource_id = "${local.account_ids[count.index]}/providers/Microsoft.Insights/diagnosticSettings/${local.instance_names[count.index]}-diagnostics"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      workspaceId = var.log_analytics_id
+      metrics     = [{ category = "AllMetrics", enabled = true }]
+    }
   }
 }
 

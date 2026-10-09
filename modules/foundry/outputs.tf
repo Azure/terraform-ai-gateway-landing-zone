@@ -7,7 +7,7 @@
 
 output "diagnostic_setting_names" {
   description = "Workload diagnostic setting names (empty when policy owns diagnostics)."
-  value       = [for setting in azurerm_monitor_diagnostic_setting.foundry : setting.name]
+  value       = [for i, setting in azapi_resource_action.foundry_diagnostics : "${local.instance_names[i]}-diagnostics"]
 }
 
 output "foundry_ids" {

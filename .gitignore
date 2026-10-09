@@ -25,6 +25,7 @@ override.tf.json
 !*.tfvars.example
 # Environment inputs and backend details stay local; only the placeholder is tracked.
 /environments/*
+.environments-config/
 !/environments/.gitkeep
 # Scenario templates are committed and contain placeholders, not environment values.
 !examples/*/*.tfvars

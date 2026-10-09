@@ -1,6 +1,6 @@
 output "diagnostic_setting_names" {
   description = "Workload diagnostic setting names (empty when policy owns diagnostics)."
-  value       = [for setting in azurerm_monitor_diagnostic_setting.logic_app : setting.name]
+  value       = [for setting in azapi_resource_action.logic_app_diagnostics : "diag-logic-${var.environment_name}"]
 }
 
 output "logic_app_name" {

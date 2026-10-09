@@ -1,6 +1,6 @@
 output "diagnostic_setting_names" {
   description = "Workload diagnostic setting names (empty when policy owns diagnostics)."
-  value       = [for setting in azurerm_monitor_diagnostic_setting.cosmos : setting.name]
+  value       = [for setting in azapi_resource_action.cosmos_diagnostics : "diag-cosmos-${var.account_name}"]
 }
 
 output "endpoint" {

@@ -44,7 +44,6 @@ group.
 |---|---|---|
 | Terraform | `.terraform-version` (1.16.x) | Stacks pin `~> 1.11`; `tenv`/`tfenv` read the file |
 | [Task](https://taskfile.dev) | ≥ 3.40 | `Taskfile.yml`. Install: `brew install go-task` · `winget install Task.Task` · `npm i -g @go-task/cli` |
-| Python | ≥ 3.9 (`python3`) | Diagnostic adoption and CI environment restoration helpers (standard library only) |
 | Azure CLI | current | Sign-in; `zip_deploy` workflow publishing; `scripts/validate.sh` |
 | `gh` (optional) | current | GitHub environments and variables (§7) |
 
@@ -94,8 +93,8 @@ environments/dev/
 **A stack runs only if its `<stack>.tfvars` exists**, so the folder defines the
 topology. All environment files, including `backend.hcl`, are gitignored.
 Only `environments/.gitkeep` is checked in. Keep reusable placeholder templates
-in `examples/`; keep deployment-specific values locally or in the GitHub
-environment secret described in §7.
+in `examples/`; keep deployment-specific values locally, and in the private
+configuration repository that CI reads (§7).
 
 ```hcl
 # environments/dev/common.tfvars
@@ -149,25 +148,18 @@ task validate ENV=dev          # post-deploy smoke tests (scripts/validate.sh)
 task plan-all ENV=dev          # every stack and contract should report "No changes"
 ```
 
-### Diagnostic settings that already exist
+### Diagnostic settings that Azure Policy creates
 
-`task apply` (and the notebook helper's plain-Terraform fallback) uses
-`scripts/apply-stack.py`. Before apply it checks planned
-`azurerm_monitor_diagnostic_setting` creates against Azure. It imports only an
-**exact target resource ID + setting name match**, using the provider's
-`<resource-id>|<setting-name>` import ID, then replans. It does not adopt a
-differently named setting just because it writes to the same workspace.
+Some subscriptions have a Policy (DeployIfNotExists) that creates a diagnostic
+setting on a resource seconds after it exists. Every module here writes its
+workload diagnostic setting with an ARM **PUT** (`azapi_resource_action`),
+which is a create-or-update: it succeeds whether the setting already exists or
+not, and the deployment never has to import anything. The setting is deleted
+together with its parent resource, so destroy needs no cleanup. If Policy
+created a setting with the same name, the PUT overwrites its destination with
+the workload workspace.
 
-On a fresh deployment the target ID may be unknown until apply. If apply
-fails, the helper replans once to resolve it and checks for an orphaned
-diagnostic setting (for example Azure completed the PUT but the connection
-was reset, or Policy created the same name). It retries only if a setting
-was actually imported, always with a new saved plan. Other failures are
-reported, not silently retried. `task plan` / PR plans never import or write state.
-
-Importing transfers ownership to Terraform: later applies may update the
-setting, and destroy may delete it. If **Policy must remain the owner**, opt
-out before the first apply in `platform.tfvars`:
+If **Policy must stay the owner**, opt out per service in `platform.tfvars`:
 
 ```hcl
 monitoring = {
@@ -175,19 +167,9 @@ monitoring = {
 }
 ```
 
-Supported keys: `apim`, `cosmosdb`, `eventhub`, `foundry`, `logic_app`.
-These disable only the Azure Monitor diagnostic settings; APIM loggers and
-service/API diagnostics remain enabled. APIM and Event Hub use idempotent ARM
-PUTs rather than importable resources; the same opt-out prevents overwriting
-policy settings there. Other named policy settings, such as `setByPolicy`,
-are never imported or changed by the helper.
-
-For a setting already tracked in Terraform, release it with
-`terraform state rm '<address>'` **before** switching its service to
-policy-managed; otherwise Terraform will plan to delete its old setting.
-Plain `terraform apply` does not run the helper: use
-`python3 scripts/apply-stack.py stacks/platform -- -var-file=<common> -var-file=<platform>`
-after saving a plan, or import manually.
+Supported keys: `apim`, `cosmosdb`, `eventhub`, `foundry`, `logic_app`. These
+only skip the Azure Monitor diagnostic settings; APIM loggers and API
+diagnostics stay enabled.
 
 ### 4.3 One stack at a time
 
@@ -322,30 +304,33 @@ All of them run Task through [_stack.yml](.github/workflows/_stack.yml).
 
 **Setup per environment** (after `task bootstrap`):
 
-Because environment files are not in the checkout, set the repository
-variable `DEPLOYMENT_ENVIRONMENTS` to a JSON array (for example
-`["dev","test","prod"]`). An empty/unset list disables deployment discovery.
-Store an `ENVIRONMENT_CONFIG_JSON` secret on **both** GitHub environments
-`<env>` and `<env>-plan`: a JSON object mapping file paths relative to
-`environments/<env>/` to their text contents:
+`environments/` is gitignored, so the workflows read the environment inputs from
+a **private configuration repository** with one folder per environment, the
+same layout as a local `environments/` folder:
 
-```json
-{
-  "common.tfvars": "workload = \"aigw\"\n...",
-  "backend.hcl": "storage_account_name = \"...\"\n...",
-  "platform.tfvars": "apim = {...}\n...",
-  "access-contracts/team-a-chatbot.tfvars": "use_case = {...}\n..."
-}
+```text
+<config-repo>/
+└── dev/
+    ├── common.tfvars  backend.hcl  platform.tfvars  ...
+    └── access-contracts/team-a-chatbot.tfvars
 ```
 
-Include every configured stack's tfvars. The reusable workflow restores only
-these input files through `scripts/restore-environment.py`. Updating a secret
-does not trigger a Git push; run `apply.yml` manually for configuration-only
-changes. The e2e workflow still generates its own inputs from `examples/quickstart`.
+Set the repository variables `ENVIRONMENTS_REPOSITORY` (`<owner>/<config-repo>`)
+and `DEPLOYMENT_ENVIRONMENTS` (a JSON array such as `["dev","test","prod"]`;
+unset or empty disables deployment), and the repository secret
+`ENVIRONMENTS_REPOSITORY_TOKEN` (a fine-grained token or GitHub App token with
+read access to that repository's contents). [_stack.yml](.github/workflows/_stack.yml)
+checks it out and copies only the requested environment's folder.
+
+Changes in the configuration repository don't trigger this repository's
+workflows: run `apply.yml` manually for a configuration-only change. The e2e
+workflow generates its own inputs from `examples/quickstart` and doesn't use it.
 
 ```bash
 ENV=dev
 gh variable set DEPLOYMENT_ENVIRONMENTS --body '["dev","test","prod"]'
+gh variable set ENVIRONMENTS_REPOSITORY --body '<owner>/<config-repo>'
+gh secret set ENVIRONMENTS_REPOSITORY_TOKEN     # read access to the configuration repository
 gh api -X PUT repos/<owner>/<repo>/environments/$ENV-plan
 gh api -X PUT repos/<owner>/<repo>/environments/$ENV
 gh variable set AZURE_CLIENT_ID       --env $ENV-plan --body "<plan_client_id>"
@@ -354,9 +339,6 @@ for e in $ENV-plan $ENV; do
   gh variable set AZURE_TENANT_ID       --env $e --body "<tenant-id>"
   gh variable set AZURE_SUBSCRIPTION_ID --env $e --body "<workload-subscription-id>"
 done
-# Generate the JSON object from your local inputs, then:
-# gh secret set ENVIRONMENT_CONFIG_JSON --env $ENV      < config.json
-# gh secret set ENVIRONMENT_CONFIG_JSON --env $ENV-plan < config.json
 # runner that reaches the private data planes (JSON), e.g. a GitHub-hosted runner with private networking:
 gh variable set RUNNER_$ENV --body '"aigw-dev-private"'
 # prod: add required reviewers and a deployment-branch policy (main) to the "prod" environment
