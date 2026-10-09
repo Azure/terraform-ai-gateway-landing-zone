@@ -1,19 +1,10 @@
-# =============================================================================
-# MODULE: AI Services
-# Azure Language Service (PII), Content Safety, API Center
-# (AI Foundry moved to modules/foundry)
-# =============================================================================
-
-
-
-
 # -----------------------------------------------------------------------------
-# API CENTER (AI Registry) — Bicep parity: apic.bicep
-# Workspace + environments + metadata schemas + sample MCP registrations
+# API CENTER (AI Registry)
+# Workspace + environments + metadata schemas + remote MCP server registrations
 # -----------------------------------------------------------------------------
 
 locals {
-  apic_mcp_configs      = try(jsondecode(file("${path.module}/remote-mcp-servers.json")).mcps, [])
+  apic_mcp_configs      = var.remote_mcp_servers
   apic_metadata_schemas = try(jsondecode(file("${path.module}/apic-metadata.json")).metadata, [])
   apic_service_name     = var.api_center_name
 }
@@ -156,33 +147,33 @@ resource "azapi_resource" "api_center_env_mcp_prod" {
   }
 }
 
-# Sample remote MCP registrations (mcp, version, definition, deployment)
+# Remote (third-party) MCP servers: an API of kind MCP, a version, a definition and a deployment each.
 resource "azapi_resource" "api_center_mcp_api" {
-  for_each = var.enable_api_center ? { for m in local.apic_mcp_configs : m.mcpName => m } : {}
+  for_each = var.enable_api_center ? { for m in local.apic_mcp_configs : m.name => m } : {}
 
   type      = "Microsoft.ApiCenter/services/workspaces/apis@2024-06-01-preview"
-  name      = each.value.mcpName
+  name      = each.value.name
   parent_id = local.api_center_workspace_id
 
   schema_validation_enabled = false
 
   body = {
     properties = {
-      title          = "${upper(substr(each.value.mcpName, 0, 1))}${substr(each.value.mcpName, 1, -1)}"
-      kind           = "MCP"
-      lifecycleStage = "Development"
-      externalDocumentation = [
-        {
+      title          = "${upper(substr(each.value.name, 0, 1))}${substr(each.value.name, 1, -1)}"
+      kind           = "mcp"
+      lifecycleStage = "development" # API Center stores both in lowercase: other casing is a permanent diff
+      externalDocumentation = concat(
+        [{
           description = "Install VS Code"
           title       = "Install VS Code"
-          url         = "https://insiders.vscode.dev/redirect/mcp/install?name=${each.value.mcpName}&config={\"type\":\"sse\",\"url\":\"${each.value.InstallVSCodeURL}\"}"
-        },
-        {
-          description = "${each.value.mcpName} MCP documentation"
-          title       = "${each.value.mcpName} MCP documentation"
-          url         = try(each.value.DodumentationURL, "")
-        }
-      ]
+          url         = "https://insiders.vscode.dev/redirect/mcp/install?name=${each.value.name}&config={\"type\":\"sse\",\"url\":\"${each.value.url}\"}"
+        }],
+        each.value.documentation_url == "" ? [] : [{
+          description = "${each.value.name} MCP documentation"
+          title       = "${each.value.name} MCP documentation"
+          url         = each.value.documentation_url
+        }]
+      )
       contacts         = []
       customProperties = {}
       summary          = each.value.description
@@ -192,7 +183,7 @@ resource "azapi_resource" "api_center_mcp_api" {
 }
 
 resource "azapi_resource" "api_center_mcp_version" {
-  for_each = var.enable_api_center ? { for m in local.apic_mcp_configs : m.mcpName => m } : {}
+  for_each = var.enable_api_center ? { for m in local.apic_mcp_configs : m.name => m } : {}
 
   type      = "Microsoft.ApiCenter/services/workspaces/apis/versions@2024-06-01-preview"
   name      = "1-0-0"
@@ -201,13 +192,13 @@ resource "azapi_resource" "api_center_mcp_version" {
   body = {
     properties = {
       title          = "1-0-0"
-      lifecycleStage = "Development"
+      lifecycleStage = "development"
     }
   }
 }
 
 resource "azapi_resource" "api_center_mcp_definition" {
-  for_each = var.enable_api_center ? { for m in local.apic_mcp_configs : m.mcpName => m } : {}
+  for_each = var.enable_api_center ? { for m in local.apic_mcp_configs : m.name => m } : {}
 
   type      = "Microsoft.ApiCenter/services/workspaces/apis/versions/definitions@2024-06-01-preview"
   name      = "default"
@@ -222,7 +213,7 @@ resource "azapi_resource" "api_center_mcp_definition" {
 }
 
 resource "azapi_resource" "api_center_mcp_deployment" {
-  for_each = var.enable_api_center ? { for m in local.apic_mcp_configs : m.mcpName => m } : {}
+  for_each = var.enable_api_center ? { for m in local.apic_mcp_configs : m.name => m } : {}
 
   type      = "Microsoft.ApiCenter/services/workspaces/apis/deployments@2024-06-01-preview"
   name      = "mcpdeployment"
@@ -236,7 +227,7 @@ resource "azapi_resource" "api_center_mcp_deployment" {
       definitionId  = "/workspaces/default/apis/${each.key}/versions/1-0-0/definitions/default"
       state         = "active"
       server = {
-        runtimeUri = [each.value.InstallVSCodeURL]
+        runtimeUri = [each.value.url]
       }
     }
   }

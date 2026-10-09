@@ -233,10 +233,27 @@ variable "redis" {
 }
 
 variable "api_center" {
-  description = "Azure API Center (features.api_center). location null = the stack location (API Center isn't in every region)."
+  description = <<-EOT
+    Azure API Center (features.api_center).
+      sku                 Free | Standard.
+      location            null = the stack location (API Center isn't in every region).
+      remote_mcp_servers  Remote (third-party) MCP servers to catalogue next to the gateway's own APIs: an
+                          API of kind MCP, a version, a definition and a deployment each. They aren't served by
+                          the gateway.
+                            name               API Center API name (letters, digits and hyphens), unique
+                            description        summary shown in the catalogue
+                            url                the server's MCP (SSE) endpoint (runtime URI and VS Code install link)
+                            documentation_url  optional documentation link
+  EOT
   type = object({
     sku      = optional(string, "Free")
     location = optional(string)
+    remote_mcp_servers = optional(list(object({
+      name              = string
+      description       = string
+      url               = string
+      documentation_url = optional(string, "")
+    })), [])
   })
   default  = {}
   nullable = false
@@ -244,6 +261,18 @@ variable "api_center" {
   validation {
     condition     = contains(["Free", "Standard"], var.api_center.sku)
     error_message = "api_center.sku must be Free or Standard."
+  }
+  validation {
+    condition     = alltrue([for m in var.api_center.remote_mcp_servers : can(regex("^[A-Za-z0-9][A-Za-z0-9-]{0,89}$", m.name))])
+    error_message = "api_center.remote_mcp_servers[*].name must be an API Center API name: letters, digits and hyphens, starting with a letter or digit."
+  }
+  validation {
+    condition     = length(var.api_center.remote_mcp_servers) == length(distinct([for m in var.api_center.remote_mcp_servers : m.name]))
+    error_message = "api_center.remote_mcp_servers[*].name must be unique."
+  }
+  validation {
+    condition     = alltrue([for m in var.api_center.remote_mcp_servers : can(regex("^https?://[^\\s\"<>]+$", m.url)) && (m.documentation_url == "" || can(regex("^https?://[^\\s\"<>]+$", m.documentation_url)))])
+    error_message = "api_center.remote_mcp_servers[*].url and documentation_url must be http(s) URLs without spaces, quotes or angle brackets."
   }
 }
 

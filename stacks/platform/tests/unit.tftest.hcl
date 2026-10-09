@@ -514,3 +514,44 @@ run "dedicated_services_are_off_by_default" {
     error_message = "No dedicated account, no endpoint."
   }
 }
+
+# --- API Center remote MCP servers ---------------------------------------------
+
+run "remote_mcp_servers_reach_the_apic_module" {
+  command = plan
+  variables {
+    api_center = { remote_mcp_servers = [{ name = "microsoft-learn", description = "Microsoft Learn", url = "https://learn.microsoft.com/api/mcp" }] }
+  }
+
+  assert {
+    condition     = keys(module.apic.remote_mcp_server_apis) == ["microsoft-learn"]
+    error_message = "api_center.remote_mcp_servers are catalogued by the apic module."
+  }
+}
+
+run "remote_mcp_servers_default_to_none" {
+  command = plan
+
+  assert {
+    condition     = length(module.apic.remote_mcp_server_apis) == 0
+    error_message = "No remote MCP servers unless asked for."
+  }
+}
+
+run "remote_mcp_server_names_are_validated" {
+  command = plan
+  variables {
+    api_center = { remote_mcp_servers = [{ name = "bad name", description = "x", url = "https://x.example.com" }] }
+  }
+
+  expect_failures = [var.api_center]
+}
+
+run "remote_mcp_server_urls_are_validated" {
+  command = plan
+  variables {
+    api_center = { remote_mcp_servers = [{ name = "partner", description = "x", url = "not-a-url" }] }
+  }
+
+  expect_failures = [var.api_center]
+}

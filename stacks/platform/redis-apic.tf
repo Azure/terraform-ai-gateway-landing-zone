@@ -28,4 +28,6 @@ module "apic" {
   enable_api_center = var.features.api_center
   apic_location     = coalesce(var.api_center.location, var.location)
   api_center_sku    = var.api_center.sku
+
+  remote_mcp_servers = var.api_center.remote_mcp_servers
 }

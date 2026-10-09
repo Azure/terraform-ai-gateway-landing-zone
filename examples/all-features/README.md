@@ -6,7 +6,7 @@ you can copy the parts you need. It is not a recommendation to enable it all:
 | Area | What is on |
 |------|------------|
 | Network | explicit subnet CIDRs, no default outbound access, `privatelink.monitor.azure.com`, an extra VNet linked to every private DNS zone |
-| Platform | StandardV2 with VNet integration and an inbound private endpoint, two Foundry regions, Azure Managed Redis semantic cache, API Center (Standard), Azure Monitor Private Link Scope, verbose APIM logging, Event Hub capacity 2 |
+| Platform | StandardV2 with VNet integration and an inbound private endpoint, two Foundry regions, Azure Managed Redis semantic cache, API Center (Standard, with a remote MCP server catalogued), Azure Monitor Private Link Scope, verbose APIM logging, Event Hub capacity 2 |
 | Gateway config | Entra JWT auth, PII redaction and anonymization, Content Safety, Azure AI Search, Document Intelligence, embeddings backend (semantic cache), MCP sample, API diagnostics, API Center onboarding |
 | LLM APIs | universal, unified, AI model inference and OpenAI realtime APIs, aliases |
 | Contracts | a multi-service contract (LLM + AI Search + Document Intelligence) writing to the platform Key Vault, a key-less contract (`key_vault.enabled = false`), a **mixed-asset contract** (LLM + MCP tools in one product, with per-type limits) and a **tools-only contract** |

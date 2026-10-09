@@ -15,7 +15,20 @@ features = {
 
 redis = { sku_name = "Balanced_B10" }
 
-api_center = { sku = "Standard" }
+api_center = {
+  sku = "Standard"
+
+  # Third-party MCP servers catalogued next to the gateway's own APIs (an MCP API, version,
+  # definition and deployment each). The gateway doesn't serve them.
+  remote_mcp_servers = [
+    {
+      name              = "microsoft-learn"
+      description       = "Microsoft Learn documentation search"
+      url               = "https://learn.microsoft.com/api/mcp"
+      documentation_url = "https://learn.microsoft.com/training/support/mcp" # optional
+    },
+  ]
+}
 
 apim_logging = { verbosity = "verbose", body_bytes = 8192 }
 
