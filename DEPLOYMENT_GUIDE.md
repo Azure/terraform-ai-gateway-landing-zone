@@ -467,7 +467,10 @@ the same command: Terraform continues from what is left. Destroy in order
 (`task down` does): a stack's data lookups need the stacks it depends on, so
 destroying `gateway-config` before `llm-backend-onboarding` leaves the latter
 unable to plan. The resource group itself belongs to bootstrap, so it stays
-(empty) after `task down`. `task destroy STACK=bootstrap` first moves bootstrap's
+(empty) after `task down`. Azure itself adds a "Failure Anomalies - <component>"
+smart detector alert rule to each Application Insights component a few minutes
+after its first telemetry; Terraform doesn't manage it and it outlives the
+component, so it is removed only when bootstrap deletes the resource group. `task destroy STACK=bootstrap` first moves bootstrap's
 state out of the account it is about to delete into a local file in
 `stacks/bootstrap`, and removes that file when the destroy completes; if it
 stops half way, re-run the same command.

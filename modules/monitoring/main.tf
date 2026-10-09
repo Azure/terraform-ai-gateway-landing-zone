@@ -56,28 +56,6 @@ module "app_insights" {
   enable_telemetry    = var.enable_telemetry
 }
 
-# Azure creates a "Failure Anomalies - <component>" smart detector alert rule for
-# every Application Insights component, outside Terraform, and doesn't remove it
-# with the component. It is deleted here (best effort: it may not exist) so a
-# destroy leaves nothing behind in the resource group.
-resource "terraform_data" "smart_detector_cleanup" {
-  for_each = local.app_insights
-
-  input = {
-    rule_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}/providers/microsoft.alertsmanagement/smartDetectorAlertRules/Failure Anomalies - ${each.value}"
-  }
-
-  # Needs the component to exist while this runs (destroyed before it).
-  depends_on = [module.app_insights]
-
-  provisioner "local-exec" {
-    when        = destroy
-    interpreter = ["bash", "-c"]
-    command     = "command -v az >/dev/null 2>&1 && az resource delete --ids \"$RULE_ID\" --only-show-errors >/dev/null 2>&1 || true"
-    environment = { RULE_ID = self.input.rule_id }
-  }
-}
-
 # -----------------------------------------------------------------------------
 # APPLICATION INSIGHTS (for Logic App monitoring)
 # -----------------------------------------------------------------------------
