@@ -80,6 +80,7 @@ tasks:
     cmds:
       # A saved plan can't be re-applied after a partial apply, so each attempt plans again.
       - |
+        if [ "{{.STACK}}" = bootstrap ]; then exec {{.TASK_EXE}} destroy-bootstrap ENV={{.ENV}}; fi
         attempts={{.DESTROY_ATTEMPTS | default 3}}
         for i in $(seq 1 "$attempts"); do
           {{.TASK_EXE}} plan STACK={{.STACK}} ENV={{.ENV}} STATE_KEY={{.STATE_KEY}} VAR_FILE={{.VAR_FILE}} PLAN_ARGS=-destroy || exit 1
@@ -88,6 +89,34 @@ tasks:
           echo "destroy attempt $i of $attempts failed (transient Azure errors are common: connection resets, 409 while a parent is still deleting); retrying in 60s"
           sleep 60
         done
+        exit 1
+
+  # Bootstrap's state lives in the storage account bootstrap itself destroys, so the
+  # state is moved to a local file first (the reverse of `task bootstrap`). If a run
+  # stops half way, the local state stays in stacks/bootstrap and the next run resumes from it.
+  destroy-bootstrap:
+    desc: "Destroy bootstrap (state account, resource groups, pipeline identities; last): task destroy STACK=bootstrap ENV=dev"
+    dir: stacks/bootstrap
+    cmds:
+      - |
+        set -e
+        if [ ! -f backend_override.tf ]; then
+          terraform init -reconfigure -input=false -lockfile=readonly -backend-config={{.ENV_DIR}}/backend.hcl
+          printf 'terraform {\n  backend "local" {}\n}\n' > backend_override.tf
+          terraform init -migrate-state -force-copy -input=false -lockfile=readonly
+        fi
+        attempts={{.DESTROY_ATTEMPTS | default 3}}
+        for i in $(seq 1 "$attempts"); do
+          terraform plan -destroy -input=false -out=tfplan -var-file={{.ENV_DIR}}/common.tfvars -var-file={{.ENV_DIR}}/bootstrap.tfvars
+          if terraform apply -input=false tfplan; then
+            rm -f backend_override.tf terraform.tfstate terraform.tfstate.backup tfplan
+            exit 0
+          fi
+          [ "$i" -lt "$attempts" ] || break
+          echo "destroy attempt $i of $attempts failed; retrying in 60s"
+          sleep 60
+        done
+        echo "bootstrap destroy incomplete: re-run the same command (state is local in stacks/bootstrap)" >&2
         exit 1
 
   output:

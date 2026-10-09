@@ -467,7 +467,10 @@ the same command: Terraform continues from what is left. Destroy in order
 (`task down` does): a stack's data lookups need the stacks it depends on, so
 destroying `gateway-config` before `llm-backend-onboarding` leaves the latter
 unable to plan. The resource group itself belongs to bootstrap, so it stays
-(empty) after `task down`.
+(empty) after `task down`. `task destroy STACK=bootstrap` first moves bootstrap's
+state out of the account it is about to delete into a local file in
+`stacks/bootstrap`, and removes that file when the destroy completes; if it
+stops half way, re-run the same command.
 Soft-deleted Key Vaults, APIM services and Foundry accounts are purged only
 with `purge_soft_delete_on_destroy = true` in `platform.tfvars`, which needs
 subscription-level purge rights the pipeline identities don't have — purge as
