@@ -152,6 +152,7 @@ resource "azapi_update_resource" "global_appinsights_metrics" {
 # -----------------------------------------------------------------------------
 
 resource "azapi_resource_action" "apim_diagnostics" {
+  count       = var.enable_diagnostics ? 1 : 0
   type        = "Microsoft.Insights/diagnosticSettings@2021-05-01-preview"
   resource_id = "${var.api_management_id}/providers/Microsoft.Insights/diagnosticSettings/diag-${var.api_management_name}"
   method      = "PUT"
@@ -169,4 +170,3 @@ resource "azapi_resource_action" "apim_diagnostics" {
     }
   }
 }
-

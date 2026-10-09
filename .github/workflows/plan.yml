@@ -21,11 +21,13 @@ jobs:
         with:
           fetch-depth: 0
       - id: m
+        env:
+          DEPLOYMENT_ENVIRONMENTS: ${{ vars.DEPLOYMENT_ENVIRONMENTS || '[]' }}
         run: |
           set -euo pipefail
+          jq -e 'type == "array" and all(.[]; type == "string" and test("^[a-z0-9]{2,10}$"))' <<<"$DEPLOYMENT_ENVIRONMENTS" >/dev/null
           entries=()
-          for d in environments/*/; do
-            env=$(basename "$d"); [[ -f "$d/backend.hcl" ]] || continue
+          for env in $(jq -r '.[]' <<<"$DEPLOYMENT_ENVIRONMENTS"); do
             j=$(scripts/ci/changed-stacks.sh "origin/${{ github.base_ref }}" "$env")
             stacks=$(jq -r '.stacks | join(" ")' <<<"$j"); contracts=$(jq -r '.contracts | join(" ")' <<<"$j")
             [[ -z "$stacks$contracts" ]] && continue

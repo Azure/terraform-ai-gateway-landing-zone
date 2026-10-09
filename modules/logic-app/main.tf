@@ -491,6 +491,7 @@ data "azurerm_client_config" "current" {}
 # -----------------------------------------------------------------------------
 
 resource "azurerm_monitor_diagnostic_setting" "logic_app" {
+  count                      = var.enable_diagnostics ? 1 : 0
   name                       = "diag-logic-${var.environment_name}"
   target_resource_id         = local.logic_app_id
   log_analytics_workspace_id = var.log_analytics_id

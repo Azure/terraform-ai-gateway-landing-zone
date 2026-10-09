@@ -52,6 +52,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_usage_identity_principal_id"></a> [usage\_identity\_principal\_id](#input\_usage\_identity\_principal\_id) | Principal ID of the usage-pipeline identity granted Azure Event Hubs Data Receiver. | `string` | n/a | yes |
 | <a name="input_disaster_recovery_config"></a> [disaster\_recovery\_config](#input\_disaster\_recovery\_config) | Optional disaster recovery pairing. Set to `null` (default) to skip.<br/>When provided, must contain:<br/>  - partner\_namespace\_id: full resource ID of the partner EH namespace<br/>  - alias: optional alias name (defaults to "default") | <pre>object({<br/>    partner_namespace_id = string<br/>    alias                = optional(string, "default")<br/>  })</pre> | `null` | no |
 | <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone. | `bool` | `false` | no |
+| <a name="input_enable_diagnostics"></a> [enable\_diagnostics](#input\_enable\_diagnostics) | Configure the workload diagnostic setting by ARM PUT. false = Azure Policy owns diagnostics; leave its settings untouched. | `bool` | `true` | no |
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_log_analytics_id"></a> [log\_analytics\_id](#input\_log\_analytics\_id) | Resource ID of the Log Analytics workspace that receives diagnostic settings. | `string` | `""` | no |
 
@@ -61,6 +62,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | ---- | ----------- |
 | <a name="output_ai_usage_ingestion_cg"></a> [ai\_usage\_ingestion\_cg](#output\_ai\_usage\_ingestion\_cg) | Consumer group used by the AI usage ingestion workflow. |
 | <a name="output_apim_usage_hub_name"></a> [apim\_usage\_hub\_name](#output\_apim\_usage\_hub\_name) | Name of the Event Hub that receives AI usage events from APIM. |
+| <a name="output_diagnostic_setting_names"></a> [diagnostic\_setting\_names](#output\_diagnostic\_setting\_names) | Workload diagnostic setting names (empty when policy owns diagnostics). |
 | <a name="output_endpoint_uri"></a> [endpoint\_uri](#output\_endpoint\_uri) | HTTPS endpoint of the Event Hubs namespace. |
 | <a name="output_namespace_id"></a> [namespace\_id](#output\_namespace\_id) | Resource ID of the Event Hubs namespace. |
 | <a name="output_namespace_name"></a> [namespace\_name](#output\_namespace\_name) | Name of the Event Hubs namespace. |

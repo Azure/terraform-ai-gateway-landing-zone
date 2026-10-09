@@ -5,6 +5,11 @@
 #   - aiFoundryPrincipalIds
 # =============================================================================
 
+output "diagnostic_setting_names" {
+  description = "Workload diagnostic setting names (empty when policy owns diagnostics)."
+  value       = [for setting in azurerm_monitor_diagnostic_setting.foundry : setting.name]
+}
+
 output "foundry_ids" {
   description = "Resource IDs for each AI Foundry (AIServices) account."
   value       = local.account_ids

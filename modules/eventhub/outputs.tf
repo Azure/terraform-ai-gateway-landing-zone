@@ -1,3 +1,8 @@
+output "diagnostic_setting_names" {
+  description = "Workload diagnostic setting names (empty when policy owns diagnostics)."
+  value       = [for setting in azapi_resource_action.eventhub_diagnostics : "diag-${var.namespace_name}"]
+}
+
 output "namespace_name" {
   description = "Name of the Event Hubs namespace."
   value       = local.namespace_name

@@ -33,7 +33,8 @@ stacks=()
 for s in "${order[@]}"; do [[ -n "${hit[$s]:-}" && "$s" != access-contracts ]] && stacks+=("$s"); done
 # A change to the contracts stack itself re-plans every contract.
 if [[ -n "${hit[access-contracts]:-}" && -n "$env" ]]; then
-  for f in environments/"$env"/access-contracts/*.tfvars; do [[ -e "$f" ]] && contracts+=("$(basename "$f" .tfvars)"); done
+  # Inputs are ignored and restored only in the deployment job. Expand there.
+  contracts=("*")
 fi
 python3 - "${stacks[@]+"${stacks[@]}"}" -- "${contracts[@]+"${contracts[@]}"}" <<'PY'
 import json, sys

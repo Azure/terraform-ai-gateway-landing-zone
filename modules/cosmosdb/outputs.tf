@@ -1,3 +1,8 @@
+output "diagnostic_setting_names" {
+  description = "Workload diagnostic setting names (empty when policy owns diagnostics)."
+  value       = [for setting in azurerm_monitor_diagnostic_setting.cosmos : setting.name]
+}
+
 output "endpoint" {
   description = "Cosmos DB account endpoint."
   value       = module.cosmos.endpoint

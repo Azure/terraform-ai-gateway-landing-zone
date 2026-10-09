@@ -92,6 +92,7 @@ locals {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_monitor_diagnostic_setting" "cosmos" {
+  count                      = var.enable_diagnostics ? 1 : 0
   name                       = "diag-cosmos-${var.account_name}"
   target_resource_id         = local.account_id
   log_analytics_workspace_id = var.log_analytics_id

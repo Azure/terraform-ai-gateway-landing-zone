@@ -6,6 +6,7 @@ module "cosmosdb" {
   location            = var.location
   tags                = local.tags
   enable_telemetry    = var.enable_telemetry
+  enable_diagnostics  = !contains(var.monitoring.policy_managed_diagnostics, "cosmosdb")
 
   account_name                  = local.names.cosmos
   public_network_access         = local.usage_cfg.cosmos.public_network_access
@@ -26,6 +27,7 @@ module "eventhub" {
   location            = var.location
   tags                = local.tags
   enable_telemetry    = var.enable_telemetry
+  enable_diagnostics  = !contains(var.monitoring.policy_managed_diagnostics, "eventhub")
 
   namespace_name        = local.names.eventhub_namespace
   capacity_units        = local.usage_cfg.eventhub.capacity

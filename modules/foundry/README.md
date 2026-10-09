@@ -69,6 +69,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 
 | Name | Description |
 | ---- | ----------- |
+| <a name="output_diagnostic_setting_names"></a> [diagnostic\_setting\_names](#output\_diagnostic\_setting\_names) | Workload diagnostic setting names (empty when policy owns diagnostics). |
 | <a name="output_extended_ai_services_config"></a> [extended\_ai\_services\_config](#output\_extended\_ai\_services\_config) | Per-instance Foundry details including the Foundry project endpoint. |
 | <a name="output_foundry_endpoints"></a> [foundry\_endpoints](#output\_foundry\_endpoints) | Endpoint for each AI Foundry account. |
 | <a name="output_foundry_ids"></a> [foundry\_ids](#output\_foundry\_ids) | Resource IDs for each AI Foundry (AIServices) account. |

@@ -48,6 +48,12 @@ variable "eventhub_endpoint_uri" {
   description = "EventHub namespace endpoint URI (https://<ns>.servicebus.windows.net)"
 }
 
+variable "enable_diagnostics" {
+  description = "Configure the workload Azure Monitor diagnostic setting by ARM PUT. false = Azure Policy owns it. APIM loggers and API diagnostics are unaffected."
+  type        = bool
+  default     = true
+}
+
 variable "log_analytics_id" {
   description = "Resource ID of the Log Analytics workspace that receives diagnostic settings."
   type        = string

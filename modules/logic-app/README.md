@@ -117,6 +117,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_dns_zone_id_table"></a> [dns\_zone\_id\_table](#input\_dns\_zone\_id\_table) | Resource ID of the privatelink.table.core.windows.net DNS zone for the storage private endpoint. | `string` | `""` | no |
 | <a name="input_enable_code_deploy"></a> [enable\_code\_deploy](#input\_enable\_code\_deploy) | If true, zip and publish the Logic App Standard project folder (src/usage-ingestion-logicapp) as part of apply. | `bool` | `true` | no |
 | <a name="input_enable_cosmos_role_assignment"></a> [enable\_cosmos\_role\_assignment](#input\_enable\_cosmos\_role\_assignment) | Whether to create the Cosmos SQL role assignment for the Logic App system MI. Must be known at plan time. | `bool` | `true` | no |
+| <a name="input_enable_diagnostics"></a> [enable\_diagnostics](#input\_enable\_diagnostics) | Create the workload diagnostic setting. false = Azure Policy owns diagnostics; do not adopt its settings. | `bool` | `true` | no |
 | <a name="input_enable_storage_private_endpoints"></a> [enable\_storage\_private\_endpoints](#input\_enable\_storage\_private\_endpoints) | Whether to create private endpoints for the Logic App storage account (blob/file/table/queue). Must be known at plan time. | `bool` | `true` | no |
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_eventhub_ai_usage_hub_name"></a> [eventhub\_ai\_usage\_hub\_name](#input\_eventhub\_ai\_usage\_hub\_name) | Name of the Event Hub carrying AI usage events. | `string` | `""` | no |
@@ -132,6 +133,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 
 | Name | Description |
 | ---- | ----------- |
+| <a name="output_diagnostic_setting_names"></a> [diagnostic\_setting\_names](#output\_diagnostic\_setting\_names) | Workload diagnostic setting names (empty when policy owns diagnostics). |
 | <a name="output_hosting"></a> [hosting](#output\_hosting) | Hosting summary: model, whether the runtime storage is keyless, how workflows are deployed and the app setting names of the keyless (ASE) site. |
 | <a name="output_logic_app_id"></a> [logic\_app\_id](#output\_logic\_app\_id) | Resource ID of the usage-ingestion Logic App. |
 | <a name="output_logic_app_name"></a> [logic\_app\_name](#output\_logic\_app\_name) | Name of the usage-ingestion Logic App. |

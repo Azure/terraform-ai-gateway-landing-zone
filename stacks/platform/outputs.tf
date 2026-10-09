@@ -1,6 +1,17 @@
 # IDs, names and URLs only (no keys). Downstream stacks find these resources
 # by name (modules/naming); the outputs are for people and checks.
 
+output "diagnostic_setting_names" {
+  description = "Service => workload diagnostic setting names; policy-managed services have empty lists."
+  value = {
+    apim      = module.apim_telemetry.diagnostic_setting_names
+    cosmosdb  = module.cosmosdb.diagnostic_setting_names
+    eventhub  = module.eventhub.diagnostic_setting_names
+    foundry   = module.foundry.diagnostic_setting_names
+    logic_app = module.logic_app.diagnostic_setting_names
+  }
+}
+
 output "resource_group_name" {
   description = "Workload resource group."
   value       = local.resource_group_name

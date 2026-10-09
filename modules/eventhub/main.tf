@@ -145,6 +145,7 @@ resource "azurerm_eventhub_consumer_group" "pii_usage_ingestion" {
 # -----------------------------------------------------------------------------
 
 resource "azapi_resource_action" "eventhub_diagnostics" {
+  count       = var.enable_diagnostics ? 1 : 0
   type        = "Microsoft.Insights/diagnosticSettings@2021-05-01-preview"
   resource_id = "${local.namespace_id}/providers/Microsoft.Insights/diagnosticSettings/diag-${var.namespace_name}"
   method      = "PUT"

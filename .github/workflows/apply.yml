@@ -33,18 +33,18 @@ jobs:
         with:
           fetch-depth: 0
       - id: m
+        env:
+          DEPLOYMENT_ENVIRONMENTS: ${{ vars.DEPLOYMENT_ENVIRONMENTS || '[]' }}
         run: |
           set -euo pipefail
+          jq -e 'type == "array" and all(.[]; type == "string" and test("^[a-z0-9]{2,10}$"))' <<<"$DEPLOYMENT_ENVIRONMENTS" >/dev/null
           all='{"stacks":["identity","network","app-hosting","platform","gateway-config","llm-backend-onboarding"],"contracts":["*"]}'
           for env in dev test prod; do
-            [[ -f "environments/$env/backend.hcl" ]] || { echo "$env={}" >> "$GITHUB_OUTPUT"; continue; }
+            jq -e --arg e "$env" 'index($e) != null' <<<"$DEPLOYMENT_ENVIRONMENTS" >/dev/null || { echo "$env=$(jq -nc '{stacks:"",contracts:""}')" >> "$GITHUB_OUTPUT"; continue; }
             if [[ "${{ github.event_name }}" == workflow_dispatch ]]; then
               [[ "${{ inputs.env }}" == "$env" ]] && j="$all" || j='{"stacks":[],"contracts":[]}'
             else
               j=$(scripts/ci/changed-stacks.sh "${{ github.event.before }}" "$env")
-            fi
-            if [[ $(jq -r '.contracts[0] // ""' <<<"$j") == "*" ]]; then
-              j=$(jq -c --arg c "$(ls environments/$env/access-contracts/*.tfvars 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/.tfvars$//' | tr '\n' ' ')" '.contracts = ($c | split(" ") | map(select(. != "")))' <<<"$j")
             fi
             echo "$env=$(jq -c '{stacks: (.stacks | join(" ")), contracts: (.contracts | join(" "))}' <<<"$j")" >> "$GITHUB_OUTPUT"
           done

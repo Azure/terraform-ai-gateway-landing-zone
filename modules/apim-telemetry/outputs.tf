@@ -1,3 +1,8 @@
+output "diagnostic_setting_names" {
+  description = "Workload Azure Monitor diagnostic setting names (empty when policy owns diagnostics)."
+  value       = [for setting in azapi_resource_action.apim_diagnostics : "diag-${var.api_management_name}"]
+}
+
 output "app_insights_logger_id" {
   description = "Resource ID of the Application Insights logger (appinsights-logger)."
   value       = azurerm_api_management_logger.app_insights.id

@@ -46,6 +46,7 @@ Attaches loggers and service-level diagnostics to an API Management service: App
 | <a name="input_managed_identity_client_id"></a> [managed\_identity\_client\_id](#input\_managed\_identity\_client\_id) | Client ID of the user-assigned managed identity the service runs as. | `string` | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Name of the resource group the module deploys into. | `string` | n/a | yes |
 | <a name="input_app_insights_connection_string"></a> [app\_insights\_connection\_string](#input\_app\_insights\_connection\_string) | Application Insights connection string — used in the AppInsights logger (Bicep parity). | `string` | `""` | no |
+| <a name="input_enable_diagnostics"></a> [enable\_diagnostics](#input\_enable\_diagnostics) | Configure the workload Azure Monitor diagnostic setting by ARM PUT. false = Azure Policy owns it. APIM loggers and API diagnostics are unaffected. | `bool` | `true` | no |
 | <a name="input_eventhub_pii_hub_name"></a> [eventhub\_pii\_hub\_name](#input\_eventhub\_pii\_hub\_name) | Name of the PII usage event hub (matches Bicep output eventHubPIIName). | `string` | `"pii-usage"` | no |
 | <a name="input_eventhub_usage_hub_name"></a> [eventhub\_usage\_hub\_name](#input\_eventhub\_usage\_hub\_name) | Name of the APIM usage event hub inside the namespace (matches Bicep output eventHub.name). | `string` | `"ai-usage"` | no |
 
@@ -56,5 +57,6 @@ Attaches loggers and service-level diagnostics to an API Management service: App
 | <a name="output_app_insights_logger_id"></a> [app\_insights\_logger\_id](#output\_app\_insights\_logger\_id) | Resource ID of the Application Insights logger (appinsights-logger). |
 | <a name="output_azure_monitor_logger_id"></a> [azure\_monitor\_logger\_id](#output\_azure\_monitor\_logger\_id) | Resource ID of the Azure Monitor logger (azuremonitor). |
 | <a name="output_dependency_ids"></a> [dependency\_ids](#output\_dependency\_ids) | IDs to depend on before creating API diagnostics that use the Azure Monitor logger. |
+| <a name="output_diagnostic_setting_names"></a> [diagnostic\_setting\_names](#output\_diagnostic\_setting\_names) | Workload Azure Monitor diagnostic setting names (empty when policy owns diagnostics). |
 | <a name="output_logger_names"></a> [logger\_names](#output\_logger\_names) | Names of the loggers this module creates (contract for API-level diagnostics). |
 <!-- END_TF_DOCS -->

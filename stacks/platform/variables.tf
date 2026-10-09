@@ -290,15 +290,24 @@ variable "monitoring" {
       log_analytics_subscription_id    Subscription of the BYO workspace when it differs from subscription_id.
       private_link_scope               Deploy an Azure Monitor Private Link Scope (AMPLS).
       app_insights_dashboards          Create the Application Insights dashboards.
+      policy_managed_diagnostics       Services whose Azure Monitor settings belong to Policy:
+                                       apim, cosmosdb, eventhub, foundry, logic_app. No workload
+                                       settings are created/overwritten for these services.
   EOT
   type = object({
     log_analytics_workspace_id    = optional(string)
     log_analytics_subscription_id = optional(string)
     private_link_scope            = optional(bool, false)
     app_insights_dashboards       = optional(bool, true)
+    policy_managed_diagnostics    = optional(set(string), [])
   })
   default  = {}
   nullable = false
+
+  validation {
+    condition     = length(setsubtract(var.monitoring.policy_managed_diagnostics, ["apim", "cosmosdb", "eventhub", "foundry", "logic_app"])) == 0
+    error_message = "monitoring.policy_managed_diagnostics accepts apim, cosmosdb, eventhub, foundry and logic_app."
+  }
 
   validation {
     condition = var.monitoring.log_analytics_workspace_id == null || can(regex(

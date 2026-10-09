@@ -15,7 +15,8 @@ locals {
 # Usage ingestion Logic App (Standard). ase_v3: Isolated v2 plan in the ASE with
 # keyless storage and run-from-package; workflow_standard: WS plan (shared key).
 module "logic_app" {
-  source = "../../modules/logic-app"
+  source             = "../../modules/logic-app"
+  enable_diagnostics = !contains(var.monitoring.policy_managed_diagnostics, "logic_app")
 
   resource_group_id   = local.resource_group_id
   resource_group_name = local.resource_group_name

@@ -3,10 +3,11 @@
 module "foundry" {
   source = "../../modules/foundry"
 
-  resource_group_id = local.resource_group_id
-  tags              = local.tags
-  enable_telemetry  = var.enable_telemetry
-  account_names     = module.naming.foundry_account_names
+  resource_group_id  = local.resource_group_id
+  tags               = local.tags
+  enable_telemetry   = var.enable_telemetry
+  enable_diagnostics = !contains(var.monitoring.policy_managed_diagnostics, "foundry")
+  account_names      = module.naming.foundry_account_names
 
   foundry_external_access = var.foundry.external_access
   foundry_instances       = var.foundry.instances

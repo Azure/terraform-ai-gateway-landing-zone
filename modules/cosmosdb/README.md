@@ -44,6 +44,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id) | Resource ID of the subnet that hosts the private endpoint. | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
 | <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone. | `bool` | `false` | no |
+| <a name="input_enable_diagnostics"></a> [enable\_diagnostics](#input\_enable\_diagnostics) | Create the workload diagnostic setting. false = Azure Policy owns diagnostics; do not adopt its settings. | `bool` | `true` | no |
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_local_authentication_enabled"></a> [local\_authentication\_enabled](#input\_local\_authentication\_enabled) | Allow key/connection-string auth on the Cosmos DB data plane. When false, only Entra ID (RBAC) is accepted. | `bool` | `false` | no |
 | <a name="input_log_analytics_id"></a> [log\_analytics\_id](#input\_log\_analytics\_id) | Resource ID of the Log Analytics workspace that receives diagnostic settings. | `string` | `""` | no |
@@ -56,6 +57,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="output_account_name"></a> [account\_name](#output\_account\_name) | Name of the Cosmos DB account. |
 | <a name="output_config_container_name"></a> [config\_container\_name](#output\_config\_container\_name) | Name of the configuration container. |
 | <a name="output_database_name"></a> [database\_name](#output\_database\_name) | Name of the usage database. |
+| <a name="output_diagnostic_setting_names"></a> [diagnostic\_setting\_names](#output\_diagnostic\_setting\_names) | Workload diagnostic setting names (empty when policy owns diagnostics). |
 | <a name="output_endpoint"></a> [endpoint](#output\_endpoint) | Cosmos DB account endpoint. |
 | <a name="output_llm_usage_container_name"></a> [llm\_usage\_container\_name](#output\_llm\_usage\_container\_name) | Name of the LLM usage container. |
 | <a name="output_model_pricing_container_name"></a> [model\_pricing\_container\_name](#output\_model\_pricing\_container\_name) | Name of the model pricing container. |

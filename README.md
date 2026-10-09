@@ -45,7 +45,7 @@ touches only its own contract state. Details: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_G
 ## ⚡ Quick start
 
 Prerequisites: Terraform (`.terraform-version`), [Task](https://taskfile.dev),
-Azure CLI, Owner on a subscription.
+Python ≥ 3.9 (`python3`), Azure CLI, Owner on a subscription.
 
 ```bash
 az login && az account set --subscription <subscription-id>
@@ -137,7 +137,7 @@ pip install -r shared/requirements.txt
 │   ├── llm-backend-onboarding/  # + fragments/ (model-aware) and apis/ (LLM APIs)
 │   └── access-contracts/
 ├── modules/                     # custom modules (call AVM modules, never each other)
-├── environments/<env>/          # the only place environments differ (tfvars + backend.hcl)
+├── environments/<env>/          # local, gitignored inputs (only .gitkeep is tracked)
 ├── examples/<scenario>/         # environment templates to copy
 ├── logicapp-src/                # usage-ingestion Logic App project
 ├── scripts/                     # validate.sh / .ps1, ci/ (repository rules)

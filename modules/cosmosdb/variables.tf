@@ -35,6 +35,12 @@ variable "local_authentication_enabled" {
   type        = bool
   default     = false
 }
+variable "enable_diagnostics" {
+  description = "Create the workload diagnostic setting. false = Azure Policy owns diagnostics; do not adopt its settings."
+  type        = bool
+  default     = true
+}
+
 variable "log_analytics_id" {
   description = "Resource ID of the Log Analytics workspace that receives diagnostic settings."
   type        = string

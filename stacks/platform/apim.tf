@@ -43,7 +43,8 @@ module "apim" {
 # pii-usage-eventhub-logger) and service-level diagnostics. The logger names
 # are a contract: gateway-config and llm-backend-onboarding reference them.
 module "apim_telemetry" {
-  source = "../../modules/apim-telemetry"
+  source             = "../../modules/apim-telemetry"
+  enable_diagnostics = !contains(var.monitoring.policy_managed_diagnostics, "apim")
 
   api_management_id   = module.apim.apim_id
   api_management_name = module.apim.apim_name

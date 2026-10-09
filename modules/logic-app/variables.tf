@@ -86,6 +86,12 @@ variable "managed_identity_principal_id" {
   description = "Principal (object) ID of the user-assigned managed identity that is granted data-plane roles."
   type        = string
 }
+variable "enable_diagnostics" {
+  description = "Create the workload diagnostic setting. false = Azure Policy owns diagnostics; do not adopt its settings."
+  type        = bool
+  default     = true
+}
+
 variable "log_analytics_id" {
   description = "Resource ID of the Log Analytics workspace that receives diagnostic settings."
   type        = string

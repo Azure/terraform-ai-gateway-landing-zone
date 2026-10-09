@@ -78,6 +78,9 @@ jobs:
           done
           exit $rc
 
+      - name: deployment helper tests
+        run: python3 -m unittest discover -s scripts/tests -v
+
       - name: gitleaks
         run: |
           curl -sSLo /tmp/gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"

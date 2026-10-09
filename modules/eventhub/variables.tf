@@ -41,6 +41,12 @@ variable "usage_identity_principal_id" {
   description = "Principal ID of the usage-pipeline identity granted Azure Event Hubs Data Receiver."
   type        = string
 }
+variable "enable_diagnostics" {
+  description = "Configure the workload diagnostic setting by ARM PUT. false = Azure Policy owns diagnostics; leave its settings untouched."
+  type        = bool
+  default     = true
+}
+
 variable "log_analytics_id" {
   description = "Resource ID of the Log Analytics workspace that receives diagnostic settings."
   type        = string

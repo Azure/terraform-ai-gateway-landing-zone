@@ -60,6 +60,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: restore ignored environment inputs
+        env:
+          ENVIRONMENT_CONFIG_JSON: ${{ secrets.ENVIRONMENT_CONFIG_JSON }}
+          DEPLOY_ENV: ${{ inputs.env }}
+        run: python3 scripts/restore-environment.py "$DEPLOY_ENV"
+
       - id: tfver
         run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
       - uses: hashicorp/setup-terraform@v4
@@ -105,7 +111,14 @@ jobs:
         run: |
           set -euo pipefail
           drifted=(${DRIFTED:-})
-          for c in ${{ inputs.contracts }}; do
+          contracts="${{ inputs.contracts }}"
+          if [[ "$contracts" == "*" ]]; then
+            contracts=""
+            if [[ -d "environments/${{ inputs.env }}/access-contracts" ]]; then
+              contracts=$(find "environments/${{ inputs.env }}/access-contracts" -maxdepth 1 -name '*.tfvars' -exec basename {} .tfvars \; | sort)
+            fi
+          fi
+          for c in $contracts; do
             f="environments/${{ inputs.env }}/access-contracts/$c.tfvars"
             [[ -f "$f" ]] || { echo "skip $c (no $f)"; continue; }
             echo "::group::${{ inputs.command }} contract $c"

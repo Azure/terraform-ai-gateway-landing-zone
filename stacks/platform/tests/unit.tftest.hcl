@@ -70,9 +70,34 @@ variables {
 
 # --- defaults and greenfield lookups -----------------------------------------
 
+run "policy_managed_diagnostics_create_no_workload_settings" {
+  command = plan
+  variables {
+    monitoring = {
+      policy_managed_diagnostics = ["apim", "cosmosdb", "eventhub", "foundry", "logic_app"]
+    }
+  }
+  assert {
+    condition     = alltrue([for names in output.diagnostic_setting_names : length(names) == 0])
+    error_message = "Policy-owned diagnostics must not be created or overwritten by any service module."
+  }
+}
+
+run "unknown_policy_managed_service_is_rejected" {
+  command = plan
+  variables {
+    monitoring = { policy_managed_diagnostics = ["unknown"] }
+  }
+  expect_failures = [var.monitoring]
+}
+
 run "defaults_and_greenfield_lookups" {
   command = plan
 
+  assert {
+    condition     = alltrue([for names in output.diagnostic_setting_names : length(names) == 1])
+    error_message = "Every service retains its workload diagnostics by default."
+  }
   assert {
     condition     = local.apim_cfg.sku == "StandardV2" && local.apim_cfg.vnet_mode == "integration" && local.apim_cfg.private_endpoint
     error_message = "APIM defaults: StandardV2, outbound integration, inbound private endpoint."
