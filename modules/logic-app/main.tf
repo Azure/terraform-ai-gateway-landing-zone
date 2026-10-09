@@ -284,6 +284,7 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
   storage_account_access_key = local.storage_key
   storage_account_share_name = local.content_share
   virtual_network_subnet_id  = var.subnet_id
+  public_network_access      = var.public_network_access_enabled ? "Enabled" : "Disabled"
   tags                       = var.tags
 
   version = "~4"
@@ -321,6 +322,64 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
   })
 
   depends_on = [module.storage]
+}
+
+# -----------------------------------------------------------------------------
+# PRIVATE ENDPOINT — Workflow Standard only (upstream accelerator PR #161).
+# One `sites` endpoint serves the website and SCM/Kudu (privatelink.azurewebsites.net,
+# including the <site>.scm record). Independent of public_network_access_enabled:
+# all four combinations are valid. Turning use_private_endpoint off removes the
+# endpoint. With ALZ Deploy-Private-DNS-Zones the policy owns the zone group.
+# -----------------------------------------------------------------------------
+
+locals {
+  private_endpoint_enabled = var.use_private_endpoint && !local.use_ase
+  private_endpoint_name    = var.private_endpoint_name != "" ? var.private_endpoint_name : "pe-${local.logic_app_name}"
+}
+
+resource "azurerm_private_endpoint" "logic_app" {
+  count               = local.private_endpoint_enabled && !var.dns_zone_group_managed_by_policy ? 1 : 0
+  name                = local.private_endpoint_name
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.pe_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-${local.logic_app_name}"
+    private_connection_resource_id = azurerm_logic_app_standard.usage_ingestion[0].id
+    subresource_names              = ["sites"]
+    is_manual_connection           = false
+  }
+
+  dynamic "private_dns_zone_group" {
+    for_each = var.dns_zone_id_sites != "" ? [1] : []
+    content {
+      name                 = "logic-dns-group"
+      private_dns_zone_ids = [var.dns_zone_id_sites]
+    }
+  }
+}
+
+resource "azurerm_private_endpoint" "logic_app_policy_dns" {
+  count               = local.private_endpoint_enabled && var.dns_zone_group_managed_by_policy ? 1 : 0
+  name                = local.private_endpoint_name
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.pe_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-${local.logic_app_name}"
+    private_connection_resource_id = azurerm_logic_app_standard.usage_ingestion[0].id
+    subresource_names              = ["sites"]
+    is_manual_connection           = false
+  }
+
+  # Azure Policy (ALZ Deploy-Private-DNS-Zones) creates the DNS zone group.
+  lifecycle {
+    ignore_changes = [private_dns_zone_group]
+  }
 }
 
 # -----------------------------------------------------------------------------

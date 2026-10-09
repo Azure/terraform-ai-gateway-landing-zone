@@ -6,7 +6,7 @@ module "private_dns" {
   count  = local.greenfield ? 1 : 0
 
   resource_group_id   = data.azurerm_resource_group.workload.id
-  zone_names          = module.naming.private_dns_zones
+  zone_names          = merge(module.naming.private_dns_zones, var.private_dns.logic_app_zone ? module.naming.private_dns_optional_zones : {})
   vnet_id             = module.networking.vnet_id
   extra_vnet_link_ids = var.private_dns.extra_vnet_link_ids
   link_monitor_zone   = var.private_dns.link_monitor_zone

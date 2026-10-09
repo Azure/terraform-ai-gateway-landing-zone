@@ -76,6 +76,12 @@ locals {
     redis              = "privatelink.redis.azure.net"
   }
 
+  # Zones only some configurations need; stacks/network creates them on request,
+  # platform looks them up only when it uses them.
+  private_dns_optional_zones = {
+    logic_app = "privatelink.azurewebsites.net" # Workflow Standard Logic App private endpoint
+  }
+
   foundry_account_names = [
     for i, n in var.foundry_instance_names : n != "" ? n : "aif-${local.base}-${local.seed}-${i}"
   ]

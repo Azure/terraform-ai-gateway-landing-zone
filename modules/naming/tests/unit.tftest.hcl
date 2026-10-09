@@ -49,6 +49,19 @@ run "snapshot" {
   }
 }
 
+run "private_dns_zones" {
+  command = plan
+
+  assert {
+    condition     = length(output.private_dns_zones) == 13 && !contains(keys(output.private_dns_zones), "logic_app")
+    error_message = "The 13 base zones don't include the optional Logic App zone."
+  }
+  assert {
+    condition     = output.private_dns_optional_zones == { logic_app = "privatelink.azurewebsites.net" }
+    error_message = "The Logic App private endpoint zone is the only optional zone."
+  }
+}
+
 run "length_limits" {
   command = plan
   variables {

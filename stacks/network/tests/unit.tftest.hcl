@@ -52,6 +52,19 @@ run "greenfield_default_carve" {
   }
 }
 
+run "greenfield_logic_app_zone_on_request" {
+  command = plan
+
+  variables {
+    private_dns = { logic_app_zone = true }
+  }
+
+  assert {
+    condition     = length(module.private_dns[0].zone_ids) == 14 && contains(keys(module.private_dns[0].zone_ids), "logic_app")
+    error_message = "private_dns.logic_app_zone adds privatelink.azurewebsites.net (14 zones); it isn't created by default."
+  }
+}
+
 run "greenfield_apim_internal_and_ws_logic_app" {
   command = plan
 

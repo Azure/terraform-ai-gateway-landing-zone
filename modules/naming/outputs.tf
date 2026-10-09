@@ -13,6 +13,11 @@ output "base" {
   value       = local.base
 }
 
+output "private_dns_optional_zones" {
+  description = "Logical key => private DNS zone name for features that need an extra zone (logic_app: Workflow Standard Logic App private endpoint)."
+  value       = local.private_dns_optional_zones
+}
+
 output "foundry_account_names" {
   description = "Foundry (AI Services) account names, one per instance."
   value       = local.foundry_account_names

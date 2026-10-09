@@ -18,16 +18,19 @@ locals {
     eventhub = var.usage_pipeline.eventhub
     cosmos   = var.usage_pipeline.cosmos
     logic_app = {
-      hosting            = var.usage_pipeline.logic_app.hosting
-      hosting_model      = var.usage_pipeline.logic_app.hosting == "ase_v3" ? "AppServiceEnvironmentV3" : "WorkflowStandard"
-      ws_sku             = var.usage_pipeline.logic_app.hosting == "workflow_standard" ? coalesce(var.usage_pipeline.logic_app.sku, "WS1") : "WS1"
-      ase_sku            = var.usage_pipeline.logic_app.hosting == "ase_v3" ? coalesce(var.usage_pipeline.logic_app.sku, "I1v2") : "I1v2"
-      worker_count       = var.usage_pipeline.logic_app.worker_count
-      max_worker_count   = var.usage_pipeline.logic_app.max_worker_count
-      deployment         = var.usage_pipeline.logic_app.deployment
-      content_share_name = var.usage_pipeline.logic_app.content_share_name
-      code_deploy        = var.usage_pipeline.logic_app.code_deploy
-      code_source_path   = var.usage_pipeline.logic_app.code_source_path
+      hosting               = var.usage_pipeline.logic_app.hosting
+      hosting_model         = var.usage_pipeline.logic_app.hosting == "ase_v3" ? "AppServiceEnvironmentV3" : "WorkflowStandard"
+      ws_sku                = var.usage_pipeline.logic_app.hosting == "workflow_standard" ? coalesce(var.usage_pipeline.logic_app.sku, "WS1") : "WS1"
+      ase_sku               = var.usage_pipeline.logic_app.hosting == "ase_v3" ? coalesce(var.usage_pipeline.logic_app.sku, "I1v2") : "I1v2"
+      worker_count          = var.usage_pipeline.logic_app.worker_count
+      max_worker_count      = var.usage_pipeline.logic_app.max_worker_count
+      deployment            = var.usage_pipeline.logic_app.deployment
+      content_share_name    = var.usage_pipeline.logic_app.content_share_name
+      private_endpoint      = var.usage_pipeline.logic_app.private_endpoint
+      public_network_access = var.usage_pipeline.logic_app.public_network_access
+      private_endpoint_name = var.usage_pipeline.logic_app.private_endpoint_name != null ? var.usage_pipeline.logic_app.private_endpoint_name : ""
+      code_deploy           = var.usage_pipeline.logic_app.code_deploy
+      code_source_path      = var.usage_pipeline.logic_app.code_source_path
     }
     ase = var.usage_pipeline.ase
   }

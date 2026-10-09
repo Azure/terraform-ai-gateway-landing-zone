@@ -248,6 +248,125 @@ run "dev_access_is_not_for_prod" {
   expect_failures = [check.dev_access_scope]
 }
 
+# --- Logic App private endpoint (Workflow Standard) -------------------------------
+
+run "logic_app_private_endpoint_greenfield" {
+  command = plan
+
+  variables {
+    usage_pipeline = {
+      logic_app = { private_endpoint = true, public_network_access = false }
+    }
+  }
+
+  assert {
+    condition     = contains(keys(data.azurerm_private_dns_zone.greenfield), "logic_app") && length(data.azurerm_private_dns_zone.greenfield) == 14
+    error_message = "Greenfield looks up privatelink.azurewebsites.net (14 zones) only when the Logic App has a private endpoint."
+  }
+  assert {
+    condition     = module.logic_app.private_endpoint_name == "pe-${local.names.logic_app}" && !module.logic_app.hosting.public_access && module.logic_app.hosting.private_endpoint
+    error_message = "One endpoint named pe-<logic app>, public access closed."
+  }
+}
+
+run "logic_app_private_endpoint_is_opt_in" {
+  command = plan
+
+  assert {
+    condition     = module.logic_app.private_endpoint_name == null && module.logic_app.hosting.public_access && !contains(keys(data.azurerm_private_dns_zone.greenfield), "logic_app")
+    error_message = "By default the Logic App keeps public access, has no private endpoint and no extra zone is looked up."
+  }
+}
+
+run "logic_app_private_endpoint_custom_name_and_independent_flags" {
+  command = plan
+
+  variables {
+    usage_pipeline = {
+      logic_app = { private_endpoint = true, private_endpoint_name = "pe-usage-logic" }
+    }
+  }
+
+  assert {
+    condition     = module.logic_app.private_endpoint_name == "pe-usage-logic" && module.logic_app.hosting.public_access
+    error_message = "The endpoint name can be overridden; the endpoint doesn't close public access by itself."
+  }
+}
+
+run "logic_app_private_endpoint_leaves_dns_to_policy" {
+  command = plan
+
+  variables {
+    network_mode = "alz_spoke"
+    network = {
+      vnet_id                           = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke"
+      subnet_ids                        = { pe = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-pe", apim = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-apim", logic_app = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-logic" }
+      dns_zone_groups_managed_by_policy = true
+    }
+    usage_pipeline = {
+      logic_app = { private_endpoint = true }
+    }
+  }
+
+  assert {
+    condition     = module.logic_app.private_endpoint_name == "pe-${local.names.logic_app}" && length(data.azurerm_private_dns_zone.greenfield) == 0
+    error_message = "alz_spoke: the endpoint is created without a Terraform-owned zone group (policy binds it); nothing is looked up."
+  }
+}
+
+run "logic_app_private_endpoint_rejected_on_ase" {
+  command = plan
+
+  variables {
+    usage_pipeline = {
+      logic_app = { hosting = "ase_v3", private_endpoint = true }
+    }
+  }
+
+  expect_failures = [var.usage_pipeline]
+}
+
+run "logic_app_private_endpoint_name_is_validated" {
+  command = plan
+
+  variables {
+    usage_pipeline = {
+      logic_app = { private_endpoint = true, private_endpoint_name = "bad name!" }
+    }
+  }
+
+  expect_failures = [var.usage_pipeline]
+}
+
+run "logic_app_endpoint_without_dns_zone_is_flagged" {
+  command = plan
+
+  variables {
+    network_mode = "byo"
+    network = {
+      vnet_id    = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet"
+      subnet_ids = { pe = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet/subnets/snet-pe", apim = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet/subnets/snet-apim", logic_app = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-net/providers/Microsoft.Network/virtualNetworks/vnet/subnets/snet-logic" }
+    }
+    usage_pipeline = {
+      logic_app = { private_endpoint = true }
+    }
+  }
+
+  expect_failures = [check.logic_app_private_endpoint_dns]
+}
+
+run "logic_app_public_off_without_endpoint_is_flagged" {
+  command = plan
+
+  variables {
+    usage_pipeline = {
+      logic_app = { public_network_access = false }
+    }
+  }
+
+  expect_failures = [check.logic_app_public_access_off_needs_endpoint]
+}
+
 # --- keyless usage pipeline on ASE v3 -------------------------------------------
 
 run "ase_v3_is_keyless_and_runs_from_package" {

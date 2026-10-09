@@ -28,7 +28,12 @@ data "azurerm_subnet" "greenfield" {
 }
 
 data "azurerm_private_dns_zone" "greenfield" {
-  for_each            = local.greenfield ? module.naming.private_dns_zones : {}
+  # The Logic App zone exists only when stacks/network was told to create it
+  # (private_dns.logic_app_zone = true).
+  for_each = !local.greenfield ? {} : merge(
+    module.naming.private_dns_zones,
+    local.usage_cfg.logic_app.private_endpoint ? module.naming.private_dns_optional_zones : {},
+  )
   name                = each.value
   resource_group_name = local.names.resource_group
 }

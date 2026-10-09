@@ -222,6 +222,35 @@ variable "dns_zone_id_queue" {
   default     = ""
 }
 
+variable "use_private_endpoint" {
+  description = "Create a private endpoint (subresource `sites`) for the Workflow Standard Logic App: one endpoint serves both the website and SCM/Kudu. Not for ase_v3: an ILB ASE is already private and doesn't support private endpoints. Needs pe_subnet_id and, unless Azure Policy owns DNS, dns_zone_id_sites."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.use_private_endpoint || var.hosting_model == "WorkflowStandard"
+    error_message = "use_private_endpoint applies to Workflow Standard hosting only: a Logic App in an ILB App Service Environment v3 is already private and can't take a private endpoint."
+  }
+}
+
+variable "public_network_access_enabled" {
+  description = "Allow public network access to the Workflow Standard Logic App (website and SCM). false needs a working private endpoint and private DNS, and workflow publishing (zip_deploy) must then run from a connected network. Ignored for ase_v3, whose site is always private."
+  type        = bool
+  default     = true
+}
+
+variable "private_endpoint_name" {
+  description = "Name of the Logic App private endpoint. Empty = pe-<logic app name>."
+  type        = string
+  default     = ""
+}
+
+variable "dns_zone_id_sites" {
+  description = "Resource ID of the privatelink.azurewebsites.net DNS zone for the Logic App private endpoint. Empty = no zone group is created (the zone is linked and populated elsewhere)."
+  type        = string
+  default     = ""
+}
+
 variable "create_azuremonitor_api_connection" {
   description = "Create the Logic App 'azuremonitorlogs' API connection and grant access to the system-assigned MI."
   type        = bool

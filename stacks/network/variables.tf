@@ -71,10 +71,14 @@ variable "private_dns" {
   description = <<-EOT
     Greenfield private DNS zones (alz_spoke: the hub owns them, nothing is created).
       link_monitor_zone    Link privatelink.monitor.azure.com: only when platform deploys AMPLS.
+      logic_app_zone       Also create privatelink.azurewebsites.net: only when platform gives the
+                           Workflow Standard Logic App a private endpoint
+                           (usage_pipeline.logic_app.private_endpoint = true).
       extra_vnet_link_ids  name => VNet ID to link every zone to as well (e.g. a runner or jump-box VNet).
   EOT
   type = object({
     link_monitor_zone   = optional(bool, false)
+    logic_app_zone      = optional(bool, false)
     extra_vnet_link_ids = optional(map(string), {})
   })
   default  = {}

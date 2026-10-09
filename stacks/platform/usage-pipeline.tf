@@ -50,6 +50,10 @@ module "logic_app" {
   dns_zone_id_file                 = lookup(local.zone_ids, "storage_file", "")
   dns_zone_id_table                = lookup(local.zone_ids, "storage_table", "")
   dns_zone_id_queue                = lookup(local.zone_ids, "storage_queue", "")
+  dns_zone_id_sites                = lookup(local.zone_ids, "logic_app", "")
+  use_private_endpoint             = local.usage_cfg.logic_app.private_endpoint
+  public_network_access_enabled    = local.usage_cfg.logic_app.public_network_access
+  private_endpoint_name            = local.usage_cfg.logic_app.private_endpoint_name
   dns_zone_group_managed_by_policy = local.network.dns_zone_groups_managed_by_policy
 
   eventhub_endpoint_host      = "${module.eventhub.namespace_name}.servicebus.windows.net"
@@ -78,4 +82,20 @@ module "logic_app" {
   managed_identity_principal_id = module.identity["usage"].principal_id
 
   log_analytics_id = module.monitoring.log_analytics_id
+}
+
+# Private endpoint prerequisites for the Workflow Standard Logic App (upstream PR #161:
+# the flag combinations are independent, so these are warnings, not errors).
+check "logic_app_private_endpoint_dns" {
+  assert {
+    condition     = !local.usage_cfg.logic_app.private_endpoint || local.network.dns_zone_groups_managed_by_policy || lookup(local.zone_ids, "logic_app", "") != ""
+    error_message = "The Logic App private endpoint has no DNS zone group: put the privatelink.azurewebsites.net zone in network.private_dns_zone_ids.logic_app, or leave DNS to Azure Policy. Otherwise <site>.azurewebsites.net and <site>.scm.azurewebsites.net won't resolve privately."
+  }
+}
+
+check "logic_app_public_access_off_needs_endpoint" {
+  assert {
+    condition     = local.usage_cfg.logic_app.hosting == "ase_v3" || local.usage_cfg.logic_app.public_network_access || local.usage_cfg.logic_app.private_endpoint
+    error_message = "The Logic App has public network access disabled and no private endpoint here: it is reachable only through a private endpoint managed elsewhere, and workflow publishing (zip_deploy) needs that path."
+  }
 }

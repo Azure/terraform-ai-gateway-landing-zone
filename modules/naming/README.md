@@ -35,6 +35,7 @@ state, owned by `stacks/bootstrap`) and `rg-<workload>-<environment>`
 | <a name="output_base"></a> [base](#output\_base) | <workload>-<environment>, used by modules that derive child resource names. |
 | <a name="output_foundry_account_names"></a> [foundry\_account\_names](#output\_foundry\_account\_names) | Foundry (AI Services) account names, one per instance. |
 | <a name="output_names"></a> [names](#output\_names) | Logical role => resource name (generated, or the override when one is set). |
+| <a name="output_private_dns_optional_zones"></a> [private\_dns\_optional\_zones](#output\_private\_dns\_optional\_zones) | Logical key => private DNS zone name for features that need an extra zone (logic\_app: Workflow Standard Logic App private endpoint). |
 | <a name="output_private_dns_zones"></a> [private\_dns\_zones](#output\_private\_dns\_zones) | Logical key => private DNS zone name used by the gateway's private endpoints. |
 | <a name="output_seed"></a> [seed](#output\_seed) | Deterministic 5-character suffix used in globally unique names. |
 <!-- END_TF_DOCS -->

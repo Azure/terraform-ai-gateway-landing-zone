@@ -24,6 +24,7 @@ network = {
     storage_file       = "/subscriptions/<sub>/resourceGroups/<rg-dns>/providers/Microsoft.Network/privateDnsZones/privatelink.file.core.windows.net"
     storage_table      = "/subscriptions/<sub>/resourceGroups/<rg-dns>/providers/Microsoft.Network/privateDnsZones/privatelink.table.core.windows.net"
     storage_queue      = "/subscriptions/<sub>/resourceGroups/<rg-dns>/providers/Microsoft.Network/privateDnsZones/privatelink.queue.core.windows.net"
+    logic_app          = "/subscriptions/<sub>/resourceGroups/<rg-dns>/providers/Microsoft.Network/privateDnsZones/privatelink.azurewebsites.net"
   }
 }
 
@@ -36,7 +37,13 @@ foundry = {
 }
 
 usage_pipeline = {
-  logic_app = { hosting = "workflow_standard", sku = "WS1", code_deploy = true }
+  logic_app = {
+    hosting          = "workflow_standard"
+    sku              = "WS1"
+    code_deploy      = true
+    private_endpoint = true # one `sites` endpoint for the website and SCM; needs the logic_app zone above
+    # public_network_access = false  # also close the public website/SCM: zip_deploy then needs a runner on the VNet
+  }
 }
 
 secret_writer_principal_ids = { pipeline = "<apply-principal-id>" }

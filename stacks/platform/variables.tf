@@ -222,6 +222,15 @@ variable "usage_pipeline" {
                          ase_v3: run_from_package (default; zip in the keyless storage account,
                          read by the usage UAMI) or zip_deploy (az push to SCM from a runner in
                          the VNet). workflow_standard always uses zip_deploy.
+      logic_app.private_endpoint / public_network_access / private_endpoint_name
+                         workflow_standard only (an ILB ASE is already private). private_endpoint
+                         creates one `sites` endpoint for the website and SCM; needs the
+                         privatelink.azurewebsites.net zone (greenfield: network.tfvars
+                         private_dns.logic_app_zone = true; alz_spoke / byo: network
+                         private_dns_zone_ids.logic_app, or Azure Policy). public_network_access
+                         = false closes the public website and SCM: workflow publishing then
+                         needs a runner on a connected network. The two are independent.
+                         private_endpoint_name null = pe-<logic app name>.
       ase.app_service_environment_id
                          ase_v3: a shared / BYO ASE; null = the ASE of stacks/app-hosting,
                          found by name.
@@ -248,6 +257,10 @@ variable "usage_pipeline" {
       content_share_name = optional(string, "")
       code_deploy        = optional(bool, false)
       code_source_path   = optional(string, "")
+
+      private_endpoint      = optional(bool, false)
+      public_network_access = optional(bool, true)
+      private_endpoint_name = optional(string)
     }), {})
     ase = optional(object({
       app_service_environment_id = optional(string)
@@ -272,6 +285,14 @@ variable "usage_pipeline" {
   validation {
     condition     = contains(["run_from_package", "zip_deploy"], var.usage_pipeline.logic_app.deployment)
     error_message = "usage_pipeline.logic_app.deployment must be run_from_package or zip_deploy."
+  }
+  validation {
+    condition     = !var.usage_pipeline.logic_app.private_endpoint || var.usage_pipeline.logic_app.hosting == "workflow_standard"
+    error_message = "usage_pipeline.logic_app.private_endpoint applies to hosting = workflow_standard only: a Logic App in an ILB App Service Environment v3 is already private and can't take a private endpoint."
+  }
+  validation {
+    condition     = var.usage_pipeline.logic_app.private_endpoint_name == null || can(regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,78}[A-Za-z0-9_]$", coalesce(var.usage_pipeline.logic_app.private_endpoint_name, "-")))
+    error_message = "usage_pipeline.logic_app.private_endpoint_name must be a valid private endpoint name (2-80 characters: letters, digits, '.', '_' or '-')."
   }
   validation {
     condition     = var.usage_pipeline.logic_app.max_worker_count >= var.usage_pipeline.logic_app.worker_count

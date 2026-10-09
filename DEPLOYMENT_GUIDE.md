@@ -287,6 +287,57 @@ Verified live (ASE v3, `run_from_package`): the four workflows load from the
 managed-identity-fetched package and a usage event lands in Cosmos DB with key
 auth disabled.
 
+### 6.2 Private Logic App (Workflow Standard)
+
+For `hosting = "workflow_standard"` the usage-ingestion Logic App can sit behind a
+private endpoint (ported from upstream accelerator PR
+[#161](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/pull/161)).
+Two independent flags in `platform.tfvars`:
+
+```hcl
+usage_pipeline = {
+  logic_app = {
+    hosting               = "workflow_standard"
+    private_endpoint      = true    # default false
+    public_network_access = false   # default true
+    # private_endpoint_name = "pe-usage-logic"   # default pe-<logic app name>
+  }
+}
+```
+
+| `private_endpoint` | `public_network_access` | Result |
+|---|---|---|
+| `false` | `true` (default) | Unchanged: public website and SCM. |
+| `true` | `true` | Private path added; public access still open (use while migrating or testing). |
+| `true` | `false` | **Private only.** Website and SCM answer only through the endpoint. |
+| `false` | `false` | Public closed and no endpoint here: reachable only through an endpoint someone else manages. A `check` warns. |
+
+One endpoint (subresource `sites`) serves both the website and SCM/Kudu. Its DNS
+zone is `privatelink.azurewebsites.net` (records for `<site>` and `<site>.scm`):
+
+| Network mode | DNS |
+|---|---|
+| `greenfield` | `network.tfvars`: `private_dns = { logic_app_zone = true }` creates and links the zone; `platform` looks it up. Apply `network` first. |
+| `alz_spoke` / `byo` | the hub's zone ID in `platform.tfvars` `network.private_dns_zone_ids.logic_app`, or leave the zone group to Azure Policy (`dns_zone_groups_managed_by_policy = true`; `privatelink.azurewebsites.net` is in the ALZ DINE set). Without either, a `check` warns that the names won't resolve privately. |
+
+Rules and limits:
+
+- **Not for `ase_v3`.** An ILB App Service Environment is already private and
+  doesn't support private endpoints; the input is rejected there (the ASE site
+  always has public access off).
+- **Publishing needs a private path.** With public access off, `zip_deploy`
+  (`task logic-app-code`) reaches SCM only through the endpoint: run it from a
+  runner or VM on the VNet (or a peered one) that resolves
+  `<site>.scm.azurewebsites.net` privately. Ordinary Cloud Shell and
+  GitHub-hosted public runners can't (see [§4.5](#45-reaching-private-data-planes)).
+- **Remove with the flag.** Setting `private_endpoint = false` deletes the
+  endpoint on the next apply (the Bicep version leaves an existing endpoint in
+  place). Converting an existing public app to private-only can interrupt
+  publishing and DNS: do it in a window, endpoint first and `public_network_access = false` second.
+- **Verify:** `nslookup <site>.azurewebsites.net` and `<site>.scm.azurewebsites.net`
+  return the private IP from inside the VNet; `az webapp show -g <rg> -n <site> --query publicNetworkAccess`
+  returns `Disabled`; the workflows list under the site's *Workflows* after a publish.
+
 ---
 
 ## 7. CI/CD (GitHub Actions)
@@ -381,5 +432,6 @@ a human, or keep the names and let `recover_soft_deleted_key_vaults` recover.
 | `deny_storage_shared_key needs … "ase_v3"` | precondition in [stacks/platform/policy.tf](stacks/platform/policy.tf) | `hosting = "ase_v3"` or `deny_storage_shared_key = false` |
 | APIM v2 with `public_network_access = false` is still public after the first apply | Azure rejects creating a service with public access off | expected: the second apply closes it |
 | APIM create sits for 30–60 min; `app-hosting` for 2–4 h | first-time provisioning | normal; don't cancel |
+| Private-only Logic App: `zip_deploy` fails with `403` / times out, or `<site>.scm.azurewebsites.net` resolves to a public IP | SCM is closed to the public and the runner isn't on a network that resolves `privatelink.azurewebsites.net` | run from a runner or VM on the VNet; check the zone is linked and has the `<site>` and `<site>.scm` records ([§6.2](#62-private-logic-app-workflow-standard)) |
 | Logic App runs but the workflows are empty | code publish skipped or failed | `task logic-app-code ENV=<env>` from a runner that reaches the storage PE; fall back to `deployment = "zip_deploy"` |
 | `Error acquiring the state lock` in a PR plan | the plan identity can only read state | plans run with `-lock=false` (`LOCK=-lock=false`) |

@@ -59,6 +59,8 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | [azurerm_cosmosdb_sql_role_assignment.logic_app_system_mi](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/cosmosdb_sql_role_assignment) | resource |
 | [azurerm_logic_app_standard.usage_ingestion](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/logic_app_standard) | resource |
 | [azurerm_monitor_autoscale_setting.service_plan](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_autoscale_setting) | resource |
+| [azurerm_private_endpoint.logic_app](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
+| [azurerm_private_endpoint.logic_app_policy_dns](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
 | [azurerm_role_assignment.deployer_package_writer](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.logic_app_system_eh_owner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.logic_app_system_monitor_reader](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
@@ -114,6 +116,7 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_dns_zone_id_blob"></a> [dns\_zone\_id\_blob](#input\_dns\_zone\_id\_blob) | Resource ID of the privatelink.blob.core.windows.net DNS zone for the storage private endpoint. | `string` | `""` | no |
 | <a name="input_dns_zone_id_file"></a> [dns\_zone\_id\_file](#input\_dns\_zone\_id\_file) | Resource ID of the privatelink.file.core.windows.net DNS zone for the storage private endpoint. | `string` | `""` | no |
 | <a name="input_dns_zone_id_queue"></a> [dns\_zone\_id\_queue](#input\_dns\_zone\_id\_queue) | Resource ID of the privatelink.queue.core.windows.net DNS zone for the storage private endpoint. | `string` | `""` | no |
+| <a name="input_dns_zone_id_sites"></a> [dns\_zone\_id\_sites](#input\_dns\_zone\_id\_sites) | Resource ID of the privatelink.azurewebsites.net DNS zone for the Logic App private endpoint. Empty = no zone group is created (the zone is linked and populated elsewhere). | `string` | `""` | no |
 | <a name="input_dns_zone_id_table"></a> [dns\_zone\_id\_table](#input\_dns\_zone\_id\_table) | Resource ID of the privatelink.table.core.windows.net DNS zone for the storage private endpoint. | `string` | `""` | no |
 | <a name="input_enable_code_deploy"></a> [enable\_code\_deploy](#input\_enable\_code\_deploy) | If true, zip and publish the Logic App Standard project folder (src/usage-ingestion-logicapp) as part of apply. | `bool` | `true` | no |
 | <a name="input_enable_cosmos_role_assignment"></a> [enable\_cosmos\_role\_assignment](#input\_enable\_cosmos\_role\_assignment) | Whether to create the Cosmos SQL role assignment for the Logic App system MI. Must be known at plan time. | `bool` | `true` | no |
@@ -126,16 +129,20 @@ This module is called by the root configuration (`main.tf`). It configures no pr
 | <a name="input_log_analytics_id"></a> [log\_analytics\_id](#input\_log\_analytics\_id) | Resource ID of the Log Analytics workspace that receives diagnostic settings. | `string` | `""` | no |
 | <a name="input_package_upload_ip_rules"></a> [package\_upload\_ip\_rules](#input\_package\_upload\_ip\_rules) | ase\_v3 + run\_from\_package: public IPs / CIDRs allowed through the storage firewall to upload the workflow package from outside the VNet. Empty = private endpoint only. | `list(string)` | `[]` | no |
 | <a name="input_pe_subnet_id"></a> [pe\_subnet\_id](#input\_pe\_subnet\_id) | Private-endpoint subnet ID for the storage account (blob/file/table/queue PEs). | `string` | `""` | no |
+| <a name="input_private_endpoint_name"></a> [private\_endpoint\_name](#input\_private\_endpoint\_name) | Name of the Logic App private endpoint. Empty = pe-<logic app name>. | `string` | `""` | no |
+| <a name="input_public_network_access_enabled"></a> [public\_network\_access\_enabled](#input\_public\_network\_access\_enabled) | Allow public network access to the Workflow Standard Logic App (website and SCM). false needs a working private endpoint and private DNS, and workflow publishing (zip\_deploy) must then run from a connected network. Ignored for ase\_v3, whose site is always private. | `bool` | `true` | no |
 | <a name="input_storage_endpoint_suffix"></a> [storage\_endpoint\_suffix](#input\_storage\_endpoint\_suffix) | Storage endpoint suffix of the cloud (core.windows.net for Azure public). | `string` | `"core.windows.net"` | no |
 | <a name="input_subscription_id"></a> [subscription\_id](#input\_subscription\_id) | Azure Subscription ID for the deployment | `string` | `""` | no |
+| <a name="input_use_private_endpoint"></a> [use\_private\_endpoint](#input\_use\_private\_endpoint) | Create a private endpoint (subresource `sites`) for the Workflow Standard Logic App: one endpoint serves both the website and SCM/Kudu. Not for ase\_v3: an ILB ASE is already private and doesn't support private endpoints. Needs pe\_subnet\_id and, unless Azure Policy owns DNS, dns\_zone\_id\_sites. | `bool` | `false` | no |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
 | <a name="output_diagnostic_setting_names"></a> [diagnostic\_setting\_names](#output\_diagnostic\_setting\_names) | Workload diagnostic setting names (empty when policy owns diagnostics). |
-| <a name="output_hosting"></a> [hosting](#output\_hosting) | Hosting summary: model, whether the runtime storage is keyless, how workflows are deployed and the app setting names of the keyless (ASE) site. |
+| <a name="output_hosting"></a> [hosting](#output\_hosting) | Hosting summary: model, whether the runtime storage is keyless, how workflows are deployed, the app setting names of the keyless (ASE) site, whether the site accepts public traffic and whether it has a private endpoint. |
 | <a name="output_logic_app_id"></a> [logic\_app\_id](#output\_logic\_app\_id) | Resource ID of the usage-ingestion Logic App. |
 | <a name="output_logic_app_name"></a> [logic\_app\_name](#output\_logic\_app\_name) | Name of the usage-ingestion Logic App. |
+| <a name="output_private_endpoint_name"></a> [private\_endpoint\_name](#output\_private\_endpoint\_name) | Name of the Logic App private endpoint (null when none is created). |
 | <a name="output_storage_account_name"></a> [storage\_account\_name](#output\_storage\_account\_name) | Name of the Logic App runtime storage account. |
 <!-- END_TF_DOCS -->
