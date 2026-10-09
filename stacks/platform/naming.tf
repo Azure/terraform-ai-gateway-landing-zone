@@ -14,10 +14,14 @@ module "naming" {
 locals {
   names = module.naming.names
   # tflint-ignore: terraform_unused_declarations # APIM-child-only stacks create no taggable resources
+  # Azure tag names are case-insensitive: a tag of yours that differs only in case (for example
+  # Environment) replaces the generated one instead of duplicating it, which Azure rejects.
   tags = merge({
-    workload    = var.workload
-    environment = var.environment
-    stack       = local.stack
-    managed-by  = "terraform"
+    for k, v in {
+      workload    = var.workload
+      environment = var.environment
+      stack       = local.stack
+      managed-by  = "terraform"
+    } : k => v if !contains([for t in keys(var.tags) : lower(t)], k)
   }, var.tags)
 }

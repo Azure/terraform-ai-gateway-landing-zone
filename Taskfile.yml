@@ -44,7 +44,13 @@ tasks:
       - terraform apply -input=false -var-file={{.ENV_DIR}}/common.tfvars -var-file={{.ENV_DIR}}/bootstrap.tfvars {{.CLI_ARGS}}
       - test -f {{.ENV_DIR}}/backend.hcl || terraform output -raw backend_hcl > {{.ENV_DIR}}/backend.hcl
       - rm -f backend_override.tf
-      - terraform init -migrate-state -force-copy -input=false -backend-config={{.ENV_DIR}}/backend.hcl
+      # The state account's role assignment can take a minute to propagate (403 AuthorizationPermissionMismatch).
+      - |
+        for i in 1 2 3 4 5 6 7 8; do
+          terraform init -migrate-state -force-copy -input=false -backend-config={{.ENV_DIR}}/backend.hcl && exit 0
+          echo "state account not reachable yet (role assignment propagating); retry $i of 8 in 30s"; sleep 30
+        done
+        exit 1
       - rm -f terraform.tfstate terraform.tfstate.backup
       - terraform output
 

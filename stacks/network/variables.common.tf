@@ -59,6 +59,11 @@ variable "tags" {
   type        = map(string)
   default     = {}
   nullable    = false
+
+  validation {
+    condition     = length(distinct([for k in keys(var.tags) : lower(k)])) == length(var.tags)
+    error_message = "tags must not contain names that differ only in case (Azure tag names are case-insensitive)."
+  }
 }
 
 # tflint-ignore: terraform_unused_declarations # not every stack uses every common input

@@ -577,3 +577,41 @@ run "remote_mcp_server_urls_are_validated" {
 
   expect_failures = [var.api_center]
 }
+
+# --- tags ---------------------------------------------------------------------
+
+# Azure tag names are case-insensitive: Environment next to a generated environment would be
+# rejected as a duplicate, so the tag of the user replaces the generated one.
+run "tags_differing_only_in_case_replace_the_generated_ones" {
+  command = plan
+  variables {
+    tags = { Environment = "Dev", Workload = "ai-gateway", CostCenter = "tbd" }
+  }
+
+  assert {
+    condition     = local.tags["Environment"] == "Dev" && local.tags["Workload"] == "ai-gateway" && !contains(keys(local.tags), "environment") && !contains(keys(local.tags), "workload")
+    error_message = "A user tag that differs only in case replaces the generated one."
+  }
+  assert {
+    condition     = local.tags["stack"] == "platform" && local.tags["managed-by"] == "terraform"
+    error_message = "The other generated tags stay."
+  }
+}
+
+run "generated_tags_stay_without_a_collision" {
+  command = plan
+
+  assert {
+    condition     = sort(keys(local.tags)) == tolist(["environment", "managed-by", "stack", "workload"])
+    error_message = "Without user tags: workload, environment, stack and managed-by."
+  }
+}
+
+run "case_only_duplicate_tags_are_rejected" {
+  command = plan
+  variables {
+    tags = { Environment = "a", environment = "b" }
+  }
+
+  expect_failures = [var.tags]
+}
