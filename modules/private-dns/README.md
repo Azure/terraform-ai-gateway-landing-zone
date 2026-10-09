@@ -1,3 +1,11 @@
+# Private DNS
+
+Creates the `privatelink.*` zones the gateway's private endpoints use (`zone_names`, from the naming module) and links each one to the gateway VNet and to any extra VNets (`extra_vnet_link_ids`, for example a runner or jump-box VNet). Zones are created in greenfield only; in an Azure Landing Zone the connectivity hub owns them.
+
+`privatelink.monitor.azure.com` is linked only with `link_monitor_zone`, which is for environments that deploy the Azure Monitor Private Link Scope: an empty linked monitor zone would resolve Application Insights ingestion to nothing from inside the VNet.
+
+Called by [stacks/network](../../stacks/network/private-dns.tf); the caller passes the providers in.
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 

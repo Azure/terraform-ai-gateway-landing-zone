@@ -1,8 +1,13 @@
 # Monitoring
 
-Creates (or reuses) the Log Analytics workspace, the Application Insights components for APIM, the Logic App and Foundry, the optional Azure Monitor Private Link Scope and the dashboards.
+Creates (or reuses, `existing_log_analytics_workspace`) the Log Analytics workspace and the workspace-based Application Insights components:
 
-This module is called by the root configuration (`main.tf`). It configures no providers; the caller passes them in.
+- **Workspace:** `PerGB2018`, 30-day retention; with the Azure Monitor Private Link Scope the public ingestion endpoint is switched off and queries stay enabled.
+- **Application Insights:** one component each for APIM (`appi-apim-<env>`) and the Logic App (`appi-logic-<env>`), and for Foundry (`appi-aif-<env>`) unless `create_foundry_app_insights = false`.
+- **Dashboards:** one portal dashboard per component, when `create_dashboards`.
+- **Azure Monitor Private Link Scope** (`use_azure_monitor_private_link_scope`): the scope `ampls-<env>` with the workspace (when this module created it) and the components, and a private endpoint on `azuremonitor` with the zone group `ampls-dns-group` (none when Azure Policy owns it).
+
+Called by [stacks/platform](../../stacks/platform/monitoring.tf); the caller passes the providers in.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

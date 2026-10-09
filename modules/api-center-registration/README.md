@@ -1,6 +1,8 @@
 # API Center registration
 
-Registers APIs (REST, WebSocket, MCP) in an existing API Center: one API, version, definition and deployment each, pointing at the APIM gateway.
+Registers APIs in an existing API Center workspace. For each entry of `apis` it creates an API (`kind`: `rest`, `websocket`, `mcp`, `graphql`, `grpc`, `soap` or `webhook`), a version `1-0-0` in the `development` lifecycle stage, a definition, and an active deployment in the named environment whose runtime URI is `<gateway_url>/<path>`. `enabled = false` creates nothing.
+
+Called by [stacks/gateway-config](../../stacks/gateway-config/api-center.tf) (AI Search, Document Intelligence and the MCP sample APIs) and [stacks/llm-backend-onboarding](../../stacks/llm-backend-onboarding/api-center.tf) (the LLM APIs), each registering the APIs it publishes when its `features.api_center_onboarding` is on. The API Center itself comes from [modules/apic](../apic/README.md). The `apis` map must be known at plan time.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

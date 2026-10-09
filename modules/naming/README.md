@@ -1,6 +1,6 @@
 # Naming
 
-The naming contract shared by every stack (review §7.7). Names follow
+The naming contract shared by every stack. Names follow
 `<prefix>-<workload>-<environment>[-<seed>]`. The 5-character seed comes from
 `sha256("<subscription>/<workload>/<environment>")` unless `unique_seed` is
 set, so every stack computes the same names and finds what other stacks own
@@ -8,7 +8,9 @@ with data sources, without reading their state. `name_overrides` always win.
 
 Two resource groups only: `rg-<workload>-<environment>-tfstate` (Terraform
 state, owned by `stacks/bootstrap`) and `rg-<workload>-<environment>`
-(everything else; created by `stacks/bootstrap`, used by every other stack).
+(everything else; created by `stacks/bootstrap` unless subscription vending provides it, and used by every other stack).
+
+Every stack calls this module with the same `workload`, `environment`, `subscription_id` and `naming` inputs, so the logical names (the `names` output: resource groups, VNet and subnets, APIM, Key Vault, Cosmos DB, Event Hubs, the usage Logic App, the standalone Language and Content Safety accounts, the pipeline identities, and so on), the Foundry account names (`foundry_account_names`) and the private DNS zone names (`private_dns_zones`, plus the `private_dns_optional_zones` that only some configurations need) are identical everywhere. A snapshot test ([tests/unit.tftest.hcl](tests/unit.tftest.hcl)) pins them: changing a name breaks every stack's lookups.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

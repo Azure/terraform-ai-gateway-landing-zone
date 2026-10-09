@@ -1,6 +1,15 @@
 # Gateway API
 
-Publishes one API on API Management (HTTP via azurerm, WebSocket/MCP via azapi) with its API policy, operation policies, Application Insights and Azure Monitor diagnostics, and an optional product. The root module calls it once per API with `for_each`.
+Publishes one API on API Management, with its policy, operation policies, diagnostics and an optional product:
+
+- **HTTP** APIs (`api.type = "http"`) with `azurerm` (optionally imported from an OpenAPI spec); **WebSocket and MCP** APIs with `azapi`, which azurerm doesn't model (`azapi_properties_json`).
+- **API policy:** `azurerm` for HTTP APIs; for WebSocket and MCP APIs `azapi`, with an idempotent PUT that re-runs when the XML changes. A WebSocket API takes no API-scope policy (`policy_xml = null`).
+- **Operation policies:** `operation_policies` (azurerm, HTTP APIs) and `azapi_operation_policies` (azapi, re-run on XML changes).
+- Diagnostics: an API-level Application Insights diagnostic (with the metrics flag azurerm doesn't expose) and an Azure Monitor diagnostic whose `properties` carry the large-language-model logging.
+- A product linked to the API (`product`), with its policy.
+- `policy_depends_on` and `api_depends_on` order the pieces after the fragments, named values, loggers and backends they reference, because APIM validates references when a policy is saved.
+
+Called once per API with `for_each` by [stacks/gateway-config](../../stacks/gateway-config/apis.tf) and [stacks/llm-backend-onboarding](../../stacks/llm-backend-onboarding/apis.tf).
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

@@ -1,14 +1,22 @@
 # Access contract
 
-Onboards one use case to the gateway: per service code a product with its
-policy, the mapped APIs, a subscription, optional Key Vault secrets (endpoint
-and key) and an optional Foundry connection that calls the gateway.
+Onboards one use case to the gateway. For each service code in `services` it creates an APIM product named `<code>-<business unit>-<use case>-<environment>` with its policy (`policy_xml`, or [policies/default-ai-product-policy.xml](policies/default-ai-product-policy.xml)), links the APIs mapped to that code (`api_name_mapping`, `api_paths`) and creates a subscription. Optionally it writes the endpoint and key as Key Vault secrets (`key_vault_id`) and creates a Foundry project connection to the gateway (`foundry_project_id`).
 
 Subscription keys never reach Terraform state. The subscription is an azapi
 resource (APIM doesn't return keys on GET), the key is read with an ephemeral
 `listSecrets` action, and it's only written to write-only arguments: the Key
 Vault secret's `value_wo` and the Foundry connection's `sensitive_body`. Both
-are rewritten when the `time_rotating` clock ticks (`secret_rotation_days`).
+are rewritten when the `time_rotating` clock ticks (`secret_rotation_days`);
+the secrets expire after `secret_validity_days`.
+
+## Foundry connection
+
+The connection (`foundry_config.connection_category`: `ApiManagement` or `ModelGateway`) authenticates in one of two ways (`foundry_config.auth_type`):
+
+- `ProjectManagedIdentity` (default): the Foundry project's managed identity sends an Entra token for `managed_identity_audience`, and the subscription key travels as the `api-key` custom header. The product policy has to validate that token (`jwtRequired`, `jwtAudience`, `jwtIssuer`, `jwtOpenIdConfigUrl`); a `check` warns when a service's `policy_xml` doesn't set `jwtRequired`. The `foundry_connection_auth` output reports the audience to validate.
+- `ApiKey`: the subscription key is the connection's credential and no token is involved.
+
+Called by [stacks/access-contracts](../../stacks/access-contracts/main.tf), once per use case (one state per `environments/<env>/access-contracts/<use-case>.tfvars`).
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

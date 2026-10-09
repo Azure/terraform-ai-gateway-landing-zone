@@ -1,8 +1,17 @@
 # Microsoft Foundry
 
-Creates the Foundry (AI Services) accounts, projects and model deployments, optional agent network injection, private endpoints, role assignments and the project connection to the APIM gateway.
+Creates the Foundry accounts (`kind = AIServices`, on AVM `avm-res-cognitiveservices-account`) and, per account:
 
-This module is called by the root configuration (`main.tf`). It configures no providers; the caller passes them in.
+- a default project (`foundry_project_default_name`, overridable per instance), with the account's default project set to it;
+- the model deployments of `foundry_models` that target the account (`ai_service_index`), created one at a time because the account rejects concurrent deployment PUTs;
+- a private endpoint with the three Foundry zones (`cognitiveservices`, `openai`, `ai.azure.com`) in the zone group `aif-dns-group`, created here unless Azure Policy owns it (`dns_zone_group_managed_by_policy`);
+- optional Agent Service network injection into `agent_subnet_id` (`foundry_network_injection_enabled`, and per instance) and an optional outbound FQDN allow-list (`outbound_allowed_fqdns`);
+- role assignments: *Azure AI Project Manager* for the deployer and *Cognitive Services User* for the APIM identity;
+- an `AllMetrics` diagnostic setting by idempotent PUT (`enable_diagnostics`) and an Application Insights connection (`enable_app_insights_connection`, on by default).
+
+Key authentication is off by default (`disable_key_auth`) and public access follows `foundry_external_access`. Deleting an account retries on the 409 Azure returns while its children are still deleting.
+
+The Foundry-to-APIM connections are not created here: they are access contracts ([modules/access-contract](../access-contract/README.md)). The module is optional: [stacks/platform](../../stacks/platform/foundry.tf) skips it with `foundry.enabled = false`. For a Language or Content Safety account without Foundry see [modules/cognitive-service](../cognitive-service/README.md). The caller passes the providers in.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

@@ -1,3 +1,15 @@
+# Cognitive Services account (Language, Content Safety)
+
+A single-purpose Azure AI account that is not a Foundry account: Language (`kind = "TextAnalytics"`, used for PII redaction) or Content Safety (`kind = "ContentSafety"`). It uses the same AVM module and resource provider as [modules/foundry](../foundry/README.md), with a different `kind`.
+
+- Custom subdomain (the account name unless `custom_subdomain` is set), so the endpoint is `https://<subdomain>.cognitiveservices.azure.com/` and Entra tokens work.
+- Entra-only authentication by default (`disable_key_auth`), network ACL `Deny`, public access off by default. The `ContentSafety` kind rejects the trusted-service bypass, so it is set only for `TextAnalytics`.
+- A private endpoint in the zone `privatelink.cognitiveservices.azure.com` (`dns_zone_id`); no zone group when the zone ID is empty or Azure Policy owns it.
+- `Cognitive Services User` for the APIM identity (`apim_principal_id`).
+- An `AllMetrics` diagnostic setting by idempotent PUT (`enable_diagnostics`).
+
+Called twice by [stacks/platform](../../stacks/platform/ai-services.tf) (`language_service`, `content_safety_service`); [stacks/gateway-config](../../stacks/gateway-config/data.tf) finds the accounts by name. The caller passes the providers in.
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 

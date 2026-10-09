@@ -1,6 +1,13 @@
 # APIM policy fragments
 
-Deploys a map of policy fragments to an API Management service. Fragments that hit the azurerm LRO polling bug can be passed in `azapi_fragments` instead. `depends_on_ids` orders the fragments after the named values they reference.
+Deploys a map of policy fragments (`rawxml`) to an API Management service, in two ways:
+
+- `fragments`: `azurerm_api_management_policy_fragment`, with 45-minute timeouts because APIM's create LRO can answer 404 on the status endpoint before the fragment is queryable.
+- `azapi_fragments`: for fragments that hit the azurerm LRO polling bug (`PolicyFragment not found`). A direct `azapi` PUT creates them; APIM reformats the stored XML, so the body is ignored on read-back and content changes go through an idempotent PUT (`azapi_resource_action`) that re-runs when the XML or description changes (a fragment in use can't be deleted and recreated).
+
+`depends_on_ids` orders the fragments after the named values and loggers they reference, because APIM validates references when a fragment is saved.
+
+Called by [stacks/gateway-config](../../stacks/gateway-config/fragments.tf) (shared and PII fragments) and [stacks/llm-backend-onboarding](../../stacks/llm-backend-onboarding/fragments.tf) (Unified AI fragments).
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

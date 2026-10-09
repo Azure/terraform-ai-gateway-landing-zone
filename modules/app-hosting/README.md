@@ -6,9 +6,9 @@ Creates the dedicated App Service Environment v3 that hosts the keyless usage-in
 - **Private DNS zone** `<ase>.appserviceenvironment.net` on AVM `avm-res-network-privatednszone` 0.5.0 (internal ASE and `create_private_dns_zone = true` only), with `*`, `*.scm` and `@` A records pointing at the ASE's internal inbound IP and links to the VNets in `dns_vnet_link_ids`. Set `create_private_dns_zone = false` when DNS is managed centrally in the hub.
 - The `id` output depends on the DNS zone, so apps created on the ASE only start once their names resolve.
 
-Creating an ASE takes roughly 1–4 hours; it changes rarely.
+Creating an ASE typically takes 2 to 4 hours; it changes rarely.
 
-This module is called by the root configuration (`module "app_hosting"` in `main.tf`) when `usage_pipeline.logic_app.hosting = "ase_v3"` and `usage_pipeline.ase.app_service_environment_id` is `null`; with a shared / BYO ASE it is skipped and no ASE subnet is created. The root links the DNS zone to the gateway VNet. It configures no providers; the caller passes them in.
+Called by [stacks/app-hosting](../../stacks/app-hosting/ase.tf), which runs only when the environment folder has an `app-hosting.tfvars`. [stacks/platform](../../stacks/platform/usage-pipeline.tf) finds the ASE by its deterministic name, or uses a shared ASE given as `usage_pipeline.ase.app_service_environment_id`. The caller passes the providers in.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

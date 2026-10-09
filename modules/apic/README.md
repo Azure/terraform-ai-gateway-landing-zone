@@ -1,8 +1,14 @@
 # API Center
 
-Creates the Azure API Center service, its default workspace, environments and metadata used to catalogue the gateway's APIs and MCP servers.
+Creates the Azure API Center service (`enable_api_center`, `api_center_sku`, `apic_location`) with a system-assigned identity and the portal enabled, and the catalogue structure the gateway's APIs are registered in:
 
-This module is called by the root configuration (`main.tf`). It configures no providers; the caller passes them in.
+- the metadata schemas of `apic-metadata.json` (`Visibility`, `Categories`, `Vendor`, `Endpoint`, `Type`, `Icon`, `securitySchemes`);
+- four environments in the `default` workspace that Azure creates itself: `api-dev`, `api-prod`, `mcp-dev` and `mcp-prod`;
+- for every MCP server listed in `remote-mcp-servers.json`, an API, version `1-0-0`, definition and deployment. That file currently lists none.
+
+The portal's site profile (name, company, support and policy URLs) is fixed in `main.tf` with placeholder values (`yourcompany.com`) and has no input.
+
+The gateway's own APIs are registered by [modules/api-center-registration](../api-center-registration/README.md). Called by [stacks/platform](../../stacks/platform/redis-apic.tf) when `features.api_center` is on; the caller passes the providers in.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

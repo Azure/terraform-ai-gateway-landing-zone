@@ -1,8 +1,12 @@
 # Key Vault
 
-Creates the Key Vault (RBAC mode, purge protection), its private endpoint and network rules, the role assignments for the deployer and APIM identity, and optional placeholder secrets.
+Creates the Key Vault on AVM `avm-res-keyvault-vault` (`key_vault_sku`, RBAC authorization (`rbac_authorization_enabled`, always on from the platform stack), soft-delete retention and purge protection per the inputs, enabled for template deployment), its `vault` private endpoint with the zone group `kv-dns-group` (none when Azure Policy owns it) and its network rules (`network_acl_default_action`, `AzureServices` bypass, `ip_rules`).
 
-This module is called by the root configuration (`main.tf`). It configures no providers; the caller passes them in.
+Role assignments: *Key Vault Administrator* for the deployer, *Key Vault Secrets User* for the APIM identity and for each Foundry identity, *Key Vault Secrets Officer* for `secret_writer_principal_ids` and *Key Vault Secrets User* for `secret_reader_principal_ids`.
+
+`key_vault_id_for_secrets` is the vault ID once the role assignments (60 s) and the network rules (90 s) have had time to propagate; use it for anything that writes secrets. The module creates no secrets itself (access contracts write theirs).
+
+Called by [stacks/platform](../../stacks/platform/key-vault.tf); the caller passes the providers in.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

@@ -1,6 +1,12 @@
 # LLM routing
 
-Turns the LLM backend catalogue (`llm_backend_config`) into APIM backends, load-balancing backend pools with circuit breakers, and the four generated routing fragments (`set-backend-pools`, `get-available-models`, `metadata-config`, `resolve-model-alias`). The fragment templates live in `templates/`.
+Turns the LLM backend catalogue (`llm_backend_config`) into:
+
+- one APIM backend per entry (managed-identity credential for `managed-identity` backends, circuit-breaker rules when `configure_circuit_breaker`), with TLS validation on;
+- a load-balancing backend pool for every model that more than one backend serves;
+- the four generated routing fragments `set-backend-pools`, `get-available-models`, `metadata-config` and `resolve-model-alias` (the last from `model_aliases`, `priority` or `weighted`). The fragment templates live in `templates/`.
+
+Called by [stacks/llm-backend-onboarding](../../stacks/llm-backend-onboarding/backends.tf), which builds the catalogue from the Foundry deployments and `extra_llm_backends`.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

@@ -1,8 +1,12 @@
 # Azure Managed Redis
 
-Creates the Azure Managed Redis (Redis Enterprise) cluster and database used as the APIM external cache, with an optional private endpoint.
+Creates the Azure Managed Redis cluster (`Microsoft.Cache/redisEnterprise`, API 2025-07-01, through `azapi` because azurerm doesn't model the `Balanced_*` SKUs) and its `default` database, the APIM external cache:
 
-This module is called by the root configuration (`main.tf`). It configures no providers; the caller passes them in.
+- the database uses access-key authentication, `NoEviction`, the `EnterpriseCluster` clustering policy, encrypted clients, the RediSearch module and port 10000; `sku_capacity` only applies to the `Enterprise_*` and `EnterpriseFlash_*` SKUs;
+- an optional `redisEnterprise` private endpoint (`use_private_endpoint`) with the zone group `redis-dns-group`, or without one when Azure Policy owns it;
+- the `connection_string` output (sensitive) is built from the host, the port and the primary access key read with `listKeys`, so that key is held in Terraform state.
+
+Called by [stacks/platform](../../stacks/platform/redis-apic.tf) when `features.semantic_cache` is on; the APIM module links the cache to the service.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

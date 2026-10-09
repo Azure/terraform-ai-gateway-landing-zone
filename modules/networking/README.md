@@ -1,8 +1,15 @@
 # Networking
 
-Creates (or looks up) the virtual network, the APIM, private-endpoint, Logic App, agent and ASE subnets, their NSGs and route table, and the private DNS zones with VNet links.
+Creates the subnets of the gateway, each with its own network security group (ALZ `Deny-Subnet-Without-Nsg`), and the VNet when there isn't one:
 
-This module is called by the root configuration (`main.tf`). It configures no providers; the caller passes them in.
+- **Greenfield:** a new VNet. The address space is extended with the ASE prefix when that falls outside it.
+- **`alz_spoke`** (`existing_vnet_id`): the subnets are created inside the vended spoke VNet, each with a route table sending `0.0.0.0/0` to the hub firewall (`hub_firewall_ip`).
+- **Subnets:** APIM (none when `apim_vnet_mode = none`; delegation and NSG rules follow the mode), private endpoints (always), and optionally Logic App (Workflow Standard, delegated to `Microsoft.Web/serverFarms`), agent (Foundry Agent Service), ASE (delegated to `Microsoft.Web/hostingEnvironments`) and CI runners (delegated to `GitHub.Network/networkSettings`, or undelegated for a self-hosted runner). `default_outbound_access_enabled` applies to all of them.
+- **Classic APIM injection** (`external` / `internal`): the NSG rules for the management endpoint (3443), load balancer probe (6390) and the Storage, SQL and Azure Monitor dependencies, plus `external` client traffic on 443; Key Vault outbound in every mode that puts APIM in the subnet; and a management route table in greenfield.
+
+In `byo` mode there is no network stack: the network team's IDs are given to the platform stack. The private DNS zones are created by [modules/private-dns](../private-dns/README.md).
+
+Called by [stacks/network](../../stacks/network/vnet.tf); the caller passes the providers in.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

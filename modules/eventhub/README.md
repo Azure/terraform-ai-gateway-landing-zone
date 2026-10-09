@@ -1,8 +1,14 @@
 # Event Hubs (usage events)
 
-Creates the Event Hubs namespace (local auth disabled), the AI-usage and PII-usage hubs and their consumer groups, the private endpoint, diagnostics and the sender/receiver role assignments.
+Creates the Standard Event Hubs namespace on AVM `avm-res-eventhub-namespace` (`capacity_units`, auto-inflate up to 20 throughput units, local/SAS authentication off) with:
 
-This module is called by the root configuration (`main.tf`). It configures no providers; the caller passes them in.
+- the `ai-usage` hub (4 partitions) and the `pii-usage` hub (2 partitions), both with 7-day retention, and their consumer groups `aiUsageIngestion` and `piiUsageIngestion`;
+- role assignments: *Azure Event Hubs Data Sender* for the APIM identity, *Data Receiver* and *Data Owner* for the usage-pipeline identity;
+- a `namespace` private endpoint with the zone group `evhns-dns-group` (none when Azure Policy owns it), and a network rule set that follows `public_network_access` (trusted services allowed);
+- diagnostics (`ArchiveLogs`, `OperationalLogs`, `AllMetrics`) by idempotent PUT, skipped when Policy owns them;
+- optional geo-disaster-recovery pairing (`disaster_recovery_config`).
+
+Called by [stacks/platform](../../stacks/platform/usage-data.tf); the caller passes the providers in.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

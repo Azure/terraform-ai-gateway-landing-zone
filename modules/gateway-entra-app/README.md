@@ -2,12 +2,15 @@
 
 The Entra application APIM validates JWTs against. It creates the app
 registration (the `access_as_user` scope plus the `Task.ReadWrite`,
-`Models.Read`, `MCP.Read` and `Agent.Read` app roles), the `api://<client_id>`
+`Models.Read`, `MCP.Read` and `Agent.Read` app roles, and the delegated
+Microsoft Graph `User.Read` permission), the `api://<client_id>`
 identifier URI and the service principal.
 
 No client secret is created: `validate-jwt` / `validate-azure-ad-token` only
 need the tenant ID, client ID and audience. If a confidential client is ever
 needed, use a federated credential or a certificate.
+
+Called by [stacks/identity](../../stacks/identity/gateway-app.tf); stacks/gateway-config finds the app by its deterministic display name.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

@@ -1,8 +1,14 @@
 # Cosmos DB (usage store)
 
-Creates the serverless Cosmos DB account, the usage database and its containers (usage, LLM usage, PII, configuration, model pricing), the private endpoint, diagnostics and the data-plane role assignment for the usage-pipeline identity.
+Creates the serverless Cosmos DB account (Session consistency, one region, periodic backup every 4 hours kept 8 hours) on AVM `avm-res-documentdb-databaseaccount`, with:
 
-This module is called by the root configuration (`main.tf`). It configures no providers; the caller passes them in.
+- the `usage-db` database and its containers: `ai-usage-container` (`/productName`), `llm-usage-container` (`/productName`), `pii-usage-container` (`/productName`), `streaming-export-config` (`/type`) and `model-pricing` (`/model`);
+- local (key) authentication off unless `local_authentication_enabled`, public access per `public_network_access`;
+- a `Sql` private endpoint with the zone group `cosmos-dns-group` (no zone group when Azure Policy owns it);
+- diagnostics (`DataPlaneRequests`, `QueryRuntimeStatistics`, `Requests`) by idempotent PUT, skipped when Policy owns them;
+- the built-in *Cosmos DB Built-in Data Contributor* data-plane role for the usage-pipeline identity.
+
+Called by [stacks/platform](../../stacks/platform/usage-data.tf); the caller passes the providers in.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements

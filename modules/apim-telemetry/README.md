@@ -1,6 +1,12 @@
 # APIM telemetry
 
-Attaches loggers and service-level diagnostics to an API Management service: Application Insights, Azure Monitor and Event Hub (usage + PII) loggers, the service-level `applicationinsights` diagnostic with metrics enabled, and the diagnostic setting to Log Analytics.
+Attaches loggers and diagnostics to an API Management service:
+
+- **Loggers**: `appinsights-logger` (the connection string when given, else the instrumentation key), `azuremonitor` (created with an idempotent ARM PUT, because APIM can create it server-side), `usage-eventhub-logger` and, with `enable_pii_redaction`, `pii-usage-eventhub-logger`. The Event Hub loggers use the APIM user-assigned identity (`managed_identity_client_id`). These logger names are a contract: gateway-config and llm-backend-onboarding reference them.
+- **API diagnostics**: the service-level `applicationinsights` diagnostic (100 % sampling, errors always logged, client IP, `log_verbosity`, `log_body_bytes`), with its `metrics` flag switched on (azurerm doesn't expose it; without it `emit-metric` samples are dropped).
+- **Diagnostic setting** `diag-<apim>` to Log Analytics (all logs and metrics, dedicated destination), written with an idempotent PUT so it succeeds when Azure Policy already created it. `enable_diagnostics = false` leaves it to Policy; the loggers and API diagnostics are unaffected.
+
+Called by [stacks/platform](../../stacks/platform/apim.tf); the caller passes the providers in.
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
