@@ -16,9 +16,14 @@ What you need from the ASE owner:
   private endpoints live in this workload's `snet-pe`. The ASE VNet must be
   peered with this VNet and linked to its private DNS zones
   (`network.tfvars` `private_dns.extra_vnet_link_ids`); the peering itself is
-  not created here.
+  not created here. Azure allows one private DNS zone per name on a VNet, so
+  the ASE VNet must not already be linked to `privatelink.*` zones of the same
+  names (the link fails with "a virtual network cannot be linked to multiple
+  zones with overlapping namespaces"); remove its own links first.
 - The ASE's own `<ase>.appserviceenvironment.net` zone stays with its owner.
-  Publishing the workflows (`code_deploy`) needs a runner that resolves it.
+  Publishing the workflows (`code_deploy`) uploads the package to this
+  workload's storage account (Entra ID data plane) and the site runs from it,
+  so the runner needs access to that storage account, not to the ASE.
 
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
@@ -26,6 +31,15 @@ Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 ```bash
 task bootstrap ENV=<env>   # once (Owner): state account, workload RG, pipeline identities; writes backend.hcl
 task up ENV=<env>          # every stack that has a <stack>.tfvars here, then every access contract
+```
+
+`bootstrap` needs the ASE to exist (the role assignment is scoped to it). The
+peering is the one manual step, between `task apply STACK=network` and the
+platform stack:
+
+```bash
+az network vnet peering create -g <rg-ase> --vnet-name <vnet-ase> -n to-<env> --remote-vnet <this-vnet-id> --allow-vnet-access
+az network vnet peering create -g rg-<workload>-<env> --vnet-name vnet-<workload>-<env> -n to-ase --remote-vnet <ase-vnet-id> --allow-vnet-access
 ```
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this
