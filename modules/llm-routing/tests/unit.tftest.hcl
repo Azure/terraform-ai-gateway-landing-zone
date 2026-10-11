@@ -252,3 +252,201 @@ run "an_inverted_status_range_is_rejected" {
 
   expect_failures = [var.llm_backend_config]
 }
+
+# Pools are per (model, backend type): the same model served natively and OpenAI-compatibly
+# stays two routes, and a model with several backends of one type gets a pool.
+run "pools_are_keyed_by_model_and_backend_type" {
+  command = plan
+
+  variables {
+    llm_backend_config = [
+      { backend_id = "f1", backend_type = "ai-foundry", endpoint = "https://f1.example.com", supported_models = [{ name = "gpt-4.1" }, { name = "solo" }] },
+      { backend_id = "f2", backend_type = "ai-foundry", endpoint = "https://f2.example.com", priority = 2, supported_models = [{ name = "gpt-4.1" }] },
+      { backend_id = "native", backend_type = "aws-bedrock", endpoint = "https://bedrock-runtime.us-east-1.amazonaws.com", supported_models = [{ name = "us.anthropic.claude:0" }] },
+      { backend_id = "mantle", backend_type = "aws-bedrock-mantle", endpoint = "https://bedrock-mantle.us-east-1.api.aws", auth_config = { named_value_key = "mantle-key" }, supported_models = [{ name = "us.anthropic.claude:0" }] },
+    ]
+  }
+
+  assert {
+    condition     = sort(keys(azapi_resource.llm_backend_pool)) == tolist(["gpt-41-ai-foundry-backend-pool"])
+    error_message = "Only gpt-4.1 has 2+ backends of one type: one pool, named after model and type with APIM-illegal characters stripped."
+  }
+  assert {
+    condition     = length(local.direct_backends) == 3
+    error_message = "solo and the two Bedrock routes of one model id are direct backends."
+  }
+  assert {
+    condition     = tolist([for p in local.all_pools : "${p.pool_name}:${p.pool_type}"]) == tolist(["gpt-41-ai-foundry-backend-pool:ai-foundry", "f1:ai-foundry", "native:aws-bedrock", "mantle:aws-bedrock-mantle"])
+    error_message = "Pools first, then the direct backends, each with its own type."
+  }
+}
+
+run "stateful_models_get_session_affinity_on_their_pools" {
+  command = plan
+
+  variables {
+    session_affinity = { cookie_name = "default-cookie" }
+    llm_backend_config = [
+      { backend_id = "a1", backend_type = "ai-foundry", endpoint = "https://a1.example.com", supported_models = [{ name = "stateful", sessionAwareModel = true }, { name = "stateless" }] },
+      { backend_id = "a2", backend_type = "ai-foundry", endpoint = "https://a2.example.com", supported_models = [{ name = "stateful" }, { name = "stateless" }] },
+      { backend_id = "b1", backend_type = "azure-openai", endpoint = "https://b1.example.com", session_affinity = { cookie_name = "custom-cookie" }, supported_models = [{ name = "other", sessionAwareModel = true }] },
+      { backend_id = "b2", backend_type = "azure-openai", endpoint = "https://b2.example.com", supported_models = [{ name = "other" }] },
+    ]
+  }
+
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend_pool["stateful-ai-foundry-backend-pool"].body)).properties.pool.sessionAffinity == { sessionId = { source = "Cookie", name = "default-cookie" } }
+    error_message = "A pool of a session-aware model gets the cookie of the module settings."
+  }
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend_pool["stateless-ai-foundry-backend-pool"].body)).properties.pool.sessionAffinity == null
+    error_message = "A stateless model keeps pure load balancing."
+  }
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend_pool["other-azure-openai-backend-pool"].body)).properties.pool.sessionAffinity.sessionId.name == "custom-cookie"
+    error_message = "A pool member can override the cookie of its pools."
+  }
+  assert {
+    condition     = azapi_resource.llm_backend_pool["stateful-ai-foundry-backend-pool"].type == "Microsoft.ApiManagement/service/backends@2025-03-01-preview"
+    error_message = "Pools use the API version that has session affinity."
+  }
+}
+
+run "session_affinity_can_be_switched_off" {
+  command = plan
+
+  variables {
+    session_affinity = { enabled = false }
+    llm_backend_config = [
+      { backend_id = "a1", backend_type = "ai-foundry", endpoint = "https://a1.example.com", supported_models = [{ name = "stateful", sessionAwareModel = true }] },
+      { backend_id = "a2", backend_type = "ai-foundry", endpoint = "https://a2.example.com", supported_models = [{ name = "stateful" }] },
+    ]
+  }
+
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend_pool["stateful-ai-foundry-backend-pool"].body)).properties.pool.sessionAffinity == null
+    error_message = "The master switch wins over sessionAwareModel."
+  }
+}
+
+run "aliases_are_virtual_pools_of_the_routing_fragment" {
+  command = plan
+
+  variables {
+    model_aliases = [{ name = "fast", models = ["m-foundry", "m-gemini"], strategy = "weighted", weights = [80, 20] }]
+    llm_backend_config = [
+      { backend_id = "f", backend_type = "ai-foundry", endpoint = "https://f.example.com", supported_models = [{ name = "m-foundry" }] },
+      { backend_id = "g", backend_type = "gemini-openai", endpoint = "https://g.example.com", auth_config = { named_value_key = "g-key" }, supported_models = [{ name = "m-gemini" }] },
+    ]
+  }
+
+  assert {
+    condition     = strcontains(azurerm_api_management_policy_fragment.set_backend_pools.value, "{ \"poolName\", \"alias:fast\" }") && strcontains(azurerm_api_management_policy_fragment.set_backend_pools.value, "{ \"isAlias\", true }") && strcontains(azurerm_api_management_policy_fragment.set_backend_pools.value, "{ \"strategy\", \"weighted\" }")
+    error_message = "The alias is a virtual pool of the backendPools array."
+  }
+  assert {
+    condition     = strcontains(azurerm_api_management_policy_fragment.set_backend_pools.value, "aliasMembers_0.Add(new JObject() { { \"model\", \"m-gemini\" }, { \"weight\", 20 }, { \"pools\", new JArray() { new JObject() { { \"poolName\", \"g\" }, { \"poolType\", \"gemini-openai\" }")
+    error_message = "Each member lists the pools that host its model, with its weight."
+  }
+  assert {
+    condition     = !strcontains(azurerm_api_management_policy_fragment.resolve_model_alias.value, "inlineAliasesCode")
+    error_message = "The resolve-model-alias fragment has no placeholder left."
+  }
+}
+
+run "alias_weights_need_one_per_model" {
+  command = plan
+
+  variables {
+    model_aliases = [{ name = "x", models = ["a", "b"], strategy = "weighted", weights = [100] }]
+  }
+
+  expect_failures = [var.model_aliases]
+}
+
+run "session_affinity_source_is_cookie_only" {
+  command = plan
+
+  variables {
+    session_affinity = { source = "Header" }
+  }
+
+  expect_failures = [var.session_affinity]
+}
+
+run "gemini_and_anthropic_backends_send_their_own_key_header" {
+  command = plan
+
+  variables {
+    llm_backend_config = [
+      { backend_id = "gemini", backend_type = "gemini", endpoint = "https://generativelanguage.googleapis.com", auth_config = { named_value_key = "gemini-key" }, supported_models = [{ name = "g" }] },
+      { backend_id = "claude", backend_type = "anthropic", endpoint = "https://api.anthropic.com", auth_config = { named_value_key = "claude-key" }, supported_models = [{ name = "c" }] },
+    ]
+  }
+
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend["gemini"].body)).properties.credentials.header == { "x-goog-api-key" = ["{{gemini-key}}"] }
+    error_message = "Native Gemini: x-goog-api-key with the bare key."
+  }
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend["claude"].body)).properties.credentials.header == { "x-api-key" = ["{{claude-key}}"], "anthropic-version" = ["{{anthropic-version}}"] }
+    error_message = "Anthropic: x-api-key and the anthropic-version named value."
+  }
+}
+
+run "a_native_gemini_backend_needs_its_named_value" {
+  command = plan
+
+  variables {
+    llm_backend_config = [
+      { backend_id = "gemini", backend_type = "gemini", endpoint = "https://generativelanguage.googleapis.com", supported_models = [{ name = "g" }] },
+    ]
+  }
+
+  expect_failures = [var.llm_backend_config]
+}
+
+run "model_path_reaches_the_metadata_config" {
+  command = plan
+
+  variables {
+    llm_backend_config = [
+      { backend_id = "flux", backend_type = "azure-flux", endpoint = "https://flux.services.ai.azure.com", supported_models = [{ name = "FLUX.2-pro", modelPath = "flux-2-pro" }, { name = "plain" }] },
+    ]
+  }
+
+  assert {
+    condition     = strcontains(azurerm_api_management_policy_fragment.metadata_config.value, "'modelPath': 'flux-2-pro'") && !strcontains(azurerm_api_management_policy_fragment.metadata_config.value, "'modelPath': ''")
+    error_message = "The BFL slug is in the model config of the model that sets it, and only there."
+  }
+}
+
+# The contract is the live routing configuration as JSON, without any credential.
+run "the_backend_contract_describes_the_live_routing" {
+  command = plan
+
+  variables {
+    release_version = "2.3.4"
+    model_aliases   = [{ name = "fast", models = ["m"] }]
+    llm_backend_config = [
+      { backend_id = "partner", backend_type = "external", endpoint = "https://p.example.com/v1", auth_type = "api-key-bearer", auth_config = { named_value_key = "partner-key" }, supported_models = [{ name = "m" }], circuit_breaker = { trip_duration = "PT5M" } },
+    ]
+  }
+
+  assert {
+    condition     = jsondecode(regex("<set-body>(.*)</set-body>", azurerm_api_management_policy_fragment.backend_contract.value)[0]).masterVersion == "2.3.4"
+    error_message = "The contract carries the version of the solution."
+  }
+  assert {
+    condition     = jsondecode(regex("<set-body>(.*)</set-body>", azurerm_api_management_policy_fragment.backend_contract.value)[0]).apim == { subscriptionId = "00000000-0000-0000-0000-000000000002", resourceGroupName = "rg-aigw-dev", name = "apim-aigw-dev" }
+    error_message = "The contract names the APIM it describes."
+  }
+  assert {
+    condition     = jsondecode(regex("<set-body>(.*)</set-body>", azurerm_api_management_policy_fragment.backend_contract.value)[0]).backends[0].circuitBreaker.tripDuration == "PT5M" && jsondecode(regex("<set-body>(.*)</set-body>", azurerm_api_management_policy_fragment.backend_contract.value)[0]).backends[0].authConfig.namedValueKey == "partner-key"
+    error_message = "Backends are listed with their circuit breaker and the NAME of their key (never a value)."
+  }
+  assert {
+    condition     = !strcontains(azurerm_api_management_policy_fragment.backend_contract.value, "//{backendContractJson}")
+    error_message = "The placeholder is replaced."
+  }
+}

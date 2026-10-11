@@ -73,7 +73,7 @@ override_data {
 override_data {
   target = data.azapi_resource_list.fragments
   values = {
-    output = { names = ["security-handler", "raise-throttling-events", "set-response-headers", "strip-backend-headers", "ai-foundry-compatibility"] }
+    output = { names = ["security-handler", "raise-alert-events", "set-response-headers", "strip-backend-headers", "ai-foundry-compatibility"] }
   }
 }
 
@@ -287,5 +287,65 @@ run "own_backends_stand_alone_without_foundry" {
   assert {
     condition     = [for b in local.all_llm_backends : b.backend_id] == ["aoai-mi"] && length(data.azapi_resource_list.foundry_accounts) == 0
     error_message = "Only the backends of llm_backends; no Foundry lookup."
+  }
+}
+
+# The release version API serves the version and the generated backend contract.
+run "release_version_api_is_published_with_the_contract" {
+  command = plan
+
+  assert {
+    condition     = module.release_version_api.name == "release-version-api" && contains(keys(module.llm_routing.fragment_ids), "backend-contract")
+    error_message = "GET /version and GET /version/backend-contract come from this stack."
+  }
+  assert {
+    condition     = !contains(output.api_names, "release-version-api")
+    error_message = "The version API is not an LLM API: access contracts don't attach it."
+  }
+}
+
+# Stateful Foundry models get session affinity on their pools; the new backend fields pass through.
+run "session_affinity_model_path_and_native_provider_keys_reach_the_module" {
+  command = plan
+
+  variables {
+    foundry_backends  = { session_aware_models = ["gpt-4o-mini"] }
+    session_affinity  = { cookie_name = "my-affinity" }
+    anthropic_version = "2023-06-01"
+    llm_backends = [
+      { backend_id = "claude", backend_type = "anthropic", endpoint = "https://api.anthropic.com", auth_config = { named_value_key = "claude-key", key_vault_secret_uri = "https://kv.vault.azure.net/secrets/claude-key" }, supported_models = [{ name = "claude-sonnet" }] },
+      { backend_id = "flux", backend_type = "azure-flux", endpoint = "https://flux.services.ai.azure.com", supported_models = [{ name = "FLUX.2-pro", modelPath = "flux-2-pro" }] },
+    ]
+  }
+
+  assert {
+    condition     = local.foundry_derived[0].supported_models[0].sessionAwareModel && local.foundry_derived[0].supported_models[0].modelPath == ""
+    error_message = "A model listed in foundry_backends.session_aware_models is flagged stateful."
+  }
+  assert {
+    condition     = contains(keys(azurerm_api_management_named_value.backend_api_key), "claude-key") && azurerm_api_management_named_value.anthropic_version.value == "2023-06-01"
+    error_message = "The Anthropic key and the anthropic-version named value exist before the backends."
+  }
+  assert {
+    condition     = strcontains(module.llm_routing.pools[0].pool_name, "backend-pool") && length(module.llm_routing.pool_ids) == 1
+    error_message = "The gpt-4o-mini pool of the two Foundry accounts."
+  }
+}
+
+# A model hosted natively and OpenAI-compatibly has two routes; the models output lists both.
+run "a_model_under_two_backend_types_keeps_both_routes" {
+  command = plan
+
+  variables {
+    foundry_backends = { enabled = false }
+    llm_backends = [
+      { backend_id = "native", backend_type = "aws-bedrock", endpoint = "https://bedrock-runtime.us-east-1.amazonaws.com", supported_models = [{ name = "claude" }] },
+      { backend_id = "mantle", backend_type = "aws-bedrock-mantle", endpoint = "https://bedrock-mantle.us-east-1.api.aws", auth_config = { named_value_key = "mantle-key", key_vault_secret_uri = "https://kv.vault.azure.net/secrets/mantle-key" }, supported_models = [{ name = "claude" }] },
+    ]
+  }
+
+  assert {
+    condition     = sort(tolist(output.models["claude"])) == tolist(["mantle", "native"])
+    error_message = "One model, two routes: the native and the OpenAI-compatible backend."
   }
 }

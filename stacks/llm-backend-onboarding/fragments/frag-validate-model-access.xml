@@ -39,6 +39,21 @@
             var requestedModel = (context.Variables.GetValueOrDefault<string>("requestedModel") ?? string.Empty).ToLowerInvariant();
             return !allowedModels.Any(m => m == requestedModel);
         }">
+            <!-- Alerting: authorization failure (model access denied) - opt-in via alertOnAuthFailure.
+                 Inlined because a policy fragment cannot include another fragment; mirrors the
+                 raise-alert-events dimensions (value-based backendId — predefined "Backend ID" is
+                 outbound-only and this runs in inbound). -->
+            <choose>
+                <when condition="@(context.Variables.GetValueOrDefault<string>("alertsEnabled", "true").Equals("true", StringComparison.OrdinalIgnoreCase) && context.Variables.GetValueOrDefault<string>("alertOnAuthFailure", "false").Equals("true", StringComparison.OrdinalIgnoreCase))">
+                    <emit-metric name="AI Gateway Alert" value="1" namespace="ai-gateway-alerts">
+                        <dimension name="alertType" value="auth-failure" />
+                        <dimension name="statusCode" value="403" />
+                        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
+                        <dimension name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "NA"))" />
+                        <dimension name="backendId" value="@((string)context.Variables.GetValueOrDefault<string>("selected-backend", "NA"))" />
+                    </emit-metric>
+                </when>
+            </choose>
             <return-response>
                 <set-status code="403" reason="Forbidden" />
                 <set-header name="Content-Type" exists-action="override">

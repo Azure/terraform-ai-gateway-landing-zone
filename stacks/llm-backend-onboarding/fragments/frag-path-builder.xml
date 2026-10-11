@@ -44,12 +44,51 @@
                     }" />
                     <set-body>@(context.Request.Body.As<string>())</set-body>
                 </when>
-                <!-- Amazon Bedrock: /model/{model}/converse -->
-                <when condition="@(context.Variables.GetValueOrDefault<string>("api-type", "").Equals("bedrock", StringComparison.OrdinalIgnoreCase))">
+                <!-- Native provider prefix routing: /bedrock /gemini /claude.
+                     The api-base-path (e.g. /bedrock) is stripped from the inbound path and the
+                     remainder is forwarded unchanged to the backend. The backend's URL already includes
+                     any provider-specific root segment, so this gives clients a clean, provider-named
+                     entry point while preserving the underlying native API contract.
+                     For claude-native we always rewrite to /v1/messages because Anthropic only exposes
+                     the Messages API at that fixed path. -->
+                <when condition="@{
+                    var apiType = context.Variables.GetValueOrDefault<string>("api-type", String.Empty);
+                    return apiType.Equals("bedrock-native", StringComparison.OrdinalIgnoreCase) || apiType.Equals("gemini-native", StringComparison.OrdinalIgnoreCase);
+                }">
                     <set-variable name="finalPath" value="@{
-                        var modelId = context.Variables.GetValueOrDefault<string>("requestedModel", String.Empty);
-                        return !String.IsNullOrEmpty(modelId) ? $"/model/{System.Uri.EscapeDataString(modelId)}/converse" : String.Empty;
+                        var basePath = context.Variables.GetValueOrDefault<string>("api-base-path", String.Empty);
+                        var path = context.Variables.GetValueOrDefault<string>("routing-processed-path", String.Empty);
+                        if (String.IsNullOrEmpty(basePath) || String.IsNullOrEmpty(path)) { return String.Empty; }
+                        if (path.StartsWith(basePath, StringComparison.OrdinalIgnoreCase)) {
+                            var stripped = path.Substring(basePath.Length);
+                            if (String.IsNullOrEmpty(stripped)) { return "/"; }
+                            return stripped.StartsWith("/") ? stripped : ("/" + stripped);
+                        }
+                        return path;
                     }" />
+                    <!-- Forward original body unchanged — native APIs use their own request schemas -->
+                    <set-body>@(context.Request.Body.As<string>())</set-body>
+                </when>
+                <!-- Anthropic native Messages API: /claude/* → /v1/messages (model stays in body) -->
+                <when condition="@(context.Variables.GetValueOrDefault<string>("api-type", "").Equals("claude-native", StringComparison.OrdinalIgnoreCase))">
+                    <set-variable name="finalPath" value="/v1/messages" />
+                    <!-- Ensure model field is present in body (Anthropic Messages requires it) -->
+                    <set-body>@{
+                        var body = context.Request.Body.As<string>();
+                        if (!String.IsNullOrEmpty(body)) {
+                            try {
+                                var parsedBody = JObject.Parse(body);
+                                var modelId = context.Variables.GetValueOrDefault<string>("requestedModel", String.Empty);
+                                if (parsedBody["model"] == null || String.IsNullOrEmpty(parsedBody["model"].ToString())) {
+                                    parsedBody["model"] = modelId;
+                                }
+                                return parsedBody.ToString();
+                            } catch {
+                                return body;
+                            }
+                        }
+                        return body;
+                    }</set-body>
                 </when>
                 <!-- Responses and Inference APIs -->
                 <when condition="@{
@@ -71,7 +110,32 @@
                             return includeResponseId ? $"{basePath}/{responseId}" : basePath;
                         }
 
-                        // Inference API: {api-base-path}/chat/completions
+                        // Inference API (Universal LLM, base-path /models).
+                        // For NON-Foundry OpenAI-compat backends (aws-bedrock-mantle, gemini-openai)
+                        // the backend exposes the operation under a provider-specific path that
+                        // does NOT match `/models/...`. Reuse `backend-path-templates[poolType][operation]`
+                        // — the same lookup the `openai-compat` api-type uses — so Universal LLM
+                        // and Unified AI rewrite identically for those providers.
+                        // For ai-foundry / azure-openai keep the legacy `{base-path}/chat/completions`
+                        // shape so existing Foundry inference deployments continue to work unchanged.
+                        var poolType = context.Variables.GetValueOrDefault<string>("targetPoolType", String.Empty);
+                        var operation = context.Variables.GetValueOrDefault<string>("openai-compat-operation", String.Empty);
+                        var needsRewrite = poolType.Equals("aws-bedrock-mantle", StringComparison.OrdinalIgnoreCase)
+                                        || poolType.Equals("gemini-openai", StringComparison.OrdinalIgnoreCase);
+                        if (needsRewrite && !String.IsNullOrEmpty(operation)) {
+                            var templates = context.Variables.GetValueOrDefault<JObject>("config-backend-path-templates");
+                            var backendTemplates = templates?[poolType] as JObject;
+                            var template = backendTemplates?[operation]?.ToString();
+                            if (!String.IsNullOrEmpty(template)) {
+                                if (template.Contains("{model}")) {
+                                    var modelId = context.Variables.GetValueOrDefault<string>("requestedModel", String.Empty);
+                                    template = template.Replace("{model}", System.Uri.EscapeDataString(modelId));
+                                }
+                                return template;
+                            }
+                        }
+
+                        // Default Inference behavior: {api-base-path}/chat/completions
                         return $"{basePath}/chat/completions";
                     }" />
                     <choose>
@@ -86,6 +150,84 @@
                         </when>
                     </choose>
                 </when>
+                <!-- Image generation/edit API: /v1/images/generations, /v1/images/edits.
+                     Uses backend-path-templates[poolType][operation] like openai-compat, but also
+                     resolves the {modelPath} placeholder (e.g. FLUX BFL slug 'flux-2-pro') from
+                     config-models and applies provider-specific api-version handling. The body is
+                     NOT rewritten, so JSON generations and multipart edits both pass through
+                     untouched (the model is already in the body or the x-ai-model header). -->
+                <when condition="@(context.Variables.GetValueOrDefault<string>("api-type", "").Equals("image", StringComparison.OrdinalIgnoreCase))">
+                    <set-variable name="finalPath" value="@{
+                        var operation = context.Variables.GetValueOrDefault<string>("openai-compat-operation", String.Empty);
+                        var poolType = context.Variables.GetValueOrDefault<string>("targetPoolType", String.Empty);
+                        var modelId = context.Variables.GetValueOrDefault<string>("requestedModel", String.Empty);
+                        var templates = context.Variables.GetValueOrDefault<JObject>("config-backend-path-templates");
+
+                        // Look up path template: backend-path-templates[poolType][operation]
+                        var backendTemplates = templates?[poolType] as JObject;
+                        var template = backendTemplates?[operation]?.ToString();
+                        if (String.IsNullOrEmpty(template)) {
+                            return String.Empty;
+                        }
+
+                        // Resolve {modelPath} (provider slug, e.g. FLUX 'flux-2-pro') from model
+                        // config; fall back to the model name when no modelPath is configured.
+                        if (template.Contains("{modelPath}")) {
+                            var models = context.Variables.GetValueOrDefault<JObject>("config-models");
+                            var modelPath = models?[modelId]?["modelPath"]?.ToString();
+                            if (String.IsNullOrEmpty(modelPath)) { modelPath = modelId; }
+                            template = template.Replace("{modelPath}", System.Uri.EscapeDataString(modelPath));
+                        }
+                        if (template.Contains("{model}")) {
+                            template = template.Replace("{model}", System.Uri.EscapeDataString(modelId));
+                        }
+                        return template;
+                    }" />
+                    <!-- Return 400 if no template found for this backend-type × image operation -->
+                    <choose>
+                        <when condition="@(String.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("finalPath", String.Empty)))">
+                            <return-response>
+                                <set-status code="400" reason="Bad Request" />
+                                <set-header name="Content-Type" exists-action="override">
+                                    <value>application/json</value>
+                                </set-header>
+                                <set-body>@{
+                                    var operation = context.Variables.GetValueOrDefault<string>("openai-compat-operation", "unknown");
+                                    var poolType = context.Variables.GetValueOrDefault<string>("targetPoolType", "unknown");
+                                    return new JObject(
+                                        new JProperty("error", new JObject(
+                                            new JProperty("message", $"Image operation '{operation}' is not supported for backend type '{poolType}'."),
+                                            new JProperty("type", "invalid_request_error"),
+                                            new JProperty("code", "unsupported_operation")
+                                        ))
+                                    ).ToString();
+                                }</set-body>
+                            </return-response>
+                        </when>
+                    </choose>
+                    <!-- Provider-specific api-version: ai-foundry/azure-openai → v1 (OpenAI v1
+                         images endpoint); azure-flux → preview (BFL provider API); azure-mai →
+                         none (strip any inherited value). -->
+                    <choose>
+                        <when condition="@{
+                            var pt = context.Variables.GetValueOrDefault<string>("targetPoolType", String.Empty);
+                            return pt.Equals("ai-foundry", StringComparison.OrdinalIgnoreCase)
+                                || pt.Equals("azure-openai", StringComparison.OrdinalIgnoreCase);
+                        }">
+                            <set-query-parameter name="api-version" exists-action="override">
+                                <value>@(context.Variables.GetValueOrDefault<string>("selected-api-version"))</value>
+                            </set-query-parameter>
+                        </when>
+                        <when condition="@(context.Variables.GetValueOrDefault<string>("targetPoolType", "").Equals("azure-flux", StringComparison.OrdinalIgnoreCase))">
+                            <set-query-parameter name="api-version" exists-action="override">
+                                <value>preview</value>
+                            </set-query-parameter>
+                        </when>
+                        <otherwise>
+                            <set-query-parameter name="api-version" exists-action="delete" />
+                        </otherwise>
+                    </choose>
+                </when>
                 <!-- OpenAI-Compatible API: uses backend-path-templates for dynamic path construction -->
                 <when condition="@(context.Variables.GetValueOrDefault<string>("api-type", "").Equals("openai-compat", StringComparison.OrdinalIgnoreCase))">
                     <set-variable name="finalPath" value="@{
@@ -96,6 +238,18 @@
 
                         // Look up path template: backend-path-templates[poolType][operation]
                         var backendTemplates = templates?[poolType] as JObject;
+
+                        // Files API family (files, files/{id}, files/{id}/content): the {id} and
+                        // /content suffixes are dynamic, so resolve the static 'files' template as
+                        // a base and append the remainder of the operation path. Mirrors the
+                        // Universal LLM ai-foundry rewrite (/models/files -> /openai/v1/files).
+                        if (operation.StartsWith("files", StringComparison.OrdinalIgnoreCase)) {
+                            var filesBase = backendTemplates?["files"]?.ToString();
+                            if (String.IsNullOrEmpty(filesBase)) { return String.Empty; }
+                            var suffix = operation.Length > "files".Length ? operation.Substring("files".Length) : String.Empty;
+                            return filesBase + suffix;
+                        }
+
                         var template = backendTemplates?[operation]?.ToString();
 
                         if (String.IsNullOrEmpty(template)) {
@@ -131,38 +285,78 @@
                             </return-response>
                         </when>
                     </choose>
-                    <!-- Inject api-version for backends that need it -->
-                    <set-query-parameter name="api-version" exists-action="override">
-                        <value>@(context.Variables.GetValueOrDefault<string>("selected-api-version"))</value>
-                    </set-query-parameter>
+                    <!-- Inject api-version only for backends that need it. The Microsoft OpenAI v1
+                         endpoint family (ai-foundry, azure-openai) requires `api-version=v1`. Other
+                         OpenAI-compat backends (gemini-openai, aws-bedrock-mantle) reject unknown
+                         query params (Google returns 400 INVALID_ARGUMENT) or simply don't need it,
+                         so we strip any inherited value to be safe. -->
+                    <choose>
+                        <when condition="@{
+                            var pt = context.Variables.GetValueOrDefault<string>("targetPoolType", String.Empty);
+                            return pt.Equals("ai-foundry", StringComparison.OrdinalIgnoreCase)
+                                || pt.Equals("azure-openai", StringComparison.OrdinalIgnoreCase);
+                        }">
+                            <set-query-parameter name="api-version" exists-action="override">
+                                <value>@(context.Variables.GetValueOrDefault<string>("selected-api-version"))</value>
+                            </set-query-parameter>
+                        </when>
+                        <otherwise>
+                            <set-query-parameter name="api-version" exists-action="delete" />
+                        </otherwise>
+                    </choose>
                 </when>
-                <!-- Default OpenAI: {api-base-path}/deployments/{model}/chat/completions -->
+                <!-- Default OpenAI: {api-base-path}/deployments/{model}/{operation} -->
                 <otherwise>
+                    <!-- Determine the operation from the path so the Azure OpenAI deployments form
+                         supports images (/openai/deployments/{model}/images/generations|edits) in
+                         addition to chat. Defaults to chat/completions for backward compatibility. -->
+                    <set-variable name="aoai-deployment-operation" value="@{
+                        var path = context.Variables.GetValueOrDefault<string>("routing-processed-path", String.Empty);
+                        var marker = "/deployments/";
+                        var idx = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                        if (idx >= 0) {
+                            var rest = path.Substring(idx + marker.Length);
+                            var firstSlash = rest.IndexOf('/');
+                            if (firstSlash >= 0) {
+                                var op = rest.Substring(firstSlash + 1).TrimEnd('/');
+                                if (!String.IsNullOrEmpty(op)) { return op; }
+                            }
+                        }
+                        return "chat/completions";
+                    }" />
                     <set-variable name="finalPath" value="@{
                         var basePath = context.Variables.GetValueOrDefault<string>("api-base-path", String.Empty);
                         var modelId = context.Variables.GetValueOrDefault<string>("requestedModel", String.Empty);
+                        var operation = context.Variables.GetValueOrDefault<string>("aoai-deployment-operation", "chat/completions");
 
                         return !String.IsNullOrEmpty(basePath) && !String.IsNullOrEmpty(modelId)
-                            ? $"{basePath}/deployments/{modelId}/chat/completions"
+                            ? $"{basePath}/deployments/{modelId}/{operation}"
                             : String.Empty;
                     }" />
-                    <!-- Add model field into request body if not present -->
-                    <set-body>@{
-                        var body = context.Request.Body.As<string>();
-                        if (!String.IsNullOrEmpty(body)) {
-                            try {
-                                var parsedBody = JObject.Parse(body);
-                                var modelId = context.Variables.GetValueOrDefault<string>("requestedModel", String.Empty);
-                                if (parsedBody["model"] == null || String.IsNullOrEmpty(parsedBody["model"].ToString())) {
-                                    parsedBody["model"] = modelId;
+                    <!-- Inject the model field into the JSON body only for chat/completions.
+                         Image operations must not have their body rewritten: edits are multipart
+                         (rewriting would corrupt the boundary) and generations already carry the
+                         image schema with the model resolved from path/header. -->
+                    <choose>
+                        <when condition="@(context.Variables.GetValueOrDefault<string>("aoai-deployment-operation", "chat/completions").Equals("chat/completions", StringComparison.OrdinalIgnoreCase))">
+                            <set-body>@{
+                                var body = context.Request.Body.As<string>();
+                                if (!String.IsNullOrEmpty(body)) {
+                                    try {
+                                        var parsedBody = JObject.Parse(body);
+                                        var modelId = context.Variables.GetValueOrDefault<string>("requestedModel", String.Empty);
+                                        if (parsedBody["model"] == null || String.IsNullOrEmpty(parsedBody["model"].ToString())) {
+                                            parsedBody["model"] = modelId;
+                                        }
+                                        return parsedBody.ToString();
+                                    } catch {
+                                        return body;
+                                    }
                                 }
-                                return parsedBody.ToString();
-                            } catch {
                                 return body;
-                            }
-                        }
-                        return body;
-                    }</set-body>
+                            }</set-body>
+                        </when>
+                    </choose>
                     <set-query-parameter name="api-version" exists-action="override">
                         <value>@(context.Variables.GetValueOrDefault<string>("selected-api-version"))</value>
                     </set-query-parameter>

@@ -1,0 +1,19 @@
+<fragment>
+    <!-- Publish Contract: Tool (MCP) usage metric. Inbound-only: MCP responses stream (SSE) and must
+         not be buffered, so usage is counted per request without touching the response body.
+         Emits to the 'mcp-usage' App Insights namespace; a scheduled Logic App aggregates these
+         customMetrics into the mcp-usage-container Cosmos collection (mirrors the LLM usage pipeline). -->
+    <emit-metric name="McpRequests" value="1" namespace="mcp-usage">
+        <!-- Access contract product (empty until the asset is governed by an access contract in phase 2) -->
+        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Unassigned")" />
+        <!-- Tool / MCP server name (reuses the LLM 'deploymentName' dimension so dashboards align) -->
+        <dimension name="deploymentName" value="@(context.Api?.Name?.ToString() ?? "unknown-mcp")" />
+        <!-- Backend serving the tool (set by the baseline policy; falls back to the API name) -->
+        <dimension name="backendId" value="@((string)context.Variables.GetValueOrDefault<string>("publishedBackendId", context.Api?.Name ?? "NA"))" />
+        <!-- Calling application / subscription id -->
+        <dimension name="appId" value="@(context.Subscription?.Id ?? "anonymous")" />
+        <!-- customDimension1 = asset type, customDimension2 = operation (per publish-contract convention) -->
+        <dimension name="customDimension1" value="mcp" />
+        <dimension name="customDimension2" value="@(context.Operation?.Name?.ToString() ?? "NA")" />
+    </emit-metric>
+</fragment>

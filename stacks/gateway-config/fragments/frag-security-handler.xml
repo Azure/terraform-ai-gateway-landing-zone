@@ -52,6 +52,21 @@
     <!-- API Key validation: subscription must exist (APIM validates the key itself via subscription_required=true) -->
     <choose>
         <when condition="@(context.Subscription == null)">
+            <!-- Alerting: authorization failure (opt-in per access contract via alertOnAuthFailure).
+                 Inlined because a policy fragment cannot include another fragment; mirrors the
+                 raise-alert-events dimensions. Uses value-based backendId (predefined "Backend ID"
+                 is outbound-only and this runs in inbound). -->
+            <choose>
+                <when condition="@(context.Variables.GetValueOrDefault<string>("alertsEnabled", "true").Equals("true", StringComparison.OrdinalIgnoreCase) && context.Variables.GetValueOrDefault<string>("alertOnAuthFailure", "false").Equals("true", StringComparison.OrdinalIgnoreCase))">
+                    <emit-metric name="AI Gateway Alert" value="1" namespace="ai-gateway-alerts">
+                        <dimension name="alertType" value="auth-failure" />
+                        <dimension name="statusCode" value="401" />
+                        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
+                        <dimension name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "NA"))" />
+                        <dimension name="backendId" value="@((string)context.Variables.GetValueOrDefault<string>("selected-backend", "NA"))" />
+                    </emit-metric>
+                </when>
+            </choose>
             <return-response>
                 <set-status code="401" reason="Unauthorized" />
                 <set-header name="Content-Type" exists-action="override">
@@ -90,6 +105,19 @@
                     <!-- JWT required but no Bearer token provided -->
                     <choose>
                         <when condition="@(context.Variables.GetValueOrDefault<string>("jwtRequired", "false").Equals("true", StringComparison.OrdinalIgnoreCase))">
+                            <!-- Alerting: authorization failure (opt-in via alertOnAuthFailure). Inlined
+                                 (a fragment cannot include another fragment). -->
+                            <choose>
+                                <when condition="@(context.Variables.GetValueOrDefault<string>("alertsEnabled", "true").Equals("true", StringComparison.OrdinalIgnoreCase) && context.Variables.GetValueOrDefault<string>("alertOnAuthFailure", "false").Equals("true", StringComparison.OrdinalIgnoreCase))">
+                                    <emit-metric name="AI Gateway Alert" value="1" namespace="ai-gateway-alerts">
+                                        <dimension name="alertType" value="auth-failure" />
+                                        <dimension name="statusCode" value="401" />
+                                        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
+                                        <dimension name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "NA"))" />
+                                        <dimension name="backendId" value="@((string)context.Variables.GetValueOrDefault<string>("selected-backend", "NA"))" />
+                                    </emit-metric>
+                                </when>
+                            </choose>
                             <return-response>
                                 <set-status code="401" reason="Unauthorized" />
                                 <set-header name="Content-Type" exists-action="override">
@@ -186,6 +214,19 @@
                             var actual = tokenRoles.Split(',').Select(r => r.Trim()).Where(r => !string.IsNullOrEmpty(r));
                             return !required.Any(r => actual.Any(a => a.Equals(r, StringComparison.OrdinalIgnoreCase)));
                         }">
+                            <!-- Alerting: authorization failure (opt-in via alertOnAuthFailure). Inlined
+                                 (a fragment cannot include another fragment). -->
+                            <choose>
+                                <when condition="@(context.Variables.GetValueOrDefault<string>("alertsEnabled", "true").Equals("true", StringComparison.OrdinalIgnoreCase) && context.Variables.GetValueOrDefault<string>("alertOnAuthFailure", "false").Equals("true", StringComparison.OrdinalIgnoreCase))">
+                                    <emit-metric name="AI Gateway Alert" value="1" namespace="ai-gateway-alerts">
+                                        <dimension name="alertType" value="auth-failure" />
+                                        <dimension name="statusCode" value="403" />
+                                        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
+                                        <dimension name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "NA"))" />
+                                        <dimension name="backendId" value="@((string)context.Variables.GetValueOrDefault<string>("selected-backend", "NA"))" />
+                                    </emit-metric>
+                                </when>
+                            </choose>
                             <return-response>
                                 <set-status code="403" reason="Forbidden" />
                                 <set-header name="Content-Type" exists-action="override">

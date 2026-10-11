@@ -6,16 +6,24 @@
 # =============================================================================
 
 locals {
+  # Models and pools are keyed by (model, backend type): the same model id served by two
+  # different backend types (an aws-bedrock native pool and an aws-bedrock-mantle OpenAI-
+  # compatible pool, say) must stay two pools, or the poolType filter of the inbound API
+  # surface could not tell them apart. "||" is legal in neither a model id nor a type.
+  model_key_delimiter = "||"
+
   # Normalize LLM backends — extract per-model name lists for pool grouping.
   llm_backends_normalized = [
     for b in var.llm_backend_config : {
       backend_id   = b.backend_id
       backend_type = b.backend_type
       endpoint     = b.endpoint
-      auth_scheme  = b.auth_scheme
       priority     = b.priority
       weight       = b.weight
       model_names  = [for m in b.supported_models : m.name]
+      # Models this backend flags as session-aware (stateful): their pools get session affinity.
+      session_aware_model_names = [for m in b.supported_models : m.name if m.sessionAwareModel]
+      session_affinity          = b.session_affinity
       # pool entries carry authType + authConfigNamedValue so the
       # set-backend-pools fragment can resolve per-pool credentials.
       # Coalesce to "" because `try` only catches missing keys, not explicit
@@ -25,10 +33,11 @@ locals {
     }
   ]
 
-  # Flatten model → backends map so each model lists the backends that serve it.
+  # One row per (backend, model).
   model_to_backends_pairs = flatten([
     for b in local.llm_backends_normalized : [
       for m in b.model_names : {
+        key                     = "${m}${local.model_key_delimiter}${b.backend_type}"
         model                   = m
         backend_id              = b.backend_id
         backend_type            = b.backend_type
@@ -36,29 +45,42 @@ locals {
         weight                  = b.weight
         auth_type               = b.auth_type
         auth_config_named_value = b.auth_config_named_value
+        session_aware           = contains(b.session_aware_model_names, m)
+        session_affinity        = b.session_affinity
       }
     ]
   ])
 
-  # Group by model name into a map of lists.
+  # Group by (model, backend type) into a map of lists.
   model_to_backends = {
-    for m in distinct([for p in local.model_to_backends_pairs : p.model]) :
-    m => [for p in local.model_to_backends_pairs : p if p.model == m]
+    for k in distinct([for p in local.model_to_backends_pairs : p.key]) :
+    k => [for p in local.model_to_backends_pairs : p if p.key == k]
   }
 
-  # Pools: only models served by 2+ backends get a pool.
+  # Pools: only (model, backend type) combinations served by 2+ backends get a pool. The name
+  # strips the characters APIM resource names don't allow (. : _ /) from both parts; the real
+  # model id stays the routing key.
   pool_configs = {
-    for m, backends in local.model_to_backends :
-    "${replace(m, ".", "")}-backend-pool" => {
-      model_name = m
-      backends   = backends
+    for k, backends in local.model_to_backends :
+    "${replace(replace(replace(replace(backends[0].model, ".", ""), ":", ""), "_", ""), "/", "")}-${replace(replace(replace(replace(backends[0].backend_type, ".", ""), ":", ""), "_", ""), "/", "")}-backend-pool" => {
+      model_name   = backends[0].model
+      backend_type = backends[0].backend_type
+      backends     = backends
+      # Session affinity (sticky routing) only for pools of a session-aware model, while the
+      # master toggle is on: the cookie settings are the defaults overridden by the first
+      # pool member that sets its own.
+      session_aware = var.session_affinity.enabled && anytrue([for b in backends : b.session_aware])
+      session_affinity = {
+        cookie_name = try([for b in backends : b.session_affinity.cookie_name if b.session_affinity != null && b.session_affinity.cookie_name != null][0], var.session_affinity.cookie_name)
+        source      = try([for b in backends : b.session_affinity.source if b.session_affinity != null && b.session_affinity.source != null][0], var.session_affinity.source)
+      }
     } if length(backends) > 1
   }
 
-  # Direct backends: models served by exactly 1 backend.
+  # Direct backends: (model, backend type) combinations served by exactly 1 backend.
   direct_backends = {
-    for m, backends in local.model_to_backends :
-    m => backends[0] if length(backends) == 1
+    for k, backends in local.model_to_backends :
+    k => backends[0] if length(backends) == 1
   }
 
   # Unified "allPools" list that the C#-code-gen fragments consume.
@@ -70,10 +92,10 @@ locals {
       auth_type               = length(cfg.backends) > 0 ? cfg.backends[0].auth_type : ""
       auth_config_named_value = length(cfg.backends) > 0 ? cfg.backends[0].auth_config_named_value : ""
     }],
-    [for model_name, b in local.direct_backends : {
+    [for k, b in local.direct_backends : {
       pool_name               = b.backend_id
       pool_type               = b.backend_type
-      supported_models        = [model_name]
+      supported_models        = [b.model]
       auth_type               = b.auth_type
       auth_config_named_value = b.auth_config_named_value
     }]
@@ -93,6 +115,8 @@ locals {
       b.backend_type == "aws-bedrock" ? "aws-sigv4" :
       b.backend_type == "external" ? "none" :
       contains(["aws-bedrock-mantle", "gemini-openai"], b.backend_type) ? "api-key-bearer" :
+      b.backend_type == "gemini" ? "api-key-gemini" :
+      b.backend_type == "anthropic" ? "api-key-anthropic" :
       "managed-identity"
     )
   }
@@ -107,6 +131,8 @@ locals {
       local.effective_auth_type[b.backend_id] == "managed-identity" ? tomap({ "x-ms-client-id" = [var.managed_identity_client_id] }) :
       local.effective_auth_type[b.backend_id] == "api-key-bearer" ? tomap({ "Authorization" = ["{{${try(b.auth_config.named_value_key, "")}}}"] }) :
       local.effective_auth_type[b.backend_id] == "api-key-header" ? tomap({ "api-key" = ["{{${try(b.auth_config.named_value_key, "")}}}"] }) :
+      local.effective_auth_type[b.backend_id] == "api-key-gemini" ? tomap({ "x-goog-api-key" = ["{{${try(b.auth_config.named_value_key, "")}}}"] }) :
+      local.effective_auth_type[b.backend_id] == "api-key-anthropic" ? tomap({ "x-api-key" = ["{{${try(b.auth_config.named_value_key, "")}}}"], "anthropic-version" = ["{{anthropic-version}}"] }) :
       null
     )
   }
@@ -170,13 +196,17 @@ resource "azapi_resource" "llm_backend" {
 resource "azapi_resource" "llm_backend_pool" {
   for_each = local.pool_configs
 
-  type      = "Microsoft.ApiManagement/service/backends@2024-06-01-preview"
+  # 2025-03-01-preview: pool.sessionAffinity (session-aware load balancing) only exists from
+  # this version; the backends themselves stay on 2024-06-01-preview.
+  type      = "Microsoft.ApiManagement/service/backends@2025-03-01-preview"
   name      = each.key
   parent_id = var.api_management_id
 
+  schema_validation_enabled = false
+
   body = {
     properties = {
-      description = "Backend pool for model: ${each.value.model_name}"
+      description = "Backend pool for model: ${each.value.model_name} (${each.value.backend_type})"
       type        = "Pool"
       pool = {
         services = [for b in each.value.backends : {
@@ -184,6 +214,15 @@ resource "azapi_resource" "llm_backend_pool" {
           priority = b.priority
           weight   = b.weight
         }]
+        # Sticky routing for stateful models (OpenAI Responses, Assistants): APIM sets an affinity
+        # cookie and routes a client that replays it back to the same backend. Stateless model
+        # pools keep pure load balancing.
+        sessionAffinity = each.value.session_aware ? {
+          sessionId = {
+            source = each.value.session_affinity.source
+            name   = each.value.session_affinity.cookie_name
+          }
+        } : null
       }
     }
   }
@@ -198,7 +237,7 @@ resource "azapi_resource" "llm_backend_pool" {
 locals {
   # -- set-backend-pools: per-pool C# JObject blocks (pool entries
   #    include authType + authConfigNamedValue so credentials resolve per pool).
-  backend_pools_code = join("\n", [
+  real_pools_code = join("\n", [
     for idx, pool in local.all_pools : join("\n", [
       "// Pool: ${pool.pool_name} (Type: ${pool.pool_type}, Auth: ${pool.auth_type})",
       "var pool_${idx} = new JObject()",
@@ -212,6 +251,38 @@ locals {
       "backendPools.Add(pool_${idx});"
     ])
   ])
+
+  # -- Model aliases are virtual pools of the same backendPools array (set-target-backend-pool
+  #    resolves them). Each member carries the pools that host its model, resolved here, so the
+  #    runtime can fall back across providers on 429/5xx and pick the pool whose type fits the
+  #    inbound API surface (a model can be hosted by a native and an OpenAI-compatible pool).
+  alias_pools_code = join("\n\n", [
+    for i, a in var.model_aliases : join("\n", [
+      "// Alias pool: ${a.name} (strategy: ${a.strategy})",
+      "var aliasMembers_${i} = new JArray();",
+      join("\n", [
+        for j, m in a.models :
+        "aliasMembers_${i}.Add(new JObject() { { \"model\", \"${m}\" }, { \"weight\", ${length(a.weights) > 0 ? a.weights[j] : 1} }, { \"pools\", new JArray() { ${join(", ", [
+          for p in local.all_pools :
+          "new JObject() { { \"poolName\", \"${p.pool_name}\" }, { \"poolType\", \"${p.pool_type}\" }, { \"authType\", \"${p.auth_type}\" }, { \"authConfigNamedValue\", \"${p.auth_config_named_value}\" } }"
+          if contains(p.supported_models, m)
+        ])} } } });"
+      ]),
+      "var aliasPool_${i} = new JObject()",
+      "{",
+      "    { \"poolName\", \"alias:${a.name}\" },",
+      "    { \"poolType\", \"alias\" },",
+      "    { \"isAlias\", true },",
+      "    { \"aliasName\", \"${a.name}\" },",
+      "    { \"strategy\", \"${a.strategy}\" },",
+      "    { \"supportedModels\", new JArray(\"${a.name}\") },",
+      "    { \"members\", aliasMembers_${i} }",
+      "};",
+      "backendPools.Add(aliasPool_${i});"
+    ])
+  ])
+
+  backend_pools_code = length(var.model_aliases) == 0 ? local.real_pools_code : "${local.real_pools_code}\n\n// ===== Model alias virtual pools (resolve to the underlying real-model pools at runtime) =====\n${local.alias_pools_code}"
 
   # -- get-available-models: per-model C# JObject blocks
   flattened_models = flatten([
@@ -248,11 +319,12 @@ locals {
     ])
   ])
 
-  # -- metadata-config: per-unique-model mapping (first seen wins)
+  # -- metadata-config: per-unique-model mapping (first seen wins for the settings; the last
+  #    pool that hosts the model is its default target, as in the upstream generator).
   metadata_models = [
     for model_name in distinct([for m in local.flattened_models : m.name]) : {
       name      = model_name
-      pool_name = try([for p in local.all_pools : p.pool_name if contains(p.supported_models, model_name)][0], "")
+      pool_name = try(reverse([for p in local.all_pools : p.pool_name if contains(p.supported_models, model_name)])[0], "")
       apiVersion = try([
         for b in var.llm_backend_config : [
           for mm in b.supported_models : mm.apiVersion if mm.name == model_name
@@ -268,12 +340,17 @@ locals {
           for mm in b.supported_models : mm.inferenceApiVersion if mm.name == model_name
         ]
       ][0][0], "")
+      modelPath = try(flatten([
+        for b in var.llm_backend_config : [
+          for mm in b.supported_models : mm.modelPath if mm.name == model_name && mm.modelPath != ""
+        ]
+      ])[0], "")
     }
   ]
 
   metadata_models_code = join(",\n", [
     for m in local.metadata_models :
-    "\t\t\t'${m.name}': {\n\t\t\t\t'backend': '${m.pool_name}',\n\t\t\t\t'apiVersion': '${m.apiVersion}',\n\t\t\t\t'timeout': ${m.timeout}${m.inferenceApiVersion != "" ? ",\n\t\t\t\t'inferenceApiVersion': '${m.inferenceApiVersion}'" : ""}\n\t\t\t}"
+    "\t\t\t'${m.name}': {\n\t\t\t\t'backend': '${m.pool_name}',\n\t\t\t\t'apiVersion': '${m.apiVersion}',\n\t\t\t\t'timeout': ${m.timeout}${m.inferenceApiVersion != "" ? ",\n\t\t\t\t'inferenceApiVersion': '${m.inferenceApiVersion}'" : ""}${m.modelPath != "" ? ",\n\t\t\t\t'modelPath': '${m.modelPath}'" : ""}\n\t\t\t}"
   ])
 
   # Final XML contents for the 3 dynamic fragments
@@ -313,12 +390,6 @@ locals {
   ])
 
   model_deployments_with_aliases_code = "${local.model_deployments_code}${length(var.model_aliases) > 0 ? "\n${local.alias_deployments_code}" : ""}"
-
-  # -- resolve-model-alias: C# JObject style (injected into //{inlineAliasesCode}).
-  inline_aliases_code = join("\n", [
-    for a in var.model_aliases :
-    "            { \"${a.name}\", new JObject { { \"strategy\", \"${a.strategy}\" }, { \"models\", new JArray(${join(", ", [for m in a.models : "\"${m}\""])}) }${length(a.weights) > 0 ? ", { \"weights\", new JArray(${join(", ", a.weights)}) }" : ""} } },"
-  ])
 
   # -- metadata-config: JS object-literal style (injected into //{modelAliasesCode}
   #    which sits inside the 'model-aliases': { ... } JS block, NOT C# code).
@@ -374,11 +445,85 @@ resource "azurerm_api_management_policy_fragment" "resolve_model_alias" {
   api_management_id = var.api_management_id
   name              = "resolve-model-alias"
   format            = "rawxml"
-  description       = "Resolves model alias names to actual underlying models with priority/weighted strategy"
-  value = replace(
-    file("${path.module}/templates/frag-resolve-model-alias.xml"),
-    "//{inlineAliasesCode}",
-    local.inline_aliases_code
+  description       = "Post-resolution body rewrite for model aliases (resolution itself happens in set-target-backend-pool)"
+  value             = file("${path.module}/templates/frag-resolve-model-alias.xml")
+}
+
+# -----------------------------------------------------------------------------
+# BACKEND CONTRACT — the live routing contract as JSON, served by the Release Version
+# API (GET /version/backend-contract). Same shape as the upstream accelerator's contract,
+# so tooling written against it keeps working.
+# -----------------------------------------------------------------------------
+
+locals {
+  # Version of the contract document itself (bump when its shape changes).
+  backend_contract_version = "1.1.0"
+
+  apim_id_parts = split("/", var.api_management_id)
+
+  backend_contract = {
+    masterVersion          = var.release_version
+    backendContractVersion = local.backend_contract_version
+    apim = {
+      subscriptionId    = local.apim_id_parts[2]
+      resourceGroupName = local.apim_id_parts[4]
+      name              = local.apim_id_parts[8]
+    }
+    sessionAffinity = {
+      enabled = var.session_affinity.enabled
+      defaults = {
+        cookieName = var.session_affinity.cookie_name
+        source     = var.session_affinity.source
+      }
+    }
+    modelAliases = [for a in var.model_aliases : { name = a.name, models = a.models, strategy = a.strategy, weights = a.weights }]
+    # The credentials stay out: only the NAME of the named value that holds a key is listed.
+    backends = [
+      for b in var.llm_backend_config : {
+        backendId   = b.backend_id
+        backendType = b.backend_type
+        endpoint    = b.endpoint
+        authType    = local.effective_auth_type[b.backend_id]
+        authConfig  = { namedValueKey = try(b.auth_config.named_value_key, "") }
+        priority    = b.priority
+        weight      = b.weight
+        circuitBreaker = {
+          enabled          = b.circuit_breaker.enabled
+          failureCount     = b.circuit_breaker.failure_count
+          failureInterval  = b.circuit_breaker.failure_interval
+          tripDuration     = b.circuit_breaker.trip_duration
+          acceptRetryAfter = b.circuit_breaker.accept_retry_after
+          errorReasons     = b.circuit_breaker.error_reasons
+          statusCodeRanges = b.circuit_breaker.status_code_ranges
+        }
+        sessionAffinity = b.session_affinity == null ? {} : { for k, v in { cookieName = b.session_affinity.cookie_name, source = b.session_affinity.source } : k => v if v != null }
+        supportedModels = b.supported_models
+      }
+    ]
+    pools = [
+      for p in local.all_pools : {
+        poolName             = p.pool_name
+        poolType             = p.pool_type
+        authType             = p.auth_type
+        authConfigNamedValue = p.auth_config_named_value
+        supportedModels      = p.supported_models
+      }
+    ]
+  }
+
+  # jsonencode already escapes & < > as \u00xx, so the JSON is safe inside the XML body.
+  backend_contract_xml = replace(
+    file("${path.module}/templates/frag-backend-contract.xml"),
+    "//{backendContractJson}",
+    jsonencode(local.backend_contract)
   )
+}
+
+resource "azurerm_api_management_policy_fragment" "backend_contract" {
+  api_management_id = var.api_management_id
+  name              = "backend-contract"
+  format            = "rawxml"
+  description       = "Returns the active LLM backend routing contract (version, pools, backends) deployed on this gateway"
+  value             = local.backend_contract_xml
 }
 

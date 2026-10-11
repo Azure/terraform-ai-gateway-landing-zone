@@ -18,7 +18,7 @@
         - request-processor fragment: Uses api-types for API type detection and apiTypeOverrideBackend
         - set-response-headers fragment: References model and API information for debug headers
 
-        Note: The 'models' section is dynamically generated from llmBackendConfig during deployment.
+        Note: The 'models' section is dynamically generated from the LLM backends during deployment.
               The 'api-types', 'cache-settings', and 'timeout-settings' sections are static definitions.
     -->
     <set-variable name="metadata-config" value="@{return @"{
@@ -44,7 +44,8 @@
             'geminiopenai': {
                 'base-path': '/v1beta/openai',
                 'path-segment': '/v1beta/openai',
-                'api-version': 'v1beta'
+                'api-version': 'v1beta',
+                'compatible-pool-types': 'gemini-openai'
             },
             'openai': {
                 'base-path': '/openai',
@@ -54,46 +55,124 @@
             'inference': {
                 'base-path': '/models',
                 'path-segment': '/models',
-                'api-version': '2024-05-01-preview'
+                'api-version': '2024-05-01-preview',
+                // Universal-LLM-style inference endpoint. Allow OpenAI-compatible pools
+                // (Foundry inference, Azure OpenAI, AWS Bedrock Mantle, Gemini OpenAI-compat).
+                // Per-provider URL rewriting is handled by path-builder via
+                // backend-path-templates[poolType][operation] when poolType is one of the
+                // non-Foundry providers; ai-foundry/azure-openai keep the legacy
+                // {base-path}/chat/completions shape.
+                // Terraform port: `external` (a third-party OpenAI-compatible endpoint, whose
+                // endpoint carries its API root) is allowed on this surface too.
+                'compatible-pool-types': 'ai-foundry,azure-openai,aws-bedrock-mantle,gemini-openai,external'
             },
-            'bedrock': {
-                'base-path': '/model',
+            // Native API access via /<provider>/ prefix. Each one strips its own prefix and
+            // forwards the remainder of the path unchanged to the backend, then filters
+            // pool selection by 'compatible-pool-types' so only the matching native pool
+            // (e.g. aws-bedrock for /bedrock/, gemini for /gemini/, anthropic for /claude/)
+            // can serve the request even if other pools (e.g. aws-bedrock-mantle) advertise
+            // the same model name.
+            'bedrock-native': {
+                'base-path': '/bedrock',
                 'path-segment': '/model',
-                'api-version': 'bedrock-2024-04-15'
+                'api-version': 'bedrock-2024-04-15',
+                'compatible-pool-types': 'aws-bedrock'
+            },
+            'gemini-native': {
+                'base-path': '/gemini',
+                'path-segment': '/models',
+                'api-version': 'v1beta',
+                'compatible-pool-types': 'gemini'
+            },
+            'claude-native': {
+                'base-path': '/claude',
+                'path-segment': '/v1/messages',
+                'api-version': 'anthropic-2023-06-01',
+                'compatible-pool-types': 'anthropic'
             },
             'openai-compat': {
                 'base-path': '/v1',
                 'path-segment': '',
-                'api-version': 'v1'
+                'api-version': 'v1',
+                'compatible-pool-types': 'ai-foundry,azure-openai,aws-bedrock-mantle,gemini-openai,external'
+            },
+            // OpenAI-style images surface (/v1/images/generations, /v1/images/edits). The model
+            // is taken from the JSON body (generations) or the `x-ai-model` header (multipart
+            // edits). Longest base-path match ('/v1/images' > '/v1') guarantees image requests
+            // never collide with the chat-oriented 'openai-compat' api-type. Only image-capable
+            // pool types are allowed; the gpt-image family rides ai-foundry/azure-openai, while
+            // FLUX and MAI use the dedicated azure-flux / azure-mai pool types.
+            'image': {
+                'base-path': '/v1/images',
+                'path-segment': '',
+                'api-version': 'v1',
+                'compatible-pool-types': 'ai-foundry,azure-openai,azure-flux,azure-mai'
             }
         },
         'model-aliases': {
             //{modelAliasesCode}
         },
         'backend-path-templates': {
+            // ai-foundry / azure-openai use the v1 OpenAI-compatible endpoint family
+            // (`/openai/v1/...`). This endpoint accepts `api-version=v1` (which is
+            // what the `inference` and `openai-compat` api-types set), reads the
+            // model from the request body, and avoids the AOAI deployments path
+            // (`/openai/deployments/{model}/...`) that requires a real preview
+            // api-version (e.g. `2024-12-01-preview`). Keep `/openai/responses`
+            // for the Responses API which retains its own URL contract.
             'ai-foundry': {
-                'chat/completions': '/openai/deployments/{model}/chat/completions',
-                'embeddings': '/openai/deployments/{model}/embeddings',
-                'responses': '/openai/responses',
-                'images/generations': '/openai/deployments/{model}/images/generations',
-                'models': '/models'
+                'chat/completions': '/openai/v1/chat/completions',
+                'embeddings': '/openai/v1/embeddings',
+                'responses': '/openai/v1/responses',
+                'files': '/openai/v1/files',
+                'images/generations': '/openai/v1/images/generations',
+                'images/edits': '/openai/v1/images/edits',
+                'models': '/openai/v1/models'
             },
             'azure-openai': {
-                'chat/completions': '/openai/deployments/{model}/chat/completions',
-                'embeddings': '/openai/deployments/{model}/embeddings',
-                'responses': '/openai/responses',
-                'images/generations': '/openai/deployments/{model}/images/generations'
+                'chat/completions': '/openai/v1/chat/completions',
+                'embeddings': '/openai/v1/embeddings',
+                'responses': '/openai/v1/responses',
+                'files': '/openai/v1/files',
+                'images/generations': '/openai/v1/images/generations',
+                'images/edits': '/openai/v1/images/edits'
             },
             'aws-bedrock-mantle': {
                 'chat/completions': '/v1/chat/completions',
                 'responses': '/v1/responses',
                 'models': '/v1/models'
             },
+            // Terraform port: a third-party OpenAI-compatible endpoint. The endpoint of the backend
+            // carries the API root (e.g. https://api.partner.example.com/v1), so the paths are bare.
+            'external': {
+                'chat/completions': '/chat/completions',
+                'embeddings': '/embeddings',
+                'responses': '/responses',
+                'models': '/models'
+            },
             'gemini-openai': {
                 'chat/completions': '/v1beta/openai/chat/completions'
             },
             'aws-bedrock': {
                 'chat/completions': '/model/{model}/converse'
+            },
+            'anthropic': {
+                'chat/completions': '/v1/messages',
+                'messages': '/v1/messages'
+            },
+            // Black Forest Labs FLUX image models (native BFL surface). The {modelPath}
+            // placeholder is the BFL model slug (e.g. flux-2-pro) resolved from the model's
+            // `modelPath` metadata — it differs from the model name (FLUX.2-pro) and is set
+            // once at onboarding. path-builder injects api-version=preview for this pool type.
+            'azure-flux': {
+                'images/generations': '/providers/blackforestlabs/v1/{modelPath}',
+                'images/edits': '/providers/blackforestlabs/v1/{modelPath}'
+            },
+            // Microsoft MAI image models (native MAI surface). The model travels in the request
+            // body; no api-version query parameter is required.
+            'azure-mai': {
+                'images/generations': '/mai/v1/images/generations',
+                'images/edits': '/mai/v1/images/edits'
             }
         },
         'cache-settings': {

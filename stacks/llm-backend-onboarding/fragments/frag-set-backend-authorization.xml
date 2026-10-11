@@ -11,9 +11,11 @@
                    credentials.managedIdentity configured (handles token acquisition natively)
                  - managed-identity: Alias for native-backend-authorization (backward compat)
                  - aws-sigv4: AWS SigV4 signing in policy (cannot be done at backend resource level)
-                 - api-key-bearer / api-key-header: Static auth headers configured on the APIM
-                   backend resource (credentials.header); APIM substitutes {{namedValueKey}} with
-                   the secret when the backend is saved, so this fragment is a no-op for them.
+                 - api-key-bearer / api-key-header / api-key-anthropic / api-key-gemini:
+                   Static auth headers configured on the APIM Backend resource via
+                   `credentials.header` (built by modules/llm-routing). APIM substitutes
+                   `{{namedValueKey}}` to the actual secret on backend create/update,
+                   so this fragment is a no-op for these types.
                  - none: No auth (backend credentials configured on APIM backend resource)
                  
                  When skipBackendUrlRewrite is set (by request-processor for Unified AI API),
@@ -87,12 +89,24 @@
                     var host = uri.Host;
 
                     // Create canonical path
+                    // modelId may contain '/' (inference-profile ARNs, e.g.
+                    // arn:aws:bedrock:eu-north-1:123:inference-profile/eu.amazon.nova-lite-v1:0).
+                    // APIM decodes any %2F in Url.Path back to '/', so we cannot rely on the
+                    // first '/' after "model/" to find the modelId boundary. The Bedrock
+                    // operation suffix (converse|converse-stream|invoke|invoke-with-response-stream)
+                    // is always the LAST path segment, so split on the last '/' instead.
+                    // The raw modelId is then percent-encoded (so ':' -> %3A, '/' -> %2F) per
+                    // AWS SigV4 canonical URI rules and the AWS Bedrock REST contract that
+                    // treats {modelId} as a single path parameter.
                     var path = uri.Path;
                     var modelSplit = path.Split(new[] { "model/" }, 2, StringSplitOptions.None);
                     var afterModel = modelSplit.Length > 1 ? modelSplit[1] : "";
-                    var parts = afterModel.Split(new[] { '/' }, 2);
-                    var model = System.Uri.EscapeDataString(parts[0]);
-                    var remainder = parts.Length > 1 ? parts[1] : "";
+                    var lastSlash = afterModel.LastIndexOf('/');
+                    var rawModel = lastSlash > 0 ? afterModel.Substring(0, lastSlash) : afterModel;
+                    var remainder = lastSlash > 0 ? afterModel.Substring(lastSlash + 1) : "";
+                    // Decode first (handles already-encoded inputs), then re-encode so any
+                    // embedded '/' or ':' inside the modelId is percent-encoded.
+                    var model = System.Uri.EscapeDataString(System.Uri.UnescapeDataString(rawModel));
                     var canonicalPath = $"/model/{model}/{remainder}";
 
                     var amzDate = ((DateTime)context.Variables["now"]).ToString("yyyyMMddTHHmmssZ");
@@ -202,11 +216,11 @@
                 <value>@(context.Request.Url.Host)</value>
             </set-header>
         </when>
-        <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-bearer" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-header")">
-            <!-- Static-key auth is configured natively on the APIM backend resource
-                 (credentials.header, built by modules/llm-routing): APIM substitutes
-                 {{namedValueKey}} with the secret when the backend is saved, so no policy
-                 expression is needed (and none may overwrite that header). -->
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-bearer" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-header" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-anthropic" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-gemini")">
+            <!-- All static-key auth types are configured natively on the APIM Backend
+                 resource (credentials.header, built by modules/llm-routing). APIM substitutes
+                 `{{namedValueKey}}` to the actual secret when the backend is created/
+                 updated, so no policy expression is needed here. -->
         </when>
         <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "none")">
             <!-- No auth: backend credentials configured on APIM backend resource -->
@@ -224,14 +238,51 @@
         <when condition="@(context.Variables.GetValueOrDefault<string>("targetPoolType", "") == "azure-openai")">
             <set-variable name="rewriteTemplate" value="@{
                 string requestedModel = (string)context.Variables["requestedModel"];
-                string path = context.Request.Url.Path.TrimStart('/');
+                // Derive from context.Request.OriginalUrl.Path (the IMMUTABLE original request
+                // path) rather than context.Request.Url.Path, because APIM's Url.Path DOES reflect
+                // prior <rewrite-uri> calls. When this fragment re-runs during an alias-fallback
+                // retry hop, reading the already-rewritten Url.Path and re-prepending the backend
+                // prefix stacks the segment (e.g. 'openai/openai/deployments/...' or
+                // 'models/models/chat/completions') -> backend 404. OriginalUrl.Path + API-prefix
+                // strip keeps the rewrite idempotent across re-runs.
+                string apiPath = (context.Api.Path ?? "").Trim('/');
+                string path = context.Request.OriginalUrl.Path.TrimStart('/');
+                if (!string.IsNullOrEmpty(apiPath))
+                {
+                    if (path.StartsWith(apiPath + "/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        path = path.Substring(apiPath.Length + 1);
+                    }
+                    else if (path.Equals(apiPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        path = "";
+                    }
+                }
                 return string.Format("openai/deployments/{0}/{1}", requestedModel, path);
             }" />
             <rewrite-uri template="@((string)context.Variables["rewriteTemplate"])" copy-unmatched-params="true" />
         </when>
         <when condition="@(context.Variables.GetValueOrDefault<string>("targetPoolType", "") == "ai-foundry")">
             <set-variable name="rewriteTemplate" value="@{
-                string path = context.Request.Url.Path.TrimStart('/');
+                // Derive from context.Request.OriginalUrl.Path (the IMMUTABLE original request
+                // path) rather than context.Request.Url.Path, because APIM's Url.Path DOES reflect
+                // prior <rewrite-uri> calls. When this fragment re-runs during an alias-fallback
+                // retry hop, reading the already-rewritten Url.Path and re-prepending 'models/'
+                // stacks the segment (e.g. 'models/models/chat/completions') -> backend 404.
+                // OriginalUrl.Path + API-prefix strip keeps the rewrite idempotent across re-runs.
+                string apiPath = (context.Api.Path ?? "").Trim('/');
+                string path = context.Request.OriginalUrl.Path.TrimStart('/');
+                if (!string.IsNullOrEmpty(apiPath))
+                {
+                    if (path.StartsWith(apiPath + "/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        path = path.Substring(apiPath.Length + 1);
+                    }
+                    else if (path.Equals(apiPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        path = "";
+                    }
+                }
                 string lowerPath = path.ToLowerInvariant();
 
                 // If path contains "responses", use /openai/v1/{path}
@@ -255,6 +306,43 @@
 
                 // Catch-all: /openai/v1/{path}
                 return string.Format("openai/v1/{0}", path);
+            }" />
+            <rewrite-uri template="@((string)context.Variables["rewriteTemplate"])" copy-unmatched-params="true" />
+        </when>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetPoolType", "") == "gemini-openai")">
+            <!-- Universal LLM API → Gemini OpenAI-compat path: /v1beta/openai/{op} -->
+            <!-- Gemini's OpenAI-compat surface rejects the Azure-style `api-version` query
+                 parameter ("Unknown name 'api-version'"). Strip it before rewriting so
+                 copy-unmatched-params="true" doesn't re-attach the client's value. -->
+            <set-query-parameter name="api-version" exists-action="delete" />
+            <set-variable name="rewriteTemplate" value="@{
+                string path = context.Request.Url.Path.TrimStart('/');
+                string lowerPath = path.ToLowerInvariant();
+                int idx = lowerPath.IndexOf("chat/completions");
+                if (idx >= 0) { return "v1beta/openai/chat/completions"; }
+                idx = lowerPath.IndexOf("embeddings");
+                if (idx >= 0) { return "v1beta/openai/embeddings"; }
+                idx = lowerPath.IndexOf("models");
+                if (idx >= 0) { return "v1beta/openai/models"; }
+                return string.Format("v1beta/openai/{0}", path);
+            }" />
+            <rewrite-uri template="@((string)context.Variables["rewriteTemplate"])" copy-unmatched-params="true" />
+        </when>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetPoolType", "") == "aws-bedrock-mantle")">
+            <!-- Universal LLM API → AWS Bedrock Mantle (OpenAI-compat) path: /v1/{op} -->
+            <!-- Bedrock's OpenAI-compat surface does not consume `api-version`. Strip it so
+                 the forwarded URL stays clean. -->
+            <set-query-parameter name="api-version" exists-action="delete" />
+            <set-variable name="rewriteTemplate" value="@{
+                string path = context.Request.Url.Path.TrimStart('/');
+                string lowerPath = path.ToLowerInvariant();
+                int idx = lowerPath.IndexOf("chat/completions");
+                if (idx >= 0) { return "v1/chat/completions"; }
+                idx = lowerPath.IndexOf("responses");
+                if (idx >= 0) { return "v1/responses"; }
+                idx = lowerPath.IndexOf("models");
+                if (idx >= 0) { return "v1/models"; }
+                return string.Format("v1/{0}", path);
             }" />
             <rewrite-uri template="@((string)context.Variables["rewriteTemplate"])" copy-unmatched-params="true" />
         </when>

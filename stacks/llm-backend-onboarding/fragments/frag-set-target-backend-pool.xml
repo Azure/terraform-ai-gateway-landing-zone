@@ -3,20 +3,251 @@
         Fragment: Set Target Backend Pool
         Purpose: Determines which backend pool to route the request to based on the requested model and access permissions.
                  Supports API-type override for Unified AI API where the api-type config defines an explicit backend.
-        
+                 Also handles MODEL ALIAS resolution: when `requestedModel` matches an alias entry inside
+                 `backendPools` (entries with `isAlias=true`), the alias is resolved to one of its underlying
+                 members based on the configured strategy (`priority` or `weighted`). The resolution honours
+                 `compatiblePoolTypes` so an alias spanning native + OpenAI-compat surfaces only resolves to
+                 a member whose underlying pool is compatible with the inbound API surface. The picked
+                 member's pool becomes `targetBackendPool` directly — no second model→pool lookup is needed.
+
         Expected Input Variables:
-        - requestedModel: The model name extracted from the request payload
+        - requestedModel: The model name extracted from the request payload (may be a real model OR an alias name)
         - defaultBackendPool: Default backend pool to use when model is not mapped (empty string = error for unmapped models)
         - allowedBackendPools: Comma-separated list of allowed backend pool IDs (empty string = all pools allowed)
-        - backendPools: JArray containing all backend pool configurations
+        - backendPools: JArray containing all backend pool configurations (real pools + alias virtual pools)
+        - compatiblePoolTypes: Optional CSV of pool types this API surface can route to (e.g. `aws-bedrock` for /bedrock,
+                               `azure-openai,ai-foundry,aws-bedrock-mantle,gemini-openai` for OpenAI-compat surfaces).
         - apiTypeOverrideBackend (optional): When set by request-processor, bypasses pool matching and uses this backend directly
-        
+
         Output Variables:
-        - targetBackendPool: The selected backend pool name or error code (ERROR_NO_MODEL, ERROR_NO_ALLOWED_POOLS)
+        - targetBackendPool: The selected backend pool name or error code (ERROR_NO_MODEL, ERROR_MODEL_NOT_SUPPORTED, ERROR_NO_ALLOWED_POOLS, ERROR_ALIAS_NO_COMPATIBLE_MEMBER)
         - targetPoolType: The type of the selected backend pool (e.g., "azure-openai", "ai-foundry", "api-type-override")
         - targetAuthType: The authentication type required for the selected backend pool.
+        - targetAuthConfigNamedValue: APIM named-value key (informational; api-key auth is configured natively on the backend resource).
+        - is-alias: True when the request was made through an alias name; false otherwise.
+        - original-model-alias: Alias name when `is-alias=true`; empty string otherwise.
+        - alias-fallback-members: JArray of remaining alias members the API policy retry block can walk on 429/5xx.
+                                  Each entry: { model, weight, poolName, poolType, authType, authConfigNamedValue }.
+        - alias-models: JArray of every model name participating in the alias (in resolution order). Kept for
+                        backward compatibility with downstream code that consumed this from the legacy
+                        `resolve-model-alias` fragment. The picked model is at index 0; fallback members follow.
     -->
-    
+
+    <!-- Initialize alias tracking variables to safe defaults so downstream fragments
+         (resolve-model-alias body rewrite, set-response-headers, set-llm-usage, retry blocks)
+         can read them unconditionally. -->
+    <set-variable name="is-alias" value="@(false)" />
+    <set-variable name="original-model-alias" value="" />
+    <set-variable name="alias-fallback-members" value="@(new JArray())" />
+    <set-variable name="alias-models" value="@(new JArray())" />
+
+    <!-- ========================================================================
+         STEP 1 — Alias short-circuit
+         If `requestedModel` matches an alias virtual pool entry (isAlias=true), pre-resolve
+         a member + its underlying pool here so the rest of this fragment skips the regular
+         model→pool match. The resolution honours `compatiblePoolTypes` so cross-provider
+         aliases only consider members compatible with the current API surface.
+         ======================================================================== -->
+    <set-variable name="alias-resolution" value="@{
+        var requestedModel = context.Variables.GetValueOrDefault<string>("requestedModel", "");
+        var backendPools = context.Variables.GetValueOrDefault<JArray>("backendPools");
+        if (string.IsNullOrEmpty(requestedModel) || requestedModel == "non-llm-request" || backendPools == null) {
+            return null;
+        }
+
+        // Find the alias entry whose aliasName == requestedModel.
+        JObject aliasPool = null;
+        foreach (JObject pool in backendPools) {
+            var isAliasFlag = pool["isAlias"];
+            if (isAliasFlag != null && isAliasFlag.Type == JTokenType.Boolean && isAliasFlag.Value<bool>()) {
+                var aliasName = pool["aliasName"]?.ToString();
+                if (string.Equals(aliasName, requestedModel, StringComparison.OrdinalIgnoreCase)) {
+                    aliasPool = pool;
+                    break;
+                }
+            }
+        }
+        if (aliasPool == null) { return null; }
+
+        var members = aliasPool["members"] as JArray;
+        if (members == null || members.Count == 0) { return null; }
+
+        // Optional pool-type filter from the inbound api-type (e.g. /bedrock/* → only aws-bedrock pools).
+        var compatibleCsv = context.Variables.GetValueOrDefault<string>("compatiblePoolTypes", "");
+        var compatibleSet = string.IsNullOrWhiteSpace(compatibleCsv)
+            ? null
+            : compatibleCsv.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+
+        // For each member, pick the FIRST underlying pool whose poolType is compatible with this surface.
+        // Drop members that have no compatible pool — they aren't routable here.
+        var resolved = new List<JObject>();
+        foreach (JObject m in members) {
+            var pools = m["pools"] as JArray;
+            if (pools == null || pools.Count == 0) { continue; }
+            JObject pickedPool = null;
+            foreach (JObject p in pools) {
+                var pt = p["poolType"]?.ToString() ?? "";
+                if (compatibleSet == null || compatibleSet.Contains(pt, StringComparer.OrdinalIgnoreCase)) {
+                    pickedPool = p;
+                    break;
+                }
+            }
+            if (pickedPool == null) { continue; }
+
+            var entry = new JObject();
+            entry["model"] = m["model"]?.ToString() ?? "";
+            entry["weight"] = m["weight"]?.Type == JTokenType.Integer ? m["weight"].Value<int>() : 1;
+            entry["poolName"] = pickedPool["poolName"]?.ToString() ?? "";
+            entry["poolType"] = pickedPool["poolType"]?.ToString() ?? "";
+            entry["authType"] = pickedPool["authType"]?.ToString() ?? "";
+            entry["authConfigNamedValue"] = pickedPool["authConfigNamedValue"]?.ToString() ?? "";
+            resolved.Add(entry);
+        }
+
+        // Apply strategy.
+        var strategy = aliasPool["strategy"]?.ToString() ?? "priority";
+        int pickedIdx = 0;
+        if (resolved.Count > 1 && strategy.Equals("weighted", StringComparison.OrdinalIgnoreCase)) {
+            int total = 0;
+            foreach (var r in resolved) { total += r["weight"].Value<int>(); }
+            if (total > 0) {
+                int draw = new Random().Next(0, total);
+                int cum = 0;
+                for (int i = 0; i < resolved.Count; i++) {
+                    cum += resolved[i]["weight"].Value<int>();
+                    if (draw < cum) { pickedIdx = i; break; }
+                }
+            }
+        }
+        // else priority — pickedIdx stays 0 (first member wins)
+
+        // Build fallback list = remaining members starting after the picked one, then wrap around.
+        // This gives weighted picks a sensible deterministic walk after the random pick.
+        var fallback = new JArray();
+        if (resolved.Count > 0) {
+            for (int i = pickedIdx + 1; i < resolved.Count; i++) { fallback.Add(resolved[i]); }
+            for (int i = 0; i < pickedIdx; i++) { fallback.Add(resolved[i]); }
+        }
+
+        // Flat list of model names in resolution order (legacy `alias-models` shape).
+        var aliasModelNames = new JArray();
+        if (resolved.Count > 0) { aliasModelNames.Add(resolved[pickedIdx]["model"].ToString()); }
+        foreach (JObject f in fallback) { aliasModelNames.Add(f["model"].ToString()); }
+
+        var result = new JObject();
+        result["aliasName"] = aliasPool["aliasName"]?.ToString() ?? requestedModel;
+        result["picked"] = resolved.Count > 0 ? resolved[pickedIdx] : null;
+        result["fallback"] = fallback;
+        result["aliasModels"] = aliasModelNames;
+        result["totalMembers"] = members.Count;
+        result["compatibleCount"] = resolved.Count;
+        return result;
+    }" />
+
+    <!-- Alias resolved AND has at least one compatible member: set targeting variables and skip
+         the regular model→pool match below by setting `targetBackendPool` directly. -->
+    <choose>
+        <when condition="@{
+            var ar = context.Variables.GetValueOrDefault<JObject>("alias-resolution");
+            return ar != null && ar["picked"] != null && ar["picked"].Type != JTokenType.Null;
+        }">
+            <set-variable name="is-alias" value="@(true)" />
+            <set-variable name="original-model-alias" value="@(((JObject)context.Variables["alias-resolution"])["aliasName"].ToString())" />
+            <set-variable name="requestedModel" value="@(((JObject)((JObject)context.Variables["alias-resolution"])["picked"])["model"].ToString())" />
+            <set-variable name="targetBackendPool" value="@(((JObject)((JObject)context.Variables["alias-resolution"])["picked"])["poolName"].ToString())" />
+            <set-variable name="targetPoolType" value="@(((JObject)((JObject)context.Variables["alias-resolution"])["picked"])["poolType"].ToString())" />
+            <set-variable name="targetAuthType" value="@{
+                var entry = (JObject)((JObject)context.Variables["alias-resolution"])["picked"];
+                var authType = entry["authType"]?.ToString() ?? "";
+                if (!string.IsNullOrEmpty(authType)) { return authType; }
+                var poolType = entry["poolType"]?.ToString() ?? "";
+                // Mirror the fallback in the regular model-match branch below.
+                if (poolType == "ai-foundry" || poolType == "azure-openai") { return "native-backend-authorization"; }
+                if (poolType == "aws-bedrock") { return "aws-sigv4"; }
+                if (poolType == "aws-bedrock-mantle" || poolType == "gemini-openai") { return "api-key-bearer"; }
+                if (poolType == "gemini") { return "api-key-gemini"; }
+                if (poolType == "anthropic") { return "api-key-anthropic"; }
+                if (poolType == "external") { return "none"; }
+                return "native-backend-authorization";
+            }" />
+            <set-variable name="targetAuthConfigNamedValue" value="@(((JObject)((JObject)context.Variables["alias-resolution"])["picked"])["authConfigNamedValue"].ToString())" />
+            <set-variable name="alias-fallback-members" value="@(((JArray)((JObject)context.Variables["alias-resolution"])["fallback"]))" />
+            <set-variable name="alias-models" value="@(((JArray)((JObject)context.Variables["alias-resolution"])["aliasModels"]))" />
+
+            <!-- Body rewrite: replace the alias name in the JSON body's `model` field with the
+                 resolved real model name so the backend sees the underlying model, not the alias.
+                 Done here (not in `resolve-model-alias`) so that callers whose API policy still
+                 includes `resolve-model-alias` BEFORE `set-target-backend-pool` (the legacy order)
+                 still get a correct body — the alias resolution and the body rewrite live in the
+                 same fragment now. Safe to repeat: the post-resolution `resolve-model-alias`
+                 fragment, when invoked after this one, sees `body.model == requestedModel` and
+                 rewrites it to the same value (no-op). Skip for GET/DELETE (no body). -->
+            <choose>
+                <when condition="@(context.Request.Method != &quot;GET&quot; &amp;&amp; context.Request.Method != &quot;DELETE&quot;)">
+                    <set-body>@{
+                        try {
+                            var bodyText = context.Request.Body.As<string>(preserveContent: true);
+                            if (string.IsNullOrEmpty(bodyText)) { return bodyText; }
+                            var body = JObject.Parse(bodyText);
+                            if (body["model"] != null) {
+                                body["model"] = (string)context.Variables["requestedModel"];
+                                return body.ToString();
+                            }
+                            return bodyText;
+                        } catch {
+                            return context.Request.Body.As<string>(preserveContent: true);
+                        }
+                    }</set-body>
+                </when>
+            </choose>
+
+            <trace source="Set-Target-Backend-Pool" severity="information">
+                <message>@($"Alias '{context.Variables.GetValueOrDefault<string>("original-model-alias", "")}' resolved → model='{context.Variables.GetValueOrDefault<string>("requestedModel", "")}' pool='{context.Variables.GetValueOrDefault<string>("targetBackendPool", "")}' poolType='{context.Variables.GetValueOrDefault<string>("targetPoolType", "")}' authType='{context.Variables.GetValueOrDefault<string>("targetAuthType", "")}' fallbackMembers={((JArray)context.Variables["alias-fallback-members"]).Count}")</message>
+            </trace>
+        </when>
+        <when condition="@{
+            var ar = context.Variables.GetValueOrDefault<JObject>("alias-resolution");
+            return ar != null && (ar["picked"] == null || ar["picked"].Type == JTokenType.Null);
+        }">
+            <!-- Alias name was matched but every member was filtered out by compatiblePoolTypes.
+                 Return a useful 400 so the caller knows the alias exists but isn't routable from
+                 this API surface (e.g. calling `/claude/v1/messages` with a Bedrock-only alias). -->
+            <return-response>
+                <set-status code="400" reason="Bad Request" />
+                <set-header name="Content-Type" exists-action="override">
+                    <value>application/json</value>
+                </set-header>
+                <set-body>@{
+                    var ar = (JObject)context.Variables["alias-resolution"];
+                    var aliasName = ar["aliasName"].ToString();
+                    var compatibleCsv = context.Variables.GetValueOrDefault<string>("compatiblePoolTypes", "");
+                    return new JObject(
+                        new JProperty("error", new JObject(
+                            new JProperty("message", $"Model alias '{aliasName}' has no member compatible with this API surface (compatible pool types: {compatibleCsv}). Use a different inbound API (for example a native /bedrock, /gemini, or /claude path on the Unified AI API), or add a compatible member model to the alias definition."),
+                            new JProperty("type", "invalid_request_error"),
+                            new JProperty("code", "alias_no_compatible_member"),
+                            new JProperty("alias", aliasName),
+                            new JProperty("compatible_pool_types", compatibleCsv),
+                            new JProperty("total_members", ar["totalMembers"]?.Value<int>() ?? 0)
+                        ))
+                    ).ToString();
+                }</set-body>
+            </return-response>
+        </when>
+        <otherwise>
+            <!-- Not an alias — fall through to regular model→pool match below. -->
+        </otherwise>
+    </choose>
+
+    <!-- ========================================================================
+         STEP 2 — Regular model→pool match (skipped when alias short-circuit fired)
+         ======================================================================== -->
+    <choose>
+        <when condition="@(context.Variables.GetValueOrDefault<bool>("is-alias", false))">
+            <!-- Alias path already populated targetBackendPool / targetPoolType / targetAuthType.
+                 Skip the regular pool matching below. -->
+        </when>
+        <otherwise>
     <!-- Determine target backend pool based on requested model and RBAC permissions -->
     <set-variable name="targetBackendPool" value="@{
         string requestedModel = context.Variables.GetValueOrDefault<string>("requestedModel", "");
@@ -37,16 +268,32 @@
         
         string defaultBackendPool = context.Variables.GetValueOrDefault<string>("defaultBackendPool", "");
         string allowedBackendPools = context.Variables.GetValueOrDefault<string>("allowedBackendPools", "");
+        // Optional pool-type filter (set by request-processor for native-prefix api-types so /bedrock/
+        // requests cannot accidentally route to an aws-bedrock-mantle pool that happens to advertise the
+        // same model name).
+        string compatiblePoolTypesCsv = context.Variables.GetValueOrDefault<string>("compatiblePoolTypes", "");
+        var compatiblePoolTypes = string.IsNullOrWhiteSpace(compatiblePoolTypesCsv)
+            ? null
+            : compatiblePoolTypesCsv.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
         JArray backendPools = (JArray)context.Variables["backendPools"];
 
         var allowedPools = string.IsNullOrWhiteSpace(allowedBackendPools)
             ? null
             : allowedBackendPools.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
 
-        // Find all backend pools that support the requested model
+        // Find all backend pools that support the requested model.
+        // Skip alias virtual pools — they are matched by the alias short-circuit at the top of this fragment.
         List<JObject> matchingPools = new List<JObject>();
         foreach (JObject pool in backendPools)
         {
+            var isAliasFlag = pool["isAlias"];
+            if (isAliasFlag != null && isAliasFlag.Type == JTokenType.Boolean && isAliasFlag.Value<bool>()) { continue; }
+            // Apply api-type pool-type filter first (e.g., /bedrock/ → only aws-bedrock pools)
+            if (compatiblePoolTypes != null)
+            {
+                var poolType = pool["poolType"]?.ToString() ?? "";
+                if (!compatiblePoolTypes.Contains(poolType, StringComparer.OrdinalIgnoreCase)) { continue; }
+            }
             JArray supportedModels = (JArray)pool["supportedModels"];
             if (supportedModels.Any(model => model.ToString().Equals(requestedModel, StringComparison.OrdinalIgnoreCase)))
             {
@@ -89,8 +336,16 @@
             return defaultBackendPool;
         }
         
-        // No matching pools and no default - error
-        return "ERROR_NO_MODEL";
+        // No matching pools and no default. Distinguish the two failure modes so the
+        // caller gets a useful error:
+        //   - empty requestedModel  → request never supplied a model parameter
+        //   - non-empty             → model was supplied but no pool in the gateway
+        //                             advertises it (different from RBAC-denied)
+        if (string.IsNullOrWhiteSpace(requestedModel))
+        {
+            return "ERROR_NO_MODEL";
+        }
+        return "ERROR_MODEL_NOT_SUPPORTED";
     }" />
 
     <!-- Validate target backend pool and return appropriate error response if needed -->
@@ -126,10 +381,59 @@
                         <set-body>@{
                             string requestedModel = (string)context.Variables["requestedModel"];
                             JArray backendPools = (JArray)context.Variables["backendPools"];
+                            string compatiblePoolTypesCsv = context.Variables.GetValueOrDefault<string>("compatiblePoolTypes", "");
+                            var compatiblePoolTypes = string.IsNullOrWhiteSpace(compatiblePoolTypesCsv)
+                                ? null
+                                : compatiblePoolTypesCsv.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToArray();
+
+                            // Models advertised on the *current* API surface (filtered by compatiblePoolTypes
+                            // when the inbound API restricts which pool types it can route to). Only these are
+                            // genuinely callable from this surface — listing every gateway model would falsely
+                            // imply support for native-only models on the OpenAI-compat surface and vice versa.
+                            // Skip alias virtual pools when listing models — they always advertise their alias
+                            // name as the only "supportedModel" and live in pools whose poolType is the marker
+                            // string `alias` (not in compatiblePoolTypes), so they would be excluded anyway.
                             JArray supportedModels = new JArray();
-                            
+                            JArray availableAliases = new JArray();
                             foreach (JObject pool in backendPools)
                             {
+                                var isAliasFlag = pool["isAlias"];
+                                bool isAlias = isAliasFlag != null && isAliasFlag.Type == JTokenType.Boolean && isAliasFlag.Value<bool>();
+                                if (isAlias)
+                                {
+                                    // Include alias if at least one of its members has a compatible pool.
+                                    if (compatiblePoolTypes != null)
+                                    {
+                                        bool anyCompatible = false;
+                                        var members = pool["members"] as JArray;
+                                        if (members != null)
+                                        {
+                                            foreach (JObject m in members)
+                                            {
+                                                var mPools = m["pools"] as JArray;
+                                                if (mPools == null) { continue; }
+                                                foreach (JObject p in mPools)
+                                                {
+                                                    var pt = p["poolType"]?.ToString() ?? "";
+                                                    if (compatiblePoolTypes.Contains(pt, StringComparer.OrdinalIgnoreCase)) { anyCompatible = true; break; }
+                                                }
+                                                if (anyCompatible) { break; }
+                                            }
+                                        }
+                                        if (anyCompatible) { availableAliases.Add(pool["aliasName"]?.ToString() ?? ""); }
+                                    }
+                                    else
+                                    {
+                                        availableAliases.Add(pool["aliasName"]?.ToString() ?? "");
+                                    }
+                                    continue;
+                                }
+
+                                if (compatiblePoolTypes != null)
+                                {
+                                    var poolType = pool["poolType"]?.ToString() ?? "";
+                                    if (!compatiblePoolTypes.Contains(poolType, StringComparer.OrdinalIgnoreCase)) { continue; }
+                                }
                                 foreach (var model in (JArray)pool["supportedModels"])
                                 {
                                     if (!supportedModels.Contains(model))
@@ -138,16 +442,44 @@
                                     }
                                 }
                             }
-                            
-                            return new JObject(
+
+                            // If the model exists in a pool that is incompatible with this API surface,
+                            // tell the caller — otherwise they see their model in the gateway's full catalog
+                            // (e.g. via GET /models/models) and assume the rejection is a bug.
+                            JArray incompatiblePools = new JArray();
+                            if (compatiblePoolTypes != null)
+                            {
+                                foreach (JObject pool in backendPools)
+                                {
+                                    var isAliasFlag = pool["isAlias"];
+                                    bool isAlias = isAliasFlag != null && isAliasFlag.Type == JTokenType.Boolean && isAliasFlag.Value<bool>();
+                                    if (isAlias) { continue; }
+                                    var poolType = pool["poolType"]?.ToString() ?? "";
+                                    if (compatiblePoolTypes.Contains(poolType, StringComparer.OrdinalIgnoreCase)) { continue; }
+                                    var hosts = (JArray)pool["supportedModels"];
+                                    if (hosts.Any(m => m.ToString().Equals(requestedModel, StringComparison.OrdinalIgnoreCase)))
+                                    {
+                                        incompatiblePools.Add(poolType);
+                                    }
+                                }
+                            }
+
+                            string message = incompatiblePools.Count > 0
+                                ? $"Model '{requestedModel}' is not available on this API surface (compatible pool types: {compatiblePoolTypesCsv}). It is hosted by pool type(s) [{string.Join(", ", incompatiblePools.Select(p => p.ToString()))}] which require a different API surface (for example a native /bedrock, /gemini, or /claude path on the Unified AI API). Models available on this surface: {string.Join(", ", supportedModels.Select(m => m.ToString()))}"
+                                : $"Model '{requestedModel}' is not supported. Supported models: {string.Join(", ", supportedModels.Select(m => m.ToString()))}";
+
+
+                            var errorBody = new JObject(
                                 new JProperty("error", new JObject(
-                                    new JProperty("message", $"Model '{requestedModel}' is not supported. Supported models: {string.Join(", ", supportedModels.Select(m => m.ToString()))}"),
+                                    new JProperty("message", message),
                                     new JProperty("type", "invalid_request_error"),
-                                    new JProperty("code", "unsupported_model"),
+                                    new JProperty("code", incompatiblePools.Count > 0 ? "model_not_available_on_this_surface" : "unsupported_model"),
                                     new JProperty("param", "model"),
-                                    new JProperty("supported_models", supportedModels)
+                                    new JProperty("supported_models", supportedModels),
+                                    new JProperty("incompatible_pool_types", incompatiblePools)
                                 ))
-                            ).ToString();
+                            );
+                            return errorBody.ToString();
                         }</set-body>
                     </return-response>
                 </when>
@@ -242,6 +574,8 @@
                     if (poolType == "ai-foundry" || poolType == "azure-openai") { return "native-backend-authorization"; }
                     if (poolType == "aws-bedrock") { return "aws-sigv4"; }
                     if (poolType == "aws-bedrock-mantle" || poolType == "gemini-openai") { return "api-key-bearer"; }
+                    if (poolType == "gemini") { return "api-key-gemini"; }
+                    if (poolType == "anthropic") { return "api-key-anthropic"; }
                     if (poolType == "external") { return "none"; }
                     return "native-backend-authorization";
                 }
@@ -268,4 +602,6 @@
         }
         return "";
     }" />
+        </otherwise>
+    </choose>
 </fragment>

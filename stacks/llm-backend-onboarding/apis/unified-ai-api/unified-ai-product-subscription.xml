@@ -1,6 +1,7 @@
 <policies>
     <inbound>
         <base />
+        <set-variable name="enableResponseHeaders" value="@(true)" />
         <!-- Product access validation - ensure access is through valid product -->
         <choose>
             <when condition="@(context.Product == null)">

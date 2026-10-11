@@ -1,0 +1,149 @@
+<fragment>
+    <!--
+        Fragment: Raise Alert Events (comprehensive gateway alerting)
+        Purpose:  Emits a single Application Insights custom metric ("AI Gateway Alert" in the
+                  "ai-gateway-alerts" namespace) for a curated set of service-impacting events so
+                  that teams can build targeted Azure Monitor alert rules. Supersedes the
+                  throttling-only "raise-throttling-events" fragment.
+
+        Design goals:
+        - LOW NOISE / OPT-IN: alerting is per-category and per-scope. Platform-health categories
+          (throttling, backend failures) default ON; client-driven categories (auth, content-safety,
+          PII) default OFF and are opted-in per access contract (product) for mission-critical use cases.
+        - SINGLE METRIC, MANY ALERTS: one metric with an "alertType" dimension lets you slice/alert
+          per category, product, model, backend, and app without emitting many metric names.
+
+        Two modes (auto-detect):
+        1. AUTO mode (default): include in the <outbound> and <on-error> sections. The alert type is
+           derived from context.Response.StatusCode and context.LastError. Captures:
+             - throttling      : 429 (llm-token-limit tokens-per-minute / backend rate limit)
+             - quota-exceeded  : 403 token-quota exhaustion (llm-token-limit, "AITokenQuotaExceeded")
+             - backend-failure : 5xx from the backend / backend connectivity errors
+             - content-safety  : llm-content-safety block (context.LastError.Source ~ content-safety)
+             - pii-failure     : PII anonymization failure (fail-closed 502)
+             - auth-failure    : validate-jwt failures that reach on-error
+        2. EXPLICIT mode: set "alertEventType" (and optionally "alertEventStatus") BEFORE including the
+           fragment (from a NON-fragment policy scope — a fragment cannot include another fragment).
+           NOTE: authorization rejections that short-circuit via <return-response> from WITHIN a
+           fragment (security-handler, validate-model-access) cannot include this fragment; they emit
+           an equivalent inline <emit-metric> at the point of rejection instead.
+
+        Configuration variables (set at API level or in the access contract / product policy):
+        - alertsEnabled        (default "true")  : master kill-switch. Set "false" to suppress ALL alerts.
+        - alertOnThrottling    (default "true")  : emit for 429 throttling events (TPM rate limit).
+        - alertOnQuotaExceeded (default "true")  : emit for 403 token-quota exhaustion.
+        - alertOnBackendFailure(default "true")  : emit for 5xx backend failures.
+        - alertOnAuthFailure   (default "false") : emit for 401/403 authorization failures.
+        - alertOnContentSafety (default "false") : emit for content-safety blocks.
+        - alertOnPiiFailure    (default "false") : emit for PII anonymization failures.
+
+        Emitted dimensions (emit-metric supports at most 5 custom dimensions): alertType, statusCode,
+        productName, deploymentName, backendId.
+
+        NOTE: backendId uses the value-based `selected-backend` variable rather than the predefined
+              "Backend ID" dimension, because that predefined dimension is only valid in the OUTBOUND
+              section and this fragment also runs in on-error. It is "NA" when routing hasn't run yet
+              (e.g. an auth failure before backend selection).
+
+        NOTE: deploymentName can be high-cardinality; excessive cardinality increases custom
+              metric cost. Keep opt-in categories scoped to the use cases that truly need them.
+    -->
+    <choose>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("alert-event-emitted", "false") != "true")">
+
+            <!-- Resolve the alert type: explicit override (set by caller) wins, otherwise derive it. -->
+            <set-variable name="_alertType" value="@{
+                var explicitType = context.Variables.GetValueOrDefault<string>("alertEventType", "");
+                if (!string.IsNullOrEmpty(explicitType)) { return explicitType; }
+
+                int sc = context.Response?.StatusCode ?? 0;
+                string src = context.LastError?.Source ?? "";
+                string reason = context.LastError?.Reason ?? "";
+                string msg = context.LastError?.Message ?? "";
+
+                // Source-based classification takes precedence over raw status code
+                if (src.IndexOf("content-safety", StringComparison.OrdinalIgnoreCase) >= 0) { return "content-safety"; }
+                if (src.IndexOf("pii", StringComparison.OrdinalIgnoreCase) >= 0
+                    || reason.IndexOf("PIIAnonymization", StringComparison.OrdinalIgnoreCase) >= 0
+                    || msg.IndexOf("PIIAnonymization", StringComparison.OrdinalIgnoreCase) >= 0) { return "pii-failure"; }
+
+                // Token QUOTA exhaustion returns 403 (llm-token-limit token-quota), classified by APIM
+                // as "AITokenQuotaExceeded". Detect it BEFORE the generic 403 -> auth-failure mapping.
+                // On-error path: context.LastError.Reason carries the classification. Outbound path:
+                // fall back to the presence of a Retry-After header (set by llm-token-limit on quota/TPM
+                // rejections but NOT on an auth 403).
+                if (sc == 403 && (
+                        reason.IndexOf("TokenQuota", StringComparison.OrdinalIgnoreCase) >= 0
+                        || reason.IndexOf("QuotaExceeded", StringComparison.OrdinalIgnoreCase) >= 0
+                        || msg.IndexOf("TokenQuota", StringComparison.OrdinalIgnoreCase) >= 0
+                        || !string.IsNullOrEmpty(context.Response?.Headers.GetValueOrDefault("Retry-After", ""))
+                        || !string.IsNullOrEmpty(context.Response?.Headers.GetValueOrDefault("retry-after", ""))
+                    )) { return "quota-exceeded"; }
+
+                if (sc == 429) { return "throttling"; }
+                if (sc == 401 || sc == 403) { return "auth-failure"; }
+                if (sc >= 500 && sc < 600) { return "backend-failure"; }
+                return "none";
+            }" />
+
+            <!-- Resolve the status code to report (explicit override wins). -->
+            <set-variable name="_alertStatusCode" value="@{
+                var explicitStatus = context.Variables.GetValueOrDefault<string>("alertEventStatus", "");
+                if (!string.IsNullOrEmpty(explicitStatus)) { return explicitStatus; }
+                int sc = context.Response?.StatusCode ?? 0;
+                return sc.ToString();
+            }" />
+
+            <!-- Resolve whether this alert type is enabled, honoring the master switch and per-type toggle. -->
+            <set-variable name="_alertEmit" value="@{
+                string t = context.Variables.GetValueOrDefault<string>("_alertType", "none");
+                if (t == "none") { return "false"; }
+
+                var master = context.Variables.GetValueOrDefault<string>("alertsEnabled", "true");
+                if (!master.Equals("true", StringComparison.OrdinalIgnoreCase)) { return "false"; }
+
+                string toggleName;
+                bool dflt;
+                if (t == "throttling")            { toggleName = "alertOnThrottling";      dflt = true;  }
+                else if (t == "quota-exceeded")   { toggleName = "alertOnQuotaExceeded";   dflt = true;  }
+                else if (t == "backend-failure")  { toggleName = "alertOnBackendFailure";  dflt = true;  }
+                else if (t == "auth-failure")     { toggleName = "alertOnAuthFailure";     dflt = false; }
+                else if (t == "content-safety")   { toggleName = "alertOnContentSafety";   dflt = false; }
+                else if (t == "pii-failure")      { toggleName = "alertOnPiiFailure";      dflt = false; }
+                else                              { toggleName = "";                        dflt = false; }
+
+                if (string.IsNullOrEmpty(toggleName)) { return "false"; }
+                var v = context.Variables.GetValueOrDefault<string>(toggleName, dflt ? "true" : "false");
+                return v.Equals("true", StringComparison.OrdinalIgnoreCase) ? "true" : "false";
+            }" />
+
+            <choose>
+                <when condition="@(context.Variables.GetValueOrDefault<string>("_alertEmit", "false") == "true")">
+                    <emit-metric name="AI Gateway Alert" value="1" namespace="ai-gateway-alerts">
+                        <!-- Event category: throttling | quota-exceeded | backend-failure | auth-failure | content-safety | pii-failure -->
+                        <dimension name="alertType" value="@(context.Variables.GetValueOrDefault<string>("_alertType", "unknown"))" />
+
+                        <!-- HTTP status code associated with the event -->
+                        <dimension name="statusCode" value="@(context.Variables.GetValueOrDefault<string>("_alertStatusCode", "0"))" />
+
+                        <!-- Use case or agentic platform name (access contract / product) -->
+                        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
+
+                        <!-- Target model or deployment name (when known) -->
+                        <dimension name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "NA"))" />
+
+                        <!-- Backend / pool selected for the request. Uses the `selected-backend`
+                             variable (value-based) rather than the predefined "Backend ID" dimension,
+                             because that predefined dimension is only valid in the OUTBOUND section and
+                             this fragment also runs in on-error. Empty ("NA") when routing hasn't run
+                             (e.g. an auth failure before backend selection). -->
+                        <dimension name="backendId" value="@((string)context.Variables.GetValueOrDefault<string>("selected-backend", "NA"))" />
+                    </emit-metric>
+
+                    <!-- Guard against a double emission if the fragment is included more than once. -->
+                    <set-variable name="alert-event-emitted" value="true" />
+                </when>
+            </choose>
+        </when>
+    </choose>
+</fragment>

@@ -16,12 +16,14 @@
 
         Cache write:
             key   = "response-id-" + <id from response body>
-            value = "<subscriptionId>|<requestedModel>|<userId>"
-            ttl   = 86400 seconds (24h) – matches typical OpenAI server-side retention.
+            value = "<subscriptionId>|<productId>|<requestedModel>|<userId>"
+                    (`productId` is `NA` when the subscription has no product)
+            ttl   = 2592000 seconds (30 days) – matches the default OpenAI Responses API retention period.
 
         Variables consumed (all populated upstream):
         - isResponsesApi          – set by frag-responses-id-security
         - context.Subscription.Id – APIM
+        - context.Product.Id      – APIM (optional; stored as `NA` when absent)
         - requestedModel          – set by frag-set-llm-requested-model / frag-request-processor
         - user-id                 – set by frag-security-handler (falls back to subscription id)
 
@@ -54,11 +56,13 @@
                         key="@("response-id-" + (string)context.Variables["newResponseId"])"
                         value="@{
                             var subId = context.Subscription?.Id ?? string.Empty;
+                            var productId = context.Product?.Id;
+                            if (string.IsNullOrEmpty(productId)) { productId = "NA"; }
                             var model = context.Variables.GetValueOrDefault<string>("requestedModel", string.Empty);
                             var userId = context.Variables.GetValueOrDefault<string>("user-id", subId);
-                            return string.Concat(subId, "|", model, "|", userId);
+                            return string.Concat(subId, "|", productId, "|", model, "|", userId);
                         }"
-                        duration="86400"
+                        duration="2592000"
                         caching-type="internal" />
 
                     <set-header name="x-aihub-response-id-cached" exists-action="override">
@@ -66,7 +70,7 @@
                     </set-header>
 
                     <trace source="Responses-API-Security" severity="information">
-                        <message>@($"Cached response-id ownership: id={context.Variables.GetValueOrDefault<string>("newResponseId", string.Empty)} sub={context.Subscription?.Id ?? string.Empty} model={context.Variables.GetValueOrDefault<string>("requestedModel", string.Empty)}")</message>
+                        <message>@($"Cached response-id ownership: id={context.Variables.GetValueOrDefault<string>("newResponseId", string.Empty)} sub={context.Subscription?.Id ?? string.Empty} product={context.Product?.Id ?? "NA"} model={context.Variables.GetValueOrDefault<string>("requestedModel", string.Empty)}")</message>
                     </trace>
                 </when>
             </choose>

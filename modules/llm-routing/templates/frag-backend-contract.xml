@@ -1,0 +1,28 @@
+<fragment>
+    <!--
+        Fragment: Backend Contract
+        Purpose: Returns the active LLM backend routing contract currently deployed on this
+                 gateway as a JSON document. The contract is a detailed projection of the
+                 effective onboarding configuration: backend-contract version, APIM target,
+                 the LLM backends (with per-model metadata and their circuit breakers), session
+                 affinity configuration, model aliases, and the derived backend pools.
+
+        Generation: The JSON body below is generated at deploy time by modules/llm-routing
+                    from the effective backends and pools. Every apply of the
+                    llm-backend-onboarding stack refreshes this fragment, so the Release
+                    Version API `GET /version/backend-contract` operation always reflects the
+                    live routing contract without touching the API definition itself.
+
+        Output: HTTP 200 with an application/json body describing the active backend contract.
+
+        Usage: Include this fragment in an API operation to return the contract:
+        <include-fragment fragment-id="backend-contract" />
+    -->
+    <return-response>
+        <set-status code="200" reason="OK" />
+        <set-header name="Content-Type" exists-action="override">
+            <value>application/json</value>
+        </set-header>
+        <set-body>//{backendContractJson}</set-body>
+    </return-response>
+</fragment>

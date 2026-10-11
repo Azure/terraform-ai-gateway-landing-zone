@@ -28,11 +28,13 @@
 #
 # What modules/llm-routing then creates from that list:
 #   - one APIM backend per entry (its endpoint, credentials and circuit breaker);
-#   - one backend POOL per model that two or more backends serve, named
-#     <model>-backend-pool (traffic follows each backend's priority and weight);
-#     a model served by a single backend is routed to that backend directly;
-#   - the routing fragments of the policies (set-backend-pools, get-available-models,
-#     metadata-config, resolve-model-alias).
+#   - one backend POOL per (model, backend type) that two or more backends serve, named
+#     <model>-<type>-backend-pool (traffic follows each backend's priority and weight; a
+#     model flagged sessionAwareModel gets session affinity); a model served by a single
+#     backend of its type is routed to that backend directly;
+#   - the routing fragments of the policies (set-backend-pools, which also carries one
+#     virtual pool per model alias, get-available-models, metadata-config,
+#     resolve-model-alias) and the backend-contract fragment served at /version/backend-contract.
 # The result is listed in the llm_backends output.
 # =============================================================================
 
@@ -40,15 +42,16 @@ locals {
   # Source 1: one entry per Foundry account (empty when foundry_backends.enabled = false).
   foundry_derived = [
     for i, name in local.foundry_account_names : {
-      backend_id      = "foundry-${data.azurerm_cognitive_account.foundry[name].location}-${i}"
-      backend_type    = "ai-foundry"
-      endpoint        = data.azurerm_cognitive_account.foundry[name].endpoint
-      auth_scheme     = "managedIdentity"
-      auth_type       = "managed-identity"
-      auth_config     = null
-      priority        = i == 0 ? 1 : 2
-      weight          = 100
-      circuit_breaker = var.foundry_backends.circuit_breaker
+      backend_id       = "foundry-${data.azurerm_cognitive_account.foundry[name].location}-${i}"
+      backend_type     = "ai-foundry"
+      endpoint         = data.azurerm_cognitive_account.foundry[name].endpoint
+      auth_scheme      = "managedIdentity"
+      auth_type        = "managed-identity"
+      auth_config      = null
+      priority         = i == 0 ? 1 : 2
+      weight           = 100
+      circuit_breaker  = var.foundry_backends.circuit_breaker
+      session_affinity = null
       # The deployments of the account, as Azure reports them.
       supported_models = [
         for d in try(data.azapi_resource_list.deployments[name].output.deployments, []) : {
@@ -61,6 +64,8 @@ locals {
           timeout             = 120
           inferenceApiVersion = ""
           retirementDate      = ""
+          modelPath           = ""
+          sessionAwareModel   = contains(var.foundry_backends.session_aware_models, d.name)
         }
       ]
     }
@@ -78,10 +83,15 @@ module "llm_routing" {
   managed_identity_client_id = data.azurerm_user_assigned_identity.apim.client_id
   llm_backend_config         = local.all_llm_backends
   model_aliases              = var.model_aliases
+  session_affinity           = var.session_affinity
+  release_version            = local.release_version
 
   # APIM resolves the {{named values}} of the backend credentials when it saves a backend,
   # and refuses a backend whose named value doesn't exist yet.
-  depends_on = [azurerm_api_management_named_value.backend_api_key]
+  depends_on = [
+    azurerm_api_management_named_value.backend_api_key,
+    azurerm_api_management_named_value.anthropic_version,
+  ]
 }
 
 # Without Foundry (platform foundry.enabled = false, or foundry_backends.enabled = false)

@@ -8,6 +8,7 @@ locals {
   shared_fragments = {
     "ai-usage"                 = "Tracks usage of all AI-related APIs"
     "raise-throttling-events"  = "Raises custom events when throttling limits are hit"
+    "raise-alert-events"       = "Emits the AI Gateway Alert metric (throttling, quota, backend failures; opt-in auth, content-safety and PII alerts)"
     "throttling-events"        = "Throttling events configuration"
     "security-handler"         = "Unified authentication handler for all AI Gateway APIs"
     "entra-auth"               = "Entra ID authentication fragment"
@@ -20,6 +21,8 @@ locals {
     "set-response-headers"     = "Adds UAIG-* response headers"
     "strip-backend-headers"    = "Removes browser, App Service/ARR, and X-Forwarded-* headers before forwarding to AI backends"
     "set-asset-kind"           = "Classifies a request as llm, tool or agent for access-contract product policies that grant a mix of asset types"
+    "mcp-usage"                = "Counts tool (MCP) requests per product and tool for the usage pipeline (include it in the policy of a published tool API)"
+    "a2a-usage"                = "Counts agent (A2A) requests per product and agent for the usage pipeline (include it in the policy of a published agent API)"
   }
 
   # PII fragments use policy elements azurerm doesn't validate yet (azapi).

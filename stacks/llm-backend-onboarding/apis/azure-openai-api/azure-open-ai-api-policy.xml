@@ -51,7 +51,7 @@
         </choose>
 
         <!-- Step 3.1: capture original API path
-             NOTE: This MUST run after `resolve-model-alias` (step 4.1) so the captured path
+             NOTE: This MUST run after `resolve-model-alias` (step 4.2) so the captured path
              reflects the resolved model name when the request used an alias. The variable is
              evaluated lazily at the final <rewrite-uri> below, but the template only embeds
              `context.Request.Url.Path` — so any alias→real-model URL rewrite performed by
@@ -69,26 +69,56 @@
         <!-- Set default backend pool (empty = return error for unmapped models) -->
         <set-variable name="defaultBackendPool" value="" />
 
+        <!-- Azure OpenAI API serves Azure-OpenAI-style and AI-Foundry deployments only.
+             Restrict pool selection (and alias member resolution) to the compatible pool types
+             so an alias spanning native non-Azure providers cannot accidentally be picked here. -->
+        <set-variable name="compatiblePoolTypes" value="azure-openai,ai-foundry" />
+
         <!-- Validate model access based on allowedModels -->
         <include-fragment fragment-id="validate-model-access" />
 
-        <!-- Step 4.1: Resolve model alias (if requestedModel is an alias name like "adv-gpt",
-             replace it with the actual underlying model). No-op when no aliases are configured.
-             Access control above runs against the alias name so admins can grant access to the
-             alias directly without enumerating underlying models. -->
+        <!-- Step 4.1: Load backend pool configurations (real pools + alias virtual pools) -->
+        <include-fragment fragment-id="set-backend-pools" />
+
+        <!-- Step 4.2: Determine target backend pool based on model and permissions.
+             Performs MODEL ALIAS resolution as a first-class step: when `requestedModel`
+             matches an alias virtual pool, it picks an Azure OpenAI / AI Foundry member,
+             sets `is-alias=true`, `original-model-alias=<alias>`,
+             `requestedModel=<picked member's model>`, and exposes `alias-fallback-members`
+             for the retry block below. -->
+        <include-fragment fragment-id="set-target-backend-pool" />
+
+        <!-- Step 4.3: Body rewrite for alias requests so backends see the resolved model name.
+             Sets `original-model-alias` and `is-alias` are already populated by
+             set-target-backend-pool above. This step only rewrites the request body's
+             `model` field (no-op when `is-alias=false`). The URL rewrite for
+             `/openai/deployments/{alias}/...` is built below in `openAIRewriteTemplate`
+             which substitutes `original-model-alias` → `requestedModel`. -->
         <include-fragment fragment-id="resolve-model-alias" />
 
-        <!-- Step 4.2: Build the URL-rewrite template AFTER alias resolution.
-             APIM's `context.Request.Url.Path` returns the ORIGINAL request path —
-             `<rewrite-uri>` does not mutate it. So when a client calls
-             `/openai/deployments/{alias}/chat/completions`, the path here still has the
-             alias even though `resolve-model-alias` already swapped requestedModel.
-             We explicitly substitute the alias segment for the resolved real model name
-             so the URL forwarded to the AOAI backend uses `/deployments/{realModel}/...`. -->
+        <!-- Step 4.4: Build the URL-rewrite template AFTER alias resolution.
+             This template is derived from `context.Request.OriginalUrl.Path` (the immutable
+             original request path) rather than `context.Request.Url.Path`, because APIM's
+             `Url.Path` DOES reflect prior `<rewrite-uri>` calls (e.g. set-backend-authorization's
+             ai-foundry `models/...` rewrite, or a previous alias-fallback retry hop). Reading the
+             mutated path here and re-prepending `openai/` produced corrupted paths such as
+             `openai/models/deployments/{model}/chat/completions` (causing 404s). Using OriginalUrl
+             and stripping the API path prefix keeps this rewrite idempotent and authoritative.
+             When a client calls `/openai/deployments/{alias}/chat/completions`, the alias segment
+             is substituted for the resolved real model so the URL forwarded to the AOAI backend
+             uses `/deployments/{realModel}/...`. -->
          <set-variable name="openAIRewriteTemplate" value="@{
                 string requestedModel = (string)context.Variables["requestedModel"];
                 string originalAlias  = context.Variables.GetValueOrDefault<string>("original-model-alias", "");
-                string path = context.Request.Url.Path.TrimStart('/');
+                string apiPath = (context.Api.Path ?? "").Trim('/');
+                string path = context.Request.OriginalUrl.Path.TrimStart('/');
+                if (!string.IsNullOrEmpty(apiPath)) {
+                    if (path.StartsWith(apiPath + "/", StringComparison.OrdinalIgnoreCase)) {
+                        path = path.Substring(apiPath.Length + 1);
+                    } else if (path.Equals(apiPath, StringComparison.OrdinalIgnoreCase)) {
+                        path = "";
+                    }
+                }
                 if (!string.IsNullOrEmpty(originalAlias)) {
                     var marker = "deployments/" + originalAlias;
                     var idx = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
@@ -103,12 +133,6 @@
                 return string.Format("openai/{0}", path);
             }" />
 
-        <!-- Step 4: Load backend pool configurations -->
-        <include-fragment fragment-id="set-backend-pools" />
-
-        <!-- Step 5: Determine target backend pool based on model and permissions -->
-        <include-fragment fragment-id="set-target-backend-pool" />
-
         <!-- Step 6: Configure authentication and route to selected backend -->
         <include-fragment fragment-id="set-backend-authorization" />
         <!-- Step 6.1: Strip browser / App Service / X-Forwarded-* headers before forwarding to backend-->
@@ -122,15 +146,91 @@
     </inbound>
     <backend>
         <!--
-            Backend Retry Logic
-            Purpose: Implements retry mechanism for transient failures (429 throttling, 503 service unavailable)
-            
-            Configuration:
-            - Retry count: Set to one less than number of backends in pool to try all backends
-            - Condition: Retries on 429 (throttling) or 503 (except when backend pool is unavailable)
-            - Strategy: First fast retry with zero interval, buffer request body for replay
+            Backend Retry Logic — alias-aware cross-model fallback
+            Retries on 429 (throttling) or 5xx server errors. When the request resolved through
+            a model alias (`is-alias=true`), `alias-fallback-members` carries the remaining
+            Azure OpenAI / AI Foundry alias members in resolution order. Each retry hop pops the
+            next entry, sets the targeting variables directly, and re-applies the URL rewrite so
+            the final `/deployments/{model}/...` path matches the new member. Cross-provider
+            fallback is not possible here (the surface is restricted to azure-openai / ai-foundry
+            pools by `compatiblePoolTypes`), but cross-deployment fallback inside the Azure family
+            is fully supported.
         -->
-        <retry count="2" interval="0" first-fast-retry="true" condition="@(context.Response.StatusCode == 429 || (context.Response.StatusCode >= 500 && !context.Response.StatusReason.Contains("Backend pool") && !context.Response.StatusReason.Contains("is temporarily unavailable")))">
+        <retry count="@{
+            var isAlias = context.Variables.GetValueOrDefault<bool>("is-alias", false);
+            var fallback = context.Variables.GetValueOrDefault<JArray>("alias-fallback-members");
+            return isAlias && fallback != null ? 2 + fallback.Count : 2;
+        }" interval="0" first-fast-retry="true" condition="@(context.Response.StatusCode == 429 || (context.Response.StatusCode >= 500 && !context.Response.StatusReason.Contains("Backend pool") && !context.Response.StatusReason.Contains("is temporarily unavailable")))">
+            <choose>
+                <when condition="@{
+                    if (!context.Variables.GetValueOrDefault<bool>("is-alias", false)) { return false; }
+                    // Only advance to a fallback member AFTER a real failure on the previous hop.
+                    // The <retry> body executes once as the INITIAL attempt (with the primary member
+                    // selected during inbound). On that first execution there is no backend response
+                    // yet (StatusCode == 0), so we must NOT switch — otherwise the primary member is
+                    // skipped entirely and never forwarded. On subsequent executions (triggered by the
+                    // retry condition on 429/5xx) context.Response carries the failed status, so we
+                    // advance to the next fallback member.
+                    var sc = context.Response?.StatusCode ?? 0;
+                    var previousHopFailed = sc == 429 || sc >= 500;
+                    if (!previousHopFailed) { return false; }
+                    var fallback = context.Variables.GetValueOrDefault<JArray>("alias-fallback-members");
+                    var idx = context.Variables.GetValueOrDefault<int>("alias-retry-index", 0);
+                    return fallback != null && idx < fallback.Count;
+                }">
+                    <set-variable name="alias-retry-index" value="@{
+                        var current = context.Variables.GetValueOrDefault<int>("alias-retry-index", 0);
+                        return current + 1;
+                    }" />
+                    <set-variable name="alias-current-member" value="@{
+                        var fallback = (JArray)context.Variables["alias-fallback-members"];
+                        var idx = context.Variables.GetValueOrDefault<int>("alias-retry-index", 1) - 1;
+                        return idx >= 0 && idx < fallback.Count ? (JObject)fallback[idx] : null;
+                    }" />
+                    <choose>
+                        <when condition="@(context.Variables.GetValueOrDefault<JObject>("alias-current-member") != null)">
+                            <set-variable name="requestedModel" value="@(((JObject)context.Variables["alias-current-member"])["model"].ToString())" />
+                            <set-variable name="targetBackendPool" value="@(((JObject)context.Variables["alias-current-member"])["poolName"].ToString())" />
+                            <set-variable name="targetPoolType" value="@(((JObject)context.Variables["alias-current-member"])["poolType"].ToString())" />
+                            <set-variable name="targetAuthType" value="native-backend-authorization" />
+                            <trace source="Alias-Fallback" severity="information">
+                                <message>@($"Azure OpenAI alias fallback hop #{context.Variables.GetValueOrDefault<int>("alias-retry-index", 0)} → model='{context.Variables.GetValueOrDefault<string>("requestedModel", "")}' pool='{context.Variables.GetValueOrDefault<string>("targetBackendPool", "")}' (status={context.Response.StatusCode})")</message>
+                            </trace>
+                            <include-fragment fragment-id="resolve-model-alias" />
+                            <include-fragment fragment-id="set-backend-authorization" />
+                            <!-- Rebuild and re-apply the URL rewrite so /deployments/{alias}/ becomes
+                                 /deployments/{newRealModel}/ for the next hop. Derived from
+                                 OriginalUrl.Path (immutable) + API-prefix strip so it stays idempotent
+                                 across hops and never stacks a `models/`/`openai/` prefix. -->
+                            <set-variable name="openAIRewriteTemplate" value="@{
+                                string requestedModel = (string)context.Variables["requestedModel"];
+                                string originalAlias  = context.Variables.GetValueOrDefault<string>("original-model-alias", "");
+                                string apiPath = (context.Api.Path ?? "").Trim('/');
+                                string path = context.Request.OriginalUrl.Path.TrimStart('/');
+                                if (!string.IsNullOrEmpty(apiPath)) {
+                                    if (path.StartsWith(apiPath + "/", StringComparison.OrdinalIgnoreCase)) {
+                                        path = path.Substring(apiPath.Length + 1);
+                                    } else if (path.Equals(apiPath, StringComparison.OrdinalIgnoreCase)) {
+                                        path = "";
+                                    }
+                                }
+                                if (!string.IsNullOrEmpty(originalAlias)) {
+                                    var marker = "deployments/" + originalAlias;
+                                    var idx = path.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+                                    if (idx >= 0) {
+                                        int afterAliasStart = idx + marker.Length;
+                                        if (afterAliasStart >= path.Length || path[afterAliasStart] == '/') {
+                                            path = path.Substring(0, idx) + "deployments/" + requestedModel + path.Substring(afterAliasStart);
+                                        }
+                                    }
+                                }
+                                return string.Format("openai/{0}", path);
+                            }" />
+                            <rewrite-uri template="@((string)context.Variables["openAIRewriteTemplate"])" copy-unmatched-params="true" />
+                        </when>
+                    </choose>
+                </when>
+            </choose>
             <forward-request buffer-request-body="true" />
         </retry>
     </backend>
@@ -139,17 +239,27 @@
         <!-- Cache response_id → owner mapping for successful POST /responses (cross-API shared fragment). -->
         <include-fragment fragment-id="responses-id-cache-store" />
         <include-fragment fragment-id="set-response-headers" />
+        <!-- Alerting: emit custom metrics for error responses that reached the client
+             (e.g. backend 429 throttling / 5xx failures). Opt-in per category via the
+             access contract; see raise-alert-events fragment. -->
+        <choose>
+            <when condition="@((context.Response?.StatusCode ?? 0) >= 400)">
+                <include-fragment fragment-id="raise-alert-events" />
+            </when>
+        </choose>
     </outbound>
     <on-error>
         <base />
         <!--
             Error Handling
-            Purpose: Pushes custom metrics for errors to enable Azure Monitor alerts
+            Purpose: Pushes custom metrics for critical events to enable Azure Monitor alerts
             
-            Integration: Uses raise-throttling-events fragment to send metrics to monitoring system for 429 responses
+            Integration: Uses raise-alert-events fragment to send metrics for throttling (429),
+            backend failures (5xx), authorization failures, content-safety blocks, and PII failures.
+            Alerting is opt-in per category and can be tailored per access contract.
         -->
         
-        <include-fragment fragment-id="raise-throttling-events" />
+        <include-fragment fragment-id="raise-alert-events" />
         <include-fragment fragment-id="set-response-headers" />
     </on-error>
 </policies>

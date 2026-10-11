@@ -1,7 +1,7 @@
 <fragment>
     <!--
         Fragment: Responses API ID Security (inbound)
-        Purpose: Provides per-subscription ownership enforcement and backend-routing hydration
+        Purpose: Provides per-subscription and per-product ownership enforcement and backend-routing hydration
                  for the OpenAI-compatible Responses API (`/responses` family of operations).
 
                  Designed to be reused unchanged by all three AI Hub Gateway API surfaces
@@ -18,20 +18,21 @@
 
         Cache contract (APIM internal cache, key prefix `response-id-`):
             key   = "response-id-" + response_id
-            value = "<subscriptionId>|<requestedModel>|<userId>"
-            ttl   = 24h (86400s) – matches typical Responses API server-side retention window
+            value = "<subscriptionId>|<productId>|<requestedModel>|<userId>"
+                    (`productId` is `NA` when the subscription has no product)
+            ttl   = 30 days (2592000s) – matches the default OpenAI Responses API retention period
 
         Behaviour summary:
         1. Detect Responses API requests by path (segment `/responses`).
         2. Resolve the response_id from URL (GET/DELETE) or from `previous_response_id` (POST chained).
            Reuses `response-id` already extracted by frag-request-processor when available.
-        3. Look up the cached owner. If the cached subscription does NOT match the calling
-           subscription → return 403 Forbidden (cross-subscription access blocked).
+          3. Look up the cached owner. If the cached subscription or product does NOT match the
+              caller → return 403 Forbidden (cross-subscription/product access blocked).
         4. For GET/DELETE on /responses/{id}: hydrate `requestedModel` from the cache so that
            the existing `set-target-backend-pool` fragment selects the same backend pool that
            served the original POST – this fixes routing for these previously model-less ops.
         5. For GET/DELETE with NO cached entry (e.g., id was never created via this gateway, or
-           cache evicted past the 24h TTL) → return 404 Not Found with a deterministic error.
+           cache evicted past the 30-day TTL) → return 404 Not Found with a deterministic error.
 
         Required upstream variables:
         - context.Subscription           – APIM subscription that authenticated the call.
@@ -136,19 +137,24 @@
                 <when condition="@(!string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("responseId", string.Empty)))">
                     <cache-lookup-value key="@("response-id-" + (string)context.Variables["responseId"])" variable-name="cachedResponseOwner" caching-type="internal" />
 
-                    <!-- 3a. Ownership enforcement: cached subscription must match current subscription. -->
+                    <!-- 3a. Ownership enforcement: cached subscription and product must match the caller. -->
                     <choose>
                         <when condition="@{
                             var cached = context.Variables.GetValueOrDefault<string>("cachedResponseOwner", string.Empty);
                             if (string.IsNullOrEmpty(cached)) { return false; }
                             var parts = cached.Split('|');
                             var cachedSubId = parts.Length > 0 ? parts[0] : string.Empty;
+                            var cachedProductId = parts.Length >= 4 ? parts[1] : string.Empty;
                             var currentSubId = context.Subscription?.Id ?? string.Empty;
-                            return !string.IsNullOrEmpty(cachedSubId)
-                                && !cachedSubId.Equals(currentSubId, StringComparison.Ordinal);
+                            var currentProductId = context.Product?.Id;
+                            if (string.IsNullOrEmpty(currentProductId)) { currentProductId = "NA"; }
+                            return string.IsNullOrEmpty(cachedSubId)
+                                || string.IsNullOrEmpty(cachedProductId)
+                                || !cachedSubId.Equals(currentSubId, StringComparison.Ordinal)
+                                || !cachedProductId.Equals(currentProductId, StringComparison.Ordinal);
                         }">
                             <trace source="Responses-API-Security" severity="error">
-                                <message>@($"Response-id ownership mismatch. responseId={context.Variables.GetValueOrDefault<string>("responseId", string.Empty)} requestSub={context.Subscription?.Id ?? string.Empty}")</message>
+                                <message>@($"Response-id ownership mismatch. responseId={context.Variables.GetValueOrDefault<string>("responseId", string.Empty)} requestSub={context.Subscription?.Id ?? string.Empty} requestProduct={context.Product?.Id ?? "NA"}")</message>
                             </trace>
                             <return-response>
                                 <set-status code="403" reason="Forbidden" />
@@ -158,7 +164,7 @@
                                 <set-body>@{
                                     return new JObject(
                                         new JProperty("error", new JObject(
-                                            new JProperty("message", "Access denied. The supplied response_id was created by a different subscription and cannot be accessed."),
+                                            new JProperty("message", "Access denied. The supplied response_id was created by a different subscription or product and cannot be accessed."),
                                             new JProperty("type", "access_error"),
                                             new JProperty("code", "response_id_forbidden")
                                         ))
@@ -177,11 +183,11 @@
                             var cached = context.Variables.GetValueOrDefault<string>("cachedResponseOwner", string.Empty);
                             if (string.IsNullOrEmpty(cached)) { return false; }
                             var parts = cached.Split('|');
-                            return parts.Length >= 2 && !string.IsNullOrEmpty(parts[1]);
+                            return parts.Length >= 4 && !string.IsNullOrEmpty(parts[2]);
                         }">
                             <set-variable name="requestedModel" value="@{
                                 var cached = context.Variables.GetValueOrDefault<string>("cachedResponseOwner", string.Empty);
-                                return cached.Split('|')[1];
+                                return cached.Split('|')[2];
                             }" />
                             <trace source="Responses-API-Security" severity="information">
                                 <message>@($"Hydrated requestedModel='{context.Variables.GetValueOrDefault<string>("requestedModel", string.Empty)}' from response-id cache for {context.Request.Method} {context.Request.Url.Path}")</message>

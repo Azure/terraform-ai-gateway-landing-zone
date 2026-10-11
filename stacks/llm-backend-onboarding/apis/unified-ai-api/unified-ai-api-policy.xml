@@ -71,25 +71,28 @@
         <!-- Step 5: Model access control per product [SHARED with Azure OpenAI / Universal LLM] -->
         <include-fragment fragment-id="validate-model-access" />
 
-        <!-- Step 5.1: Resolve model alias (uses config-model-aliases from cached metadata-config). -->
-        <!-- Sets is-alias, original-model-alias, alias-models — the unified-ai-api retry block -->
-        <!-- uses alias-models for cross-model fallback on transient backend failures. -->
-        <!-- Access control above runs against the alias name so admins can grant access to the -->
-        <!-- alias directly without enumerating underlying models. [SHARED] -->
-        <include-fragment fragment-id="resolve-model-alias" />
-
         <!-- RBAC: Set allowed backend pools (comma-separated pool IDs, empty = all pools allowed) -->
         <set-variable name="allowedBackendPools" value="" />
         <!-- Set default backend pool (empty = return error for unmapped models) -->
         <set-variable name="defaultBackendPool" value="" />
 
-        <!-- Step 6: Load backend pool configurations [SHARED with Azure OpenAI / Universal LLM] -->
+        <!-- Step 6: Load backend pool configurations (real pools + alias virtual pools) [SHARED] -->
         <include-fragment fragment-id="set-backend-pools" />
         <!-- Step 6.1: Strip browser / App Service / X-Forwarded-* headers before forwarding to backend -->
         <include-fragment fragment-id="strip-backend-headers" />
         
-        <!-- Step 7: Select target backend pool [SHARED - extended with apiTypeOverrideBackend for Unified AI] -->
+        <!-- Step 7: Select target backend pool [SHARED]
+             Performs MODEL ALIAS resolution as a first-class step: when `requestedModel` matches
+             an alias virtual pool, it picks a member (priority/weighted) compatible with the
+             current api-type's `compatiblePoolTypes`, sets `is-alias=true`,
+             `original-model-alias=<alias>`, `requestedModel=<picked member's model>`,
+             `targetBackendPool=<picked member's pool>`, and exposes `alias-fallback-members`
+             for the retry block below. -->
         <include-fragment fragment-id="set-target-backend-pool" />
+
+        <!-- Step 7.1: Body rewrite for alias requests so backends see the resolved model name.
+             No-op when `is-alias=false`. The shared fragment also handles trace logging. -->
+        <include-fragment fragment-id="resolve-model-alias" />
 
         <!-- Alias targetBackendPool to selected-backend for set-response-headers compatibility -->
         <set-variable name="selected-backend" value="@(context.Variables.GetValueOrDefault<string>("targetBackendPool", ""))" />
@@ -135,48 +138,80 @@
     </inbound>
     <backend>
         <!--
-            Backend Retry Logic
-            Retries on 429 (throttling) or 5xx server errors.
-            Skips retry when backend pool itself is unavailable.
-            When model aliases are active (is-alias=true), supports cross-model fallback:
-            after pool-level retries are exhausted, switches to the next model in the alias list.
-            Note: Cross-model fallback only works for pre-stream errors. Once streaming has started,
-            the response is committed and fallback is not possible.
+            Backend Retry Logic — alias-aware cross-model fallback
+            Retries on 429 (throttling) or 5xx server errors. Skips retry when the backend pool
+            itself is unavailable.
+
+            When the inbound request resolved through an alias (`is-alias=true`), the
+            `alias-fallback-members` JArray (built by `set-target-backend-pool`) carries the
+            remaining alias members in resolution order. Each entry is pre-resolved to its
+            underlying poolName / poolType / authType / authConfigNamedValue at deploy time, so
+            the retry block can swap targets across providers without re-walking the model→pool
+            map. Cross-model / cross-provider fallback is therefore transparent to the client —
+            the gateway tries the picked member first, then walks `alias-fallback-members`.
+
+            Note: cross-model fallback only works for pre-stream errors. Once streaming has
+            started, the response is committed and fallback is not possible.
         -->
         <retry count="@{
             var isAlias = context.Variables.GetValueOrDefault<bool>("is-alias", false);
-            var aliasModels = context.Variables.GetValueOrDefault<JArray>("alias-models");
-            // Standard retries + one retry per additional alias model
-            return isAlias && aliasModels != null ? 2 + Math.Max(aliasModels.Count - 1, 0) : 2;
+            var fallback = context.Variables.GetValueOrDefault<JArray>("alias-fallback-members");
+            // Standard retries (2) + one retry per remaining alias member.
+            return isAlias && fallback != null ? 2 + fallback.Count : 2;
         }" interval="0" first-fast-retry="true" condition="@(context.Response.StatusCode == 429 || (context.Response.StatusCode >= 500 && !context.Response.StatusReason.Contains("Backend pool") && !context.Response.StatusReason.Contains("is temporarily unavailable")))">
-            <!-- Cross-model fallback: on retry, try next model in alias if pool retries exhausted -->
+            <!-- Cross-model alias fallback: walk `alias-fallback-members` in order. Each retry
+                 hop pops the next entry, sets the targeting variables directly (no second pool
+                 match needed — the entry already carries the resolved pool info), then re-runs
+                 body rewrite + backend authorization + path builder. -->
             <choose>
                 <when condition="@{
-                    var isAlias = context.Variables.GetValueOrDefault<bool>("is-alias", false);
-                    if (!isAlias) { return false; }
-                    // Check if we should switch to next alias model (on 429 or 5xx from current model)
-                    var statusCode = context.Response.StatusCode;
-                    return statusCode == 429 || statusCode >= 500;
+                    if (!context.Variables.GetValueOrDefault<bool>("is-alias", false)) { return false; }
+                    // Only advance to a fallback member AFTER a real failure on the previous hop.
+                    // The <retry> body executes once as the INITIAL attempt (with the primary member
+                    // selected during inbound). On that first execution there is no backend response
+                    // yet (StatusCode == 0), so we must NOT switch — otherwise the primary member is
+                    // skipped and the backend fragments re-run before the primary was ever forwarded.
+                    // On subsequent executions (triggered by the 429/5xx retry condition) the failed
+                    // status is present, so we advance to the next fallback member.
+                    var sc = context.Response?.StatusCode ?? 0;
+                    var previousHopFailed = sc == 429 || sc >= 500;
+                    if (!previousHopFailed) { return false; }
+                    var fallback = context.Variables.GetValueOrDefault<JArray>("alias-fallback-members");
+                    var idx = context.Variables.GetValueOrDefault<int>("alias-retry-index", 0);
+                    return fallback != null && idx < fallback.Count;
                 }">
                     <set-variable name="alias-retry-index" value="@{
                         var current = context.Variables.GetValueOrDefault<int>("alias-retry-index", 0);
                         return current + 1;
                     }" />
+                    <set-variable name="alias-current-member" value="@{
+                        var fallback = (JArray)context.Variables["alias-fallback-members"];
+                        var idx = context.Variables.GetValueOrDefault<int>("alias-retry-index", 1) - 1;
+                        return idx >= 0 && idx < fallback.Count ? (JObject)fallback[idx] : null;
+                    }" />
                     <choose>
-                        <when condition="@{
-                            var idx = context.Variables.GetValueOrDefault<int>("alias-retry-index", 0);
-                            var aliasModels = context.Variables.GetValueOrDefault<JArray>("alias-models");
-                            return aliasModels != null && idx < aliasModels.Count;
-                        }">
-                            <!-- Switch to next model in alias -->
-                            <set-variable name="requestedModel" value="@{
-                                var idx = context.Variables.GetValueOrDefault<int>("alias-retry-index", 0);
-                                var aliasModels = context.Variables.GetValueOrDefault<JArray>("alias-models");
-                                return aliasModels[idx].ToString();
+                        <when condition="@(context.Variables.GetValueOrDefault<JObject>("alias-current-member") != null)">
+                            <set-variable name="requestedModel" value="@(((JObject)context.Variables["alias-current-member"])["model"].ToString())" />
+                            <set-variable name="targetBackendPool" value="@(((JObject)context.Variables["alias-current-member"])["poolName"].ToString())" />
+                            <set-variable name="targetPoolType" value="@(((JObject)context.Variables["alias-current-member"])["poolType"].ToString())" />
+                            <set-variable name="targetAuthType" value="@{
+                                var entry = (JObject)context.Variables["alias-current-member"];
+                                var at = entry["authType"]?.ToString() ?? "";
+                                if (!string.IsNullOrEmpty(at)) { return at; }
+                                var pt = entry["poolType"]?.ToString() ?? "";
+                                if (pt == "ai-foundry" || pt == "azure-openai") { return "native-backend-authorization"; }
+                                if (pt == "aws-bedrock") { return "aws-sigv4"; }
+                                if (pt == "aws-bedrock-mantle" || pt == "gemini-openai") { return "api-key-bearer"; }
+                                if (pt == "gemini") { return "api-key-gemini"; }
+                                if (pt == "anthropic") { return "api-key-anthropic"; }
+                                return "native-backend-authorization";
                             }" />
-                            <!-- Re-resolve backend pool for new model -->
-                            <include-fragment fragment-id="set-target-backend-pool" />
+                            <set-variable name="targetAuthConfigNamedValue" value="@(((JObject)context.Variables["alias-current-member"])["authConfigNamedValue"]?.ToString() ?? "")" />
                             <set-variable name="selected-backend" value="@(context.Variables.GetValueOrDefault<string>("targetBackendPool", ""))" />
+                            <trace source="Alias-Fallback" severity="information">
+                                <message>@($"Alias fallback hop #{context.Variables.GetValueOrDefault<int>("alias-retry-index", 0)} → model='{context.Variables.GetValueOrDefault<string>("requestedModel", "")}' pool='{context.Variables.GetValueOrDefault<string>("targetBackendPool", "")}' (status={context.Response.StatusCode})")</message>
+                            </trace>
+                            <include-fragment fragment-id="resolve-model-alias" />
                             <include-fragment fragment-id="set-backend-authorization" />
                             <include-fragment fragment-id="path-builder" />
                         </when>
@@ -191,10 +226,20 @@
         <!-- Cache response_id → owner mapping for successful POST /responses [SHARED]. -->
         <include-fragment fragment-id="responses-id-cache-store" />
         <include-fragment fragment-id="set-response-headers" />
+        <!-- Alerting: emit custom metrics for error responses that reached the client
+             (e.g. backend 429 throttling / 5xx failures). Opt-in per category via the
+             access contract; see raise-alert-events fragment. -->
+        <choose>
+            <when condition="@((context.Response?.StatusCode ?? 0) >= 400)">
+                <include-fragment fragment-id="raise-alert-events" />
+            </when>
+        </choose>
     </outbound>
     <on-error>
         <base />
-        <include-fragment fragment-id="raise-throttling-events" />
+        <!-- Alerting: throttling (429), backend failures (5xx), authorization failures,
+             content-safety blocks, and PII failures. Opt-in per category, tailorable per access contract. -->
+        <include-fragment fragment-id="raise-alert-events" />
         <include-fragment fragment-id="set-response-headers" />
     </on-error>
 </policies>

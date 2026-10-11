@@ -34,6 +34,13 @@
                         {
                             if (!string.IsNullOrEmpty(match.Value))
                             {
+                                // Skip matches that contain JSON-structural characters so a broad
+                                // custom pattern can never corrupt the request body when replaced.
+                                if (match.Value.IndexOfAny(new[] { '"', '\\', '{', '}', '[', ']', '\n', '\r' }) >= 0)
+                                {
+                                    continue;
+                                }
+
                                 // Skip if we already have a mapping for this text
                                 if (processedTexts.Contains(match.Value))
                                 {
@@ -74,7 +81,87 @@
             <!-- Update input content for API processing -->
             <set-variable name="piiInputContent" value="@(context.Variables.GetValueOrDefault<string>("piiRegexProcessedContent"))" />
             
-            <!-- Call PII Anonymization API -->
+            <!-- ================================================================= -->
+            <!-- Large-content handling: chunk the input so no single document      -->
+            <!-- exceeds the Azure AI Language Service 5,120-character limit, then   -->
+            <!-- batch up to 5 chunks per request (service max) across up to 5       -->
+            <!-- requests. Detection runs on chunks only; the final masking is a     -->
+            <!-- global text replace on the full original body, so request structure -->
+            <!-- and reconstruction fidelity are always preserved.                   -->
+            <!-- ================================================================= -->
+
+            <!-- Build overlapping chunks from the (regex-processed) input content -->
+            <set-variable name="piiChunks" value="@{
+                var content = context.Variables.GetValueOrDefault<string>("piiInputContent") ?? string.Empty;
+
+                int maxChunk;
+                if (!int.TryParse(context.Variables.GetValueOrDefault<string>("piiMaxChunkSize", "5000"), out maxChunk)) { maxChunk = 5000; }
+                if (maxChunk < 500) { maxChunk = 500; }
+                if (maxChunk > 5120) { maxChunk = 5120; }
+
+                int overlap;
+                if (!int.TryParse(context.Variables.GetValueOrDefault<string>("piiChunkOverlap", "250"), out overlap)) { overlap = 250; }
+                if (overlap < 0) { overlap = 0; }
+                if (overlap > maxChunk / 2) { overlap = maxChunk / 2; }
+
+                const int maxChunksAllowed = 25; // 5 requests * 5 documents per request
+                var chunks = new JArray();
+
+                if (content.Length <= maxChunk)
+                {
+                    chunks.Add(content);
+                }
+                else
+                {
+                    int pos = 0;
+                    while (pos < content.Length && chunks.Count < maxChunksAllowed)
+                    {
+                        int take = Math.Min(maxChunk, content.Length - pos);
+                        int end = pos + take;
+
+                        // Prefer breaking on whitespace near the end to avoid splitting a PII token
+                        if (end < content.Length)
+                        {
+                            int searchFloor = pos + Math.Max(1, take - overlap);
+                            for (int i = end - 1; i >= searchFloor; i--)
+                            {
+                                if (char.IsWhiteSpace(content[i])) { end = i; break; }
+                            }
+                        }
+
+                        chunks.Add(content.Substring(pos, end - pos));
+                        if (end >= content.Length) { break; }
+
+                        // Advance with overlap so boundary-straddling entities appear whole in a chunk
+                        pos = Math.Max(end - overlap, pos + 1);
+                    }
+                }
+
+                return chunks.ToString();
+            }" />
+
+            <!-- Observability: note chunking / potential truncation -->
+            <choose>
+                <when condition="@(JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]")).Count > 1)">
+                    <trace source="frag-pii-anonymization" severity="information">
+                        <message>@($"PII large-content chunking active: {JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]")).Count} chunk(s) for input length {(context.Variables.GetValueOrDefault<string>("piiInputContent") ?? string.Empty).Length}.")</message>
+                    </trace>
+                </when>
+            </choose>
+            <choose>
+                <when condition="@((context.Variables.GetValueOrDefault<string>("piiInputContent") ?? string.Empty).Length > 125000)">
+                    <trace source="frag-pii-anonymization" severity="error">
+                        <message>@($"PII input length {(context.Variables.GetValueOrDefault<string>("piiInputContent") ?? string.Empty).Length} exceeds the maximum chunked-analysis capacity (~125,000 chars). Content beyond the cap is NOT analyzed for PII.")</message>
+                    </trace>
+                </when>
+            </choose>
+
+            <!-- Initialize aggregation + failure state before dispatching batches -->
+            <set-variable name="piiAggregatedEntities" value="[]" />
+            <set-variable name="piiAnalysisFailureReason" value="" />
+
+            <!-- Batch 1 (chunks 0-4). Uses piiAnalysisResponse for backward-compatible tracing. -->
+            <set-variable name="piiBatchStart" value="@(0)" />
             <send-request mode="new" response-variable-name="piiAnalysisResponse" timeout="20" ignore-error="true">
                 <set-url>@{
                     var baseUrl = "{{piiServiceUrl}}".TrimEnd('/');
@@ -87,36 +174,59 @@
                 <set-header name="Authorization" exists-action="override">
                     <value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
                 </set-header>
-                <!-- <set-header name="Ocp-Apim-Subscription-Key" exists-action="override">
-                    <value>{{piiServiceKey}}</value>
-                </set-header> -->
-
                 <set-body>@{
-                    var request = new JObject();
-                    request["kind"] = "PiiEntityRecognition";
-                    request["parameters"] = new JObject{
-                        {"modelVersion", "latest"},
-                        {"redactionPolicy", new JObject{
-                            {"policyKind", "CharacterMask"},
-                            {"redactionCharacter", "#"}
-                        }}
-                    };
-                    request["analysisInput"] = new JObject{
-                        {"documents", new JArray{
-                            new JObject{
-                                {"text", context.Variables.GetValueOrDefault<string>("piiInputContent")},
-                                {"id", "1"},
-                                {"language", context.Variables.GetValueOrDefault<string>("piiDetectionLanguage")}
+                    var chunks = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]"));
+                    var lang = context.Variables.GetValueOrDefault<string>("piiDetectionLanguage");
+                    int start = context.Variables.GetValueOrDefault<int>("piiBatchStart", 0);
+                    var docs = new JArray();
+                    for (int i = start; i < Math.Min(start + 5, chunks.Count); i++)
+                    {
+                        docs.Add(new JObject {
+                            ["text"] = chunks[i].ToString(),
+                            ["id"] = i.ToString(),
+                            ["language"] = lang
+                        });
+                    }
+                    var request = new JObject {
+                        ["kind"] = "PiiEntityRecognition",
+                        ["parameters"] = new JObject {
+                            ["modelVersion"] = "latest",
+                            ["redactionPolicy"] = new JObject {
+                                ["policyKind"] = "CharacterMask",
+                                ["redactionCharacter"] = "#"
                             }
-                        }}
+                        },
+                        ["analysisInput"] = new JObject { ["documents"] = docs }
                     };
                     return request.ToString();
                 }</set-body>
             </send-request>
-
-            <!-- Evaluate PII service call status and capture failure details for graceful handling -->
+            <set-variable name="piiCurrentResponse" value="@(context.Variables.GetValueOrDefault<IResponse>("piiAnalysisResponse"))" />
+            <set-variable name="piiAggregatedEntities" value="@{
+                var aggregated = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiAggregatedEntities", "[]"));
+                var response = context.Variables.GetValueOrDefault<IResponse>("piiCurrentResponse");
+                if (response != null && response.StatusCode >= 200 && response.StatusCode < 300)
+                {
+                    try
+                    {
+                        var documents = JObject.Parse(response.Body.As<string>(preserveContent: true)).SelectToken("$.results.documents") as JArray;
+                        if (documents != null)
+                        {
+                            foreach (var doc in documents)
+                            {
+                                var ents = doc["entities"] as JArray;
+                                if (ents != null) { foreach (var e in ents) { aggregated.Add(e); } }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                return aggregated.ToString();
+            }" />
             <set-variable name="piiAnalysisFailureReason" value="@{
-                var response = context.Variables.GetValueOrDefault<IResponse>("piiAnalysisResponse");
+                var existing = context.Variables.GetValueOrDefault<string>("piiAnalysisFailureReason", "");
+                if (!string.IsNullOrEmpty(existing)) { return existing; }
+                var response = context.Variables.GetValueOrDefault<IResponse>("piiCurrentResponse");
                 if (response == null)
                 {
                     return "PII service call failed: no response received (timeout or connectivity issue).";
@@ -135,10 +245,10 @@
                     {
                         return $"PII service reported document errors: {errors.ToString(Newtonsoft.Json.Formatting.None)}";
                     }
-                    var entitiesToken = parsed.SelectToken("$.results.documents[0].entities");
-                    if (entitiesToken == null)
+                    var documents = parsed.SelectToken("$.results.documents") as JArray;
+                    if (documents == null)
                     {
-                        return "PII service response did not contain expected entities payload.";
+                        return "PII service response did not contain expected documents payload.";
                     }
                     return string.Empty;
                 }
@@ -148,6 +258,331 @@
                 }
             }" />
 
+            <!-- Batch 2 (chunks 5-9) — only when more than 5 chunks exist -->
+            <choose>
+                <when condition="@(JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]")).Count > 5)">
+                    <set-variable name="piiBatchStart" value="@(5)" />
+                    <send-request mode="new" response-variable-name="piiBatch2Response" timeout="20" ignore-error="true">
+                        <set-url>@{
+                            var baseUrl = "{{piiServiceUrl}}".TrimEnd('/');
+                            return baseUrl + "/language/:analyze-text?api-version=2026-05-01";
+                        }</set-url>
+                        <set-method>POST</set-method>
+                        <set-header name="Content-Type" exists-action="override">
+                            <value>application/json</value>
+                        </set-header>
+                        <set-header name="Authorization" exists-action="override">
+                            <value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
+                        </set-header>
+                        <set-body>@{
+                            var chunks = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]"));
+                            var lang = context.Variables.GetValueOrDefault<string>("piiDetectionLanguage");
+                            int start = context.Variables.GetValueOrDefault<int>("piiBatchStart", 0);
+                            var docs = new JArray();
+                            for (int i = start; i < Math.Min(start + 5, chunks.Count); i++)
+                            {
+                                docs.Add(new JObject {
+                                    ["text"] = chunks[i].ToString(),
+                                    ["id"] = i.ToString(),
+                                    ["language"] = lang
+                                });
+                            }
+                            var request = new JObject {
+                                ["kind"] = "PiiEntityRecognition",
+                                ["parameters"] = new JObject {
+                                    ["modelVersion"] = "latest",
+                                    ["redactionPolicy"] = new JObject {
+                                        ["policyKind"] = "CharacterMask",
+                                        ["redactionCharacter"] = "#"
+                                    }
+                                },
+                                ["analysisInput"] = new JObject { ["documents"] = docs }
+                            };
+                            return request.ToString();
+                        }</set-body>
+                    </send-request>
+                    <set-variable name="piiCurrentResponse" value="@(context.Variables.GetValueOrDefault<IResponse>("piiBatch2Response"))" />
+                    <set-variable name="piiAggregatedEntities" value="@{
+                        var aggregated = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiAggregatedEntities", "[]"));
+                        var response = context.Variables.GetValueOrDefault<IResponse>("piiCurrentResponse");
+                        if (response != null && response.StatusCode >= 200 && response.StatusCode < 300)
+                        {
+                            try
+                            {
+                                var documents = JObject.Parse(response.Body.As<string>(preserveContent: true)).SelectToken("$.results.documents") as JArray;
+                                if (documents != null)
+                                {
+                                    foreach (var doc in documents)
+                                    {
+                                        var ents = doc["entities"] as JArray;
+                                        if (ents != null) { foreach (var e in ents) { aggregated.Add(e); } }
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                        return aggregated.ToString();
+                    }" />
+                    <set-variable name="piiAnalysisFailureReason" value="@{
+                        var existing = context.Variables.GetValueOrDefault<string>("piiAnalysisFailureReason", "");
+                        if (!string.IsNullOrEmpty(existing)) { return existing; }
+                        var response = context.Variables.GetValueOrDefault<IResponse>("piiCurrentResponse");
+                        if (response == null) { return "PII service call failed: no response received (timeout or connectivity issue)."; }
+                        if (response.StatusCode < 200 || response.StatusCode >= 300)
+                        {
+                            var body = string.Empty;
+                            try { body = response.Body?.As<string>(preserveContent: true) ?? string.Empty; } catch { }
+                            return $"PII service returned non-success status {response.StatusCode} {response.StatusReason}. Body: {body}";
+                        }
+                        return string.Empty;
+                    }" />
+                </when>
+            </choose>
+
+            <!-- Batch 3 (chunks 10-14) -->
+            <choose>
+                <when condition="@(JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]")).Count > 10)">
+                    <set-variable name="piiBatchStart" value="@(10)" />
+                    <send-request mode="new" response-variable-name="piiBatch3Response" timeout="20" ignore-error="true">
+                        <set-url>@{
+                            var baseUrl = "{{piiServiceUrl}}".TrimEnd('/');
+                            return baseUrl + "/language/:analyze-text?api-version=2026-05-01";
+                        }</set-url>
+                        <set-method>POST</set-method>
+                        <set-header name="Content-Type" exists-action="override">
+                            <value>application/json</value>
+                        </set-header>
+                        <set-header name="Authorization" exists-action="override">
+                            <value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
+                        </set-header>
+                        <set-body>@{
+                            var chunks = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]"));
+                            var lang = context.Variables.GetValueOrDefault<string>("piiDetectionLanguage");
+                            int start = context.Variables.GetValueOrDefault<int>("piiBatchStart", 0);
+                            var docs = new JArray();
+                            for (int i = start; i < Math.Min(start + 5, chunks.Count); i++)
+                            {
+                                docs.Add(new JObject {
+                                    ["text"] = chunks[i].ToString(),
+                                    ["id"] = i.ToString(),
+                                    ["language"] = lang
+                                });
+                            }
+                            var request = new JObject {
+                                ["kind"] = "PiiEntityRecognition",
+                                ["parameters"] = new JObject {
+                                    ["modelVersion"] = "latest",
+                                    ["redactionPolicy"] = new JObject {
+                                        ["policyKind"] = "CharacterMask",
+                                        ["redactionCharacter"] = "#"
+                                    }
+                                },
+                                ["analysisInput"] = new JObject { ["documents"] = docs }
+                            };
+                            return request.ToString();
+                        }</set-body>
+                    </send-request>
+                    <set-variable name="piiCurrentResponse" value="@(context.Variables.GetValueOrDefault<IResponse>("piiBatch3Response"))" />
+                    <set-variable name="piiAggregatedEntities" value="@{
+                        var aggregated = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiAggregatedEntities", "[]"));
+                        var response = context.Variables.GetValueOrDefault<IResponse>("piiCurrentResponse");
+                        if (response != null && response.StatusCode >= 200 && response.StatusCode < 300)
+                        {
+                            try
+                            {
+                                var documents = JObject.Parse(response.Body.As<string>(preserveContent: true)).SelectToken("$.results.documents") as JArray;
+                                if (documents != null)
+                                {
+                                    foreach (var doc in documents)
+                                    {
+                                        var ents = doc["entities"] as JArray;
+                                        if (ents != null) { foreach (var e in ents) { aggregated.Add(e); } }
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                        return aggregated.ToString();
+                    }" />
+                    <set-variable name="piiAnalysisFailureReason" value="@{
+                        var existing = context.Variables.GetValueOrDefault<string>("piiAnalysisFailureReason", "");
+                        if (!string.IsNullOrEmpty(existing)) { return existing; }
+                        var response = context.Variables.GetValueOrDefault<IResponse>("piiCurrentResponse");
+                        if (response == null) { return "PII service call failed: no response received (timeout or connectivity issue)."; }
+                        if (response.StatusCode < 200 || response.StatusCode >= 300)
+                        {
+                            var body = string.Empty;
+                            try { body = response.Body?.As<string>(preserveContent: true) ?? string.Empty; } catch { }
+                            return $"PII service returned non-success status {response.StatusCode} {response.StatusReason}. Body: {body}";
+                        }
+                        return string.Empty;
+                    }" />
+                </when>
+            </choose>
+
+            <!-- Batch 4 (chunks 15-19) -->
+            <choose>
+                <when condition="@(JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]")).Count > 15)">
+                    <set-variable name="piiBatchStart" value="@(15)" />
+                    <send-request mode="new" response-variable-name="piiBatch4Response" timeout="20" ignore-error="true">
+                        <set-url>@{
+                            var baseUrl = "{{piiServiceUrl}}".TrimEnd('/');
+                            return baseUrl + "/language/:analyze-text?api-version=2026-05-01";
+                        }</set-url>
+                        <set-method>POST</set-method>
+                        <set-header name="Content-Type" exists-action="override">
+                            <value>application/json</value>
+                        </set-header>
+                        <set-header name="Authorization" exists-action="override">
+                            <value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
+                        </set-header>
+                        <set-body>@{
+                            var chunks = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]"));
+                            var lang = context.Variables.GetValueOrDefault<string>("piiDetectionLanguage");
+                            int start = context.Variables.GetValueOrDefault<int>("piiBatchStart", 0);
+                            var docs = new JArray();
+                            for (int i = start; i < Math.Min(start + 5, chunks.Count); i++)
+                            {
+                                docs.Add(new JObject {
+                                    ["text"] = chunks[i].ToString(),
+                                    ["id"] = i.ToString(),
+                                    ["language"] = lang
+                                });
+                            }
+                            var request = new JObject {
+                                ["kind"] = "PiiEntityRecognition",
+                                ["parameters"] = new JObject {
+                                    ["modelVersion"] = "latest",
+                                    ["redactionPolicy"] = new JObject {
+                                        ["policyKind"] = "CharacterMask",
+                                        ["redactionCharacter"] = "#"
+                                    }
+                                },
+                                ["analysisInput"] = new JObject { ["documents"] = docs }
+                            };
+                            return request.ToString();
+                        }</set-body>
+                    </send-request>
+                    <set-variable name="piiCurrentResponse" value="@(context.Variables.GetValueOrDefault<IResponse>("piiBatch4Response"))" />
+                    <set-variable name="piiAggregatedEntities" value="@{
+                        var aggregated = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiAggregatedEntities", "[]"));
+                        var response = context.Variables.GetValueOrDefault<IResponse>("piiCurrentResponse");
+                        if (response != null && response.StatusCode >= 200 && response.StatusCode < 300)
+                        {
+                            try
+                            {
+                                var documents = JObject.Parse(response.Body.As<string>(preserveContent: true)).SelectToken("$.results.documents") as JArray;
+                                if (documents != null)
+                                {
+                                    foreach (var doc in documents)
+                                    {
+                                        var ents = doc["entities"] as JArray;
+                                        if (ents != null) { foreach (var e in ents) { aggregated.Add(e); } }
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                        return aggregated.ToString();
+                    }" />
+                    <set-variable name="piiAnalysisFailureReason" value="@{
+                        var existing = context.Variables.GetValueOrDefault<string>("piiAnalysisFailureReason", "");
+                        if (!string.IsNullOrEmpty(existing)) { return existing; }
+                        var response = context.Variables.GetValueOrDefault<IResponse>("piiCurrentResponse");
+                        if (response == null) { return "PII service call failed: no response received (timeout or connectivity issue)."; }
+                        if (response.StatusCode < 200 || response.StatusCode >= 300)
+                        {
+                            var body = string.Empty;
+                            try { body = response.Body?.As<string>(preserveContent: true) ?? string.Empty; } catch { }
+                            return $"PII service returned non-success status {response.StatusCode} {response.StatusReason}. Body: {body}";
+                        }
+                        return string.Empty;
+                    }" />
+                </when>
+            </choose>
+
+            <!-- Batch 5 (chunks 20-24) -->
+            <choose>
+                <when condition="@(JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]")).Count > 20)">
+                    <set-variable name="piiBatchStart" value="@(20)" />
+                    <send-request mode="new" response-variable-name="piiBatch5Response" timeout="20" ignore-error="true">
+                        <set-url>@{
+                            var baseUrl = "{{piiServiceUrl}}".TrimEnd('/');
+                            return baseUrl + "/language/:analyze-text?api-version=2026-05-01";
+                        }</set-url>
+                        <set-method>POST</set-method>
+                        <set-header name="Content-Type" exists-action="override">
+                            <value>application/json</value>
+                        </set-header>
+                        <set-header name="Authorization" exists-action="override">
+                            <value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
+                        </set-header>
+                        <set-body>@{
+                            var chunks = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiChunks", "[]"));
+                            var lang = context.Variables.GetValueOrDefault<string>("piiDetectionLanguage");
+                            int start = context.Variables.GetValueOrDefault<int>("piiBatchStart", 0);
+                            var docs = new JArray();
+                            for (int i = start; i < Math.Min(start + 5, chunks.Count); i++)
+                            {
+                                docs.Add(new JObject {
+                                    ["text"] = chunks[i].ToString(),
+                                    ["id"] = i.ToString(),
+                                    ["language"] = lang
+                                });
+                            }
+                            var request = new JObject {
+                                ["kind"] = "PiiEntityRecognition",
+                                ["parameters"] = new JObject {
+                                    ["modelVersion"] = "latest",
+                                    ["redactionPolicy"] = new JObject {
+                                        ["policyKind"] = "CharacterMask",
+                                        ["redactionCharacter"] = "#"
+                                    }
+                                },
+                                ["analysisInput"] = new JObject { ["documents"] = docs }
+                            };
+                            return request.ToString();
+                        }</set-body>
+                    </send-request>
+                    <set-variable name="piiCurrentResponse" value="@(context.Variables.GetValueOrDefault<IResponse>("piiBatch5Response"))" />
+                    <set-variable name="piiAggregatedEntities" value="@{
+                        var aggregated = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiAggregatedEntities", "[]"));
+                        var response = context.Variables.GetValueOrDefault<IResponse>("piiCurrentResponse");
+                        if (response != null && response.StatusCode >= 200 && response.StatusCode < 300)
+                        {
+                            try
+                            {
+                                var documents = JObject.Parse(response.Body.As<string>(preserveContent: true)).SelectToken("$.results.documents") as JArray;
+                                if (documents != null)
+                                {
+                                    foreach (var doc in documents)
+                                    {
+                                        var ents = doc["entities"] as JArray;
+                                        if (ents != null) { foreach (var e in ents) { aggregated.Add(e); } }
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+                        return aggregated.ToString();
+                    }" />
+                    <set-variable name="piiAnalysisFailureReason" value="@{
+                        var existing = context.Variables.GetValueOrDefault<string>("piiAnalysisFailureReason", "");
+                        if (!string.IsNullOrEmpty(existing)) { return existing; }
+                        var response = context.Variables.GetValueOrDefault<IResponse>("piiCurrentResponse");
+                        if (response == null) { return "PII service call failed: no response received (timeout or connectivity issue)."; }
+                        if (response.StatusCode < 200 || response.StatusCode >= 300)
+                        {
+                            var body = string.Empty;
+                            try { body = response.Body?.As<string>(preserveContent: true) ?? string.Empty; } catch { }
+                            return $"PII service returned non-success status {response.StatusCode} {response.StatusReason}. Body: {body}";
+                        }
+                        return string.Empty;
+                    }" />
+                </when>
+            </choose>
+
+            <!-- Check for PII analysis failures and apply fail-closed / fail-open logic -->
             <choose>
                 <when condition="@(!string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("piiAnalysisFailureReason")))">
                     <!-- Emit trace for observability regardless of fail-open / fail-closed behavior -->
@@ -187,18 +622,15 @@
                     </choose>
                 </when>
                 <otherwise>
-                    <!-- Process PII Analysis Response and store mappings -->
+                    <!-- Build mappings from the entities aggregated across all chunk batches -->
                     <set-variable name="piiMappings" value="@{
-                        var response = context.Variables.GetValueOrDefault<IResponse>("piiAnalysisResponse");
                         var confidenceThreshold = context.Variables.GetValueOrDefault<double>("piiConfidenceThreshold");
                         var exclusions = context.Variables.GetValueOrDefault<string>("piiEntityCategoryExclusions")
                             .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
                             .Select(c => c.Trim())
                             .ToList();
 
-                        var entitiesToken = JObject.Parse(response.Body.As<string>())
-                            .SelectToken("$.results.documents[0].entities");
-                        var entitiesArray = entitiesToken as JArray ?? new JArray();
+                        var entitiesArray = JArray.Parse(context.Variables.GetValueOrDefault<string>("piiAggregatedEntities", "[]"));
 
                         var entities = entitiesArray
                             .Where(e => e["confidenceScore"] != null && e["confidenceScore"].Value<double>() >= confidenceThreshold)
@@ -212,6 +644,12 @@
                         foreach (var entity in entities) {
                             var text = (entity["text"]?.ToString() ?? string.Empty).TrimEnd('.', ',', ' ');
                             if (string.IsNullOrEmpty(text)) { continue; }
+
+                            // Skip boundary artifacts: chunking the raw JSON can make the Language
+                            // Service return text that spans a JSON structural token (quote/brace/etc.).
+                            // A genuine PII value never contains these, so replacing such text would
+                            // corrupt the request body. Dropping them keeps the anonymized body valid JSON.
+                            if (text.IndexOfAny(new[] { '"', '\\', '{', '}', '[', ']', '\n', '\r' }) >= 0) { continue; }
 
                             // Skip if this text has already been processed
                             if (processedTexts.Contains(text)) {
@@ -257,13 +695,30 @@
                 var content = context.Variables.GetValueOrDefault<string>("piiInputContent");
                 var mappings = JArray.Parse(
                     context.Variables.GetValueOrDefault<string>("piiMappings"));
-                    
+
+                // If the original body is JSON, guarantee the anonymized body stays valid JSON.
+                // This protects request structure (and downstream model detection) even if an
+                // unexpected replacement would otherwise corrupt the payload — without ever
+                // forwarding unmasked PII (only the single corrupting replacement is skipped).
+                bool originalIsJson = false;
+                try { JToken.Parse(content); originalIsJson = true; } catch { originalIsJson = false; }
+
                 foreach (var mapping in mappings) {
                     var original = mapping["original"].ToString();
                     var placeholder = mapping["placeholder"].ToString();
-                    content = content.Replace(original, placeholder);
+                    if (string.IsNullOrEmpty(original)) { continue; }
+
+                    var candidate = content.Replace(original, placeholder);
+
+                    if (originalIsJson)
+                    {
+                        try { JToken.Parse(candidate); }
+                        catch { continue; }
+                    }
+
+                    content = candidate;
                 }
-                
+
                 return content;
             }" />
         </when>

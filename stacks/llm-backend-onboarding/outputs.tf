@@ -37,13 +37,13 @@ output "llm_backends" {
 }
 
 output "pool_ids" {
-  description = "LLM backend pools (models served by more than one backend)."
+  description = "LLM backend pools (a model served by more than one backend of the same type)."
   value       = module.llm_routing.pool_ids
 }
 
 output "models" {
-  description = "Model name => backend or pool that serves it."
-  value       = { for p in module.llm_routing.pools : p.supported_models[0] => p.pool_name }
+  description = "Model name => the backends or pools that serve it (more than one when the model is hosted under two backend types)."
+  value       = { for p in module.llm_routing.pools : p.supported_models[0] => p.pool_name... }
 }
 
 output "universal_llm_api_url" {

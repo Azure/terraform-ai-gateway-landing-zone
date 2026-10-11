@@ -46,6 +46,17 @@ resource "azurerm_api_management_named_value" "aws_region" {
   secret              = false
 }
 
+# The anthropic-version header of api-key-anthropic backends (their credentials reference
+# {{anthropic-version}}); always created so the reference resolves.
+resource "azurerm_api_management_named_value" "anthropic_version" {
+  name                = "anthropic-version"
+  display_name        = "anthropic-version"
+  api_management_name = local.apim_name
+  resource_group_name = local.resource_group_name
+  value               = var.anthropic_version
+  secret              = false
+}
+
 resource "azurerm_api_management_named_value" "backend_api_key" {
   for_each = local.backend_auth_named_values
 

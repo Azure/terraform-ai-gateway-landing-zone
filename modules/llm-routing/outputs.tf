@@ -15,10 +15,16 @@ output "fragment_ids" {
     "get-available-models" = azurerm_api_management_policy_fragment.get_available_models.id
     "metadata-config"      = azurerm_api_management_policy_fragment.metadata_config.id
     "resolve-model-alias"  = azurerm_api_management_policy_fragment.resolve_model_alias.id
+    "backend-contract"     = azurerm_api_management_policy_fragment.backend_contract.id
   }
 }
 
 output "pools" {
   description = "Pool catalogue consumed by the routing fragments (pool name, type, models, auth)."
   value       = local.all_pools
+}
+
+output "backend_contract_version" {
+  description = "Version of the backend contract document served at /version/backend-contract."
+  value       = local.backend_contract_version
 }

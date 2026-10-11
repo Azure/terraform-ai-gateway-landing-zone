@@ -1,23 +1,19 @@
 <fragment>
     <!--
         Extract Requested Model Fragment
-        Purpose: Extracts the requested model from Azure OpenAI, Inference, or Unified AI endpoints
+        Purpose: Extracts the requested model from Azure OpenAI, OpenAI-compat, or native provider endpoints
         
-        Supported Patterns:
-        1. Azure OpenAI: Model from deployment-id path parameter (/deployments/{deployment-id}/chat/completions)
-        2. Unified AI:   Model from URL path segment (/openai/deployments/{model}/... via wildcard operations)
-        3. Inference:    Model from request body JSON ({"model": "model-name", ...})
+        Supported Patterns (evaluated in order):
+        1. Azure OpenAI named op:    deployment-id path parameter (/deployments/{deployment-id}/chat/completions)
+        2. AOAI wildcard / Unified:  /deployments/{model}/...    (e.g. /openai/deployments/{model}/chat/completions)
+        3. AWS Bedrock native:       /model/{modelId}/...        (e.g. /bedrock/model/{id}/converse|invoke)
+                                     modelId may contain ':' (e.g. eu.amazon.nova-lite-v1:0); URL-decoded
+        4. Gemini native:            /models/{modelId}:method    (e.g. /gemini/v1beta/models/{id}:generateContent)
+        5. OpenAI-compat / Anthropic / Bedrock OpenAI-compat: request body "model" field
         
         Output Variable:
-        - requestedModel: The extracted model name (empty string if not found)
-        
-        Logic:
-        - GET/DELETE requests return "non-llm-request" (no model routing needed)
-        - First attempts to extract from deployment-id path parameter (Azure OpenAI named operations)
-        - If not found, attempts to extract model from URL path by detecting /deployments/{model}/ pattern
-          (Unified AI wildcard operations where APIM has no named path parameters)
-        - If not found, attempts to extract from request body model field (Inference pattern)
-        - Returns empty string if no pattern matches
+        - requestedModel: The extracted model name (empty string if not found, triggers 400)
+                          GET/DELETE requests bypass extraction and return "non-llm-request"
     -->
     
     <set-variable name="requestedModel" value="@{
@@ -25,11 +21,22 @@
         {
             var method = context.Request.Method;
 
-            // GET and DELETE requests are non-LLM operations (listing models, deleting responses)
-            if (method.Equals("GET", StringComparison.OrdinalIgnoreCase) ||
-                method.Equals("DELETE", StringComparison.OrdinalIgnoreCase))
+            // GET requests are non-LLM operations (listing models/deployments/files).
+            if (method.Equals("GET", StringComparison.OrdinalIgnoreCase))
             {
                 return "non-llm-request";
+            }
+
+            // DELETE: file deletes (DELETE /files/{id}) carry the routing model in the
+            // `x-ai-model` header, so resolve it so the request routes to a backend and
+            // access-contract RBAC still applies. Response deletes (DELETE /responses/{id})
+            // have no such header and are hydrated from cache downstream, so they stay
+            // non-LLM here. Mirrors the Unified AI request-processor so all three surfaces
+            // treat DELETE identically.
+            if (method.Equals("DELETE", StringComparison.OrdinalIgnoreCase))
+            {
+                var deleteHeaderModel = context.Request.Headers.GetValueOrDefault("x-ai-model", string.Empty);
+                return string.IsNullOrEmpty(deleteHeaderModel) ? "non-llm-request" : deleteHeaderModel;
             }
             
             // 1. Try deployment-id path parameter (Azure OpenAI named operations)
@@ -42,10 +49,10 @@
                 return deploymentId;
             }
             
-            // 2. Try extracting model from URL path (Unified AI wildcard operations)
-            //    Handles paths like /openai/deployments/{model}/chat/completions
-            //    where APIM wildcard routes don't define named parameters
             var path = context.Request.Url.Path;
+            
+            // 2. Try extracting model from URL path /deployments/{model}/...
+            //    Handles AOAI wildcards and Unified AI /openai/deployments/{model}/chat/completions
             var deploymentsSegment = "/deployments/";
             var idx = path.IndexOf(deploymentsSegment, StringComparison.OrdinalIgnoreCase);
             if (idx >= 0)
@@ -59,7 +66,56 @@
                 }
             }
             
-            // 3. Try request body model field (Inference endpoint pattern)
+            // 3. Try AWS Bedrock native Converse/Invoke pattern: /model/{modelId}/{operation}
+            //    Singular "/model/" (vs "/models/") disambiguates from Gemini.
+            //    modelId may contain ':', '.' (e.g. eu.amazon.nova-lite-v1:0) or '/'
+            //    (inference-profile ARNs, e.g.
+            //    arn:aws:bedrock:eu-north-1:123:inference-profile/eu.amazon.nova-lite-v1:0).
+            //    Even when the client percent-encodes '/' as %2F, APIM decodes it back to '/'
+            //    in Url.Path, so IndexOf('/') would truncate the ARN. The Bedrock operation
+            //    suffix (converse|converse-stream|invoke|invoke-with-response-stream) is
+            //    always the LAST path segment, so split on the LAST '/' instead.
+            var modelSegment = "/model/";
+            idx = path.IndexOf(modelSegment, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+            {
+                var afterSegment = path.Substring(idx + modelSegment.Length);
+                var slashPos = afterSegment.LastIndexOf('/');
+                var modelName = slashPos > 0 ? afterSegment.Substring(0, slashPos) : afterSegment;
+                if (!string.IsNullOrEmpty(modelName))
+                {
+                    return System.Net.WebUtility.UrlDecode(modelName);
+                }
+            }
+            
+            // 4. Try Gemini native pattern: /models/{modelId}:method (e.g. /v1beta/models/gemini-2.5-flash:generateContent)
+            //    Plural "/models/" with ':' terminator disambiguates from /deployments/{model}/.
+            var modelsSegment = "/models/";
+            idx = path.IndexOf(modelsSegment, StringComparison.OrdinalIgnoreCase);
+            if (idx >= 0)
+            {
+                var afterSegment = path.Substring(idx + modelsSegment.Length);
+                var colonPos = afterSegment.IndexOf(':');
+                if (colonPos > 0)
+                {
+                    var modelName = afterSegment.Substring(0, colonPos);
+                    if (!string.IsNullOrEmpty(modelName))
+                    {
+                        return System.Net.WebUtility.UrlDecode(modelName);
+                    }
+                }
+            }
+            
+            // 5. Try x-ai-model header (image multipart edits: POST /v1/images/edits, where the
+            //    model is neither in a JSON body nor the URL path — mirrors the request-processor
+            //    image flow so access-contract RBAC resolves the model for multipart requests).
+            var headerModel = context.Request.Headers.GetValueOrDefault("x-ai-model", string.Empty);
+            if (!string.IsNullOrEmpty(headerModel))
+            {
+                return headerModel;
+            }
+
+            // 6. Try request body "model" field (OpenAI-compat / Anthropic Messages / Inference)
             var bodyText = context.Request.Body.As<string>(preserveContent: true);
             if (string.IsNullOrEmpty(bodyText))
             {
@@ -90,9 +146,9 @@
                 <set-body>@{
                     return new JObject(
                         new JProperty("error", new JObject(
-                            new JProperty("message", "Model could not be detected from request body or path"),
+                            new JProperty("message", "Model could not be detected from request body, x-ai-model header, or path"),
                             new JProperty("type", "invalid_request_error"),
-                            new JProperty("code", "missing_model_parameter"),
+                            new JProperty("code", "extraction_missing_model_parameter"),
                             new JProperty("param", "model")
                         ))
                     ).ToString();

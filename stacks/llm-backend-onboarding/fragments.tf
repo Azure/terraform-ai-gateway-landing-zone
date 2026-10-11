@@ -9,9 +9,9 @@ locals {
       "set-backend-authorization" = "Authentication and routing configuration for different LLM backend types"
       "set-target-backend-pool"   = "Determines the target backend pool for LLM requests"
       "set-llm-usage"             = "Collects usage metrics for LLM requests"
-      "set-llm-requested-model"   = "Extracts the requested model from deployment-id (Azure OpenAI) or request body (Inference)"
+      "set-llm-requested-model"   = "Extracts the requested model from the deployment-id, the URL path (Azure OpenAI, Bedrock, Gemini) or the request body"
       "validate-model-access"     = "Validates that the requested model is in the allowed models list for the product"
-      "responses-id-security"     = "Per-subscription ownership enforcement for the Responses API"
+      "responses-id-security"     = "Per-subscription and per-product ownership enforcement for the Responses API"
       "responses-id-cache-store"  = "Records ownership of newly created Responses API objects"
       "ai-foundry-deployments"    = "AI Foundry deployments helper fragment"
     },
@@ -23,7 +23,7 @@ locals {
   )
 
   # gateway-config fragments the LLM policies include.
-  required_shared_fragments = toset(["security-handler", "raise-throttling-events", "set-response-headers", "strip-backend-headers", "ai-foundry-compatibility"])
+  required_shared_fragments = toset(["security-handler", "raise-alert-events", "set-response-headers", "strip-backend-headers", "ai-foundry-compatibility"])
 }
 
 module "llm_fragments" {
