@@ -10,7 +10,7 @@ locals {
   resource_group_id   = data.azurerm_resource_group.workload.id
 }
 
-# User-assigned identities (Bicep parity):
+# User-assigned identities:
 #   apim   APIM -> Foundry, Content Safety, Language, Event Hub logger, Key Vault.
 #   usage  Logic App -> Cosmos DB, storage, Event Hub.
 module "identity" {

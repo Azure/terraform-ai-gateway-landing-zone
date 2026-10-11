@@ -22,7 +22,7 @@ output "database_name" {
   depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
 }
 
-# Container outputs (Bicep parity)
+# Container outputs
 output "usage_container_name" {
   description = "Name of the AI usage container."
   value       = local.containers.usage.name

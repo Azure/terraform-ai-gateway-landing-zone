@@ -1,12 +1,11 @@
 # =============================================================================
 # MODULE: Event Hub
-# Usage data streaming pipeline — mirrors Bicep eventhub module
+# Usage data streaming pipeline
 # =============================================================================
 
-# Note on Bicep-parity flags handled implicitly by azurerm v4:
+# Note on flags handled implicitly by azurerm v4:
 #   - zoneRedundant: managed automatically for Standard/Premium SKUs (no arg).
-#   - kafkaEnabled: Kafka is always enabled on Standard+ namespaces; Bicep sets
-#     it false but the RP ignores that for Standard. No TF action required.
+#   - kafkaEnabled: Kafka is always enabled on Standard+ namespaces;
 module "namespace" {
   source  = "Azure/avm-res-eventhub-namespace/azurerm"
   version = "0.1.1"
@@ -25,15 +24,14 @@ module "namespace" {
   public_network_access_enabled = var.public_network_access == "Enabled"
   # Network rules: azapi_update_resource.network_rule_set below (retried independently).
 
-  # Bicep parity: partition 4 / 2, retention 7 days.
+  # partition 4 / 2, retention 7 days.
   event_hubs = {
     "ai-usage"  = { namespace_name = var.namespace_name, resource_group_name = var.resource_group_name, partition_count = 4, message_retention = 7 }
     "pii-usage" = { namespace_name = var.namespace_name, resource_group_name = var.resource_group_name, partition_count = 2, message_retention = 7 }
   }
 
   # Managed identities instead of SAS keys:
-  #   APIM loggers send; the Logic App (usage UAMI) receives. Bicep also gives
-  #   the Logic App UAMI Data Owner (at RG scope; namespace scope is tighter).
+  #   APIM loggers send; the Logic App (usage UAMI) receives.
   role_assignments = {
     apim_data_sender = {
       role_definition_id_or_name = "Azure Event Hubs Data Sender"
@@ -94,18 +92,8 @@ resource "azapi_update_resource" "network_rule_set" {
 }
 
 # -----------------------------------------------------------------------------
-# EVENT HUB: ai-usage (LLM token/request metrics). Bicep parity: partition=4, retention=7.
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# EVENT HUB: pii-usage (PII anonymization audit logs). Bicep parity: partition=2, retention=7.
-# -----------------------------------------------------------------------------
-
-# -----------------------------------------------------------------------------
-# CONSUMER GROUPS (match Bicep names: aiUsageIngestion / piiUsageIngestion).
-# Note: $Default is auto-created by the Event Hub service; Bicep declares it
-# explicitly but the Terraform provider rejects '$' in the name. Omitting it
-# does not change the deployed state.
+# CONSUMER GROUPS (names: aiUsageIngestion / piiUsageIngestion).
+# Note: $Default is auto-created by the Event Hub service.
 # -----------------------------------------------------------------------------
 
 resource "azurerm_eventhub_consumer_group" "ai_usage_ingestion" {
@@ -127,10 +115,6 @@ resource "azurerm_eventhub_consumer_group" "pii_usage_ingestion" {
   # The hubs are created inside the AVM namespace module.
   depends_on = [module.namespace]
 }
-
-# -----------------------------------------------------------------------------
-# PRIVATE ENDPOINT
-# -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
 # DIAGNOSTIC SETTINGS
@@ -165,16 +149,7 @@ resource "azapi_resource_action" "eventhub_diagnostics" {
 }
 
 # -----------------------------------------------------------------------------
-# RBAC: Grant UAMI "Azure Event Hubs Data Sender" on namespace
-# (used by APIM loggers via managed identity instead of SAS keys)
-# -----------------------------------------------------------------------------
-
-# Bicep parity: Logic App UAMI also gets "Azure Event Hubs Data Owner" at
-# namespace scope (Bicep grants at RG scope; namespace scope is tighter and
-# sufficient for the Logic App workflows).
-
-# -----------------------------------------------------------------------------
-# OPTIONAL DISASTER RECOVERY PAIRING (Bicep parity: disasterRecoveryConfig)
+# OPTIONAL DISASTER RECOVERY PAIRING
 # When `var.disaster_recovery_config` is provided, pairs this namespace with a
 # partner namespace (typically in a secondary region) under the given alias.
 # The partner namespace must already exist and be the same SKU.

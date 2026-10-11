@@ -19,7 +19,7 @@
         // Update the below if condition when using multiple APIM gateway regions/SHGW to get different configurations for each region
         if(context.Deployment.Region == "All Regions" || true)
         {
-            // Backend Pools Configuration (Auto-generated from Bicep deployment)
+            // Backend Pools Configuration (Auto-generated from deployment)
             //{backendPoolsCode}
         }
         else

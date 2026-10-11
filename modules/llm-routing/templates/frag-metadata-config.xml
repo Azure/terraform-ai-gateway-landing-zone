@@ -18,7 +18,7 @@
         - request-processor fragment: Uses api-types for API type detection and apiTypeOverrideBackend
         - set-response-headers fragment: References model and API information for debug headers
 
-        Note: The 'models' section is dynamically generated from llmBackendConfig during Bicep deployment.
+        Note: The 'models' section is dynamically generated from llmBackendConfig during deployment.
               The 'api-types', 'cache-settings', and 'timeout-settings' sections are static definitions.
     -->
     <set-variable name="metadata-config" value="@{return @"{

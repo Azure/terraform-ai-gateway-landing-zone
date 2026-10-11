@@ -24,8 +24,8 @@ module "log_analytics" {
   enable_telemetry    = var.enable_telemetry
 
   log_analytics_workspace_sku               = "PerGB2018"
-  log_analytics_workspace_retention_in_days = 30 # Bicep parity (was 90)
-  # Bicep parity: when AMPLS is in use, disable public ingestion; queries remain enabled.
+  log_analytics_workspace_retention_in_days = 30
+  # when AMPLS is in use, disable public ingestion; queries remain enabled.
   log_analytics_workspace_internet_ingestion_enabled = var.use_azure_monitor_private_link_scope ? "false" : "true"
   log_analytics_workspace_internet_query_enabled     = "true"
 }
@@ -101,7 +101,7 @@ resource "azurerm_portal_dashboard" "app_insights" {
 }
 
 # =============================================================================
-# AZURE MONITOR PRIVATE LINK SCOPE (AMPLS) — Bicep parity
+# AZURE MONITOR PRIVATE LINK SCOPE (AMPLS)
 # Creates a scope, associates the LAW and 3 App Insights components, and
 # optionally creates a private endpoint with amazon DNS groups for the
 # Azure Monitor / OMS / ODS / Agent subresources.

@@ -33,7 +33,7 @@ module "eventhub" {
   capacity_units        = local.usage_cfg.eventhub.capacity
   public_network_access = local.usage_cfg.eventhub.public_network_access
 
-  # APIM identity = Sender; usage identity = Receiver + Owner (Bicep parity).
+  # APIM identity = Sender; usage identity = Receiver + Owner.
   apim_identity_principal_id  = module.identity["apim"].principal_id
   usage_identity_principal_id = module.identity["usage"].principal_id
 

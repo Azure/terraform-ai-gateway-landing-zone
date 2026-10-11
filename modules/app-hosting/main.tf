@@ -1,10 +1,9 @@
 # =============================================================================
-# MODULE: App hosting — App Service Environment v3 (review 7.5.3a)
+# MODULE: App hosting — App Service Environment v3
 # Dedicated, internal (ILB) ASE v3 for the keyless usage-ingestion Logic App,
 # plus the private DNS zone <ase>.appserviceenvironment.net that resolves the
 # apps and their SCM endpoints to the ASE's internal inbound IP.
-# Creating an ASE takes 1–4 hours; it changes rarely (Phase 3 moves this module
-# to its own stack, stacks/app-hosting).
+# Creating an ASE takes 1–4 hours; it changes rarely.
 # =============================================================================
 
 locals {
@@ -12,7 +11,7 @@ locals {
   # Known at plan time (the module's dns_suffix output is not).
   dns_zone_name = "${var.name}.appserviceenvironment.net"
 
-  # Fixed hardening (review 7.5.3a): encrypted internal traffic, no TLS 1.0,
+  # Fixed hardening encrypted internal traffic, no TLS 1.0,
   # no FTP, no remote debugging.
   hardening = {
     internal_encryption_enabled = true

@@ -1,7 +1,7 @@
 # =============================================================================
 # MODULE: API Management service (platform stack)
 # The service, its network model, private endpoint, internal DNS and the
-# external (Redis) cache. Mirrors bicep/infra/modules/apim.bicep.
+# external (Redis) cache.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -52,7 +52,7 @@ module "service" {
   # v2 SKUs ignore apiVersionConstraint (always read back empty).
   min_api_version = local.is_apim_v2 ? null : "2021-08-01"
 
-  # Bicep parity: availability zones (Premium + skuCount>1; []/null otherwise).
+  # availability zones (Premium + skuCount>1; []/null otherwise).
   zones = length(var.apim_zones) > 0 ? var.apim_zones : null
 
   # Azure rejects creating a service with public access disabled
@@ -62,7 +62,7 @@ module "service" {
   # always keep public access.
   public_network_access_enabled = !local.is_apim_v2 || !local.apim_exists || var.apim_v2_public_network_access
 
-  # Bicep parity: UserAssigned only.
+  # UserAssigned only.
   managed_identities = { user_assigned_resource_ids = [var.managed_identity_id] }
 
   virtual_network_type      = local.virtual_network_type
@@ -70,7 +70,7 @@ module "service" {
   # Classic external/internal only: Standard-SKU public IP for the service (stv2).
   public_ip_address_id = var.public_ip_address_id
 
-  # Legacy protocols and weak ciphers off (Bicep parity).
+  # Legacy protocols and weak ciphers off.
   security = {}
 
   private_endpoints_manage_dns_zone_group = !var.dns_zone_group_managed_by_policy
@@ -150,7 +150,7 @@ locals {
 }
 
 # -----------------------------------------------------------------------------
-# APIM REDIS CACHE (Bicep parity: `service/caches` resource)
+# APIM REDIS CACHE (`service/caches` resource)
 # Links Azure Managed Redis to APIM for semantic caching. Created only when
 # Redis is enabled. The count uses the plan-time flag, not the connection string:
 # the string is only known after Redis is created, so gating on it made a fresh

@@ -1,8 +1,5 @@
 # =============================================================================
 # MODULE: Foundry - Outputs
-# Mirrors bicep module outputs:
-#   - extendedAIServicesConfig
-#   - aiFoundryPrincipalIds
 # =============================================================================
 
 output "diagnostic_setting_names" {
@@ -44,7 +41,7 @@ output "project_names" {
   value       = azapi_resource.project[*].name
 }
 
-# Parity with Bicep output extendedAIServicesConfig
+# Extended AI Services configuration per instance
 output "extended_ai_services_config" {
   description = "Per-instance Foundry details including the Foundry project endpoint."
   value = [

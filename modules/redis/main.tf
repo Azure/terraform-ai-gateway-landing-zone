@@ -1,8 +1,7 @@
 # =============================================================================
 # MODULE: Redis (Azure Managed Redis / Redis Enterprise)
-# Bicep parity: bicep/infra/modules/redis/redis.bicep
 #
-# Uses azapi with the `2025-07-01` API version to match Bicep exactly and to
+# Uses azapi with the `2025-07-01` API version to 
 # support the newer Balanced_* SKUs that azurerm 4.x doesn't yet model natively.
 # =============================================================================
 
@@ -59,7 +58,7 @@ resource "azapi_resource" "redis_db" {
   response_export_values = ["properties.port"]
 }
 
-# Bicep parity: redisDb.listKeys().primaryKey — used for the APIM service/caches
+# used for the APIM service/caches
 # connection string.
 resource "azapi_resource_action" "redis_keys" {
   type                   = "Microsoft.Cache/redisEnterprise/databases@2025-07-01"

@@ -1,12 +1,12 @@
 # =============================================================================
 # APIM TELEMETRY — loggers (Application Insights, Azure Monitor, Event Hub ×2),
 # the service-level Application Insights diagnostic (+ metrics flag) and the
-# service diagnostic setting to Log Analytics. Moved from modules/apim (Phase 1).
+# service diagnostic setting to Log Analytics.
 # =============================================================================
 
 locals {
   # APIM logger `endpointAddress` expects hostname (optionally with :port), not a
-  # URL. Bicep does: replace(eventHubEndpoint, 'https://', ''). Terraform's
+  # URL. Terraform's
   # azurerm_api_management_logger.eventhub.endpoint_uri is forwarded verbatim,
   # so we strip the scheme + any trailing slash/port suffix here.
   eventhub_hostname = replace(replace(var.eventhub_endpoint_uri, "https://", ""), "/", "")
@@ -23,7 +23,7 @@ resource "azurerm_api_management_logger" "app_insights" {
   resource_id         = var.app_insights_id
 
   application_insights {
-    # Bicep parity: prefer connection_string (correlates region+resource) when
+    # prefer connection_string (correlates region+resource) when
     # available; fall back to instrumentation_key.
     connection_string   = var.app_insights_connection_string != "" ? var.app_insights_connection_string : null
     instrumentation_key = var.app_insights_connection_string == "" ? var.app_insights_instrumentation_key : null
@@ -31,7 +31,7 @@ resource "azurerm_api_management_logger" "app_insights" {
 }
 
 # -----------------------------------------------------------------------------
-# APIM LOGGER: Azure Monitor (Bicep parity — required for the `azureMonitor`
+# APIM LOGGER: Azure Monitor (required for the `azureMonitor`
 # diagnostic destination on inference APIs). Not exposed by azurerm.
 #
 # APIM can materialise the `azuremonitor` logger server-side, so a create with
@@ -124,8 +124,7 @@ resource "azurerm_api_management_diagnostic" "global" {
 }
 
 # -----------------------------------------------------------------------------
-# Bicep parity: apim.bicep sets `metrics: true` on the service-level
-# applicationinsights diagnostic. The azurerm provider does not expose this
+# The azurerm provider does not expose this
 # property, so we PATCH it here. Without this flag, `<emit-metric>` and
 # `<llm-emit-token-metric>` policies execute successfully but APIM drops the
 # samples before forwarding them to App Insights (no customMetrics emitted).

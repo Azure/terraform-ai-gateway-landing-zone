@@ -43,7 +43,7 @@ variable "subscription_id" {
 }
 
 # -----------------------------------------------------------------------------
-# AZURE MONITOR PRIVATE LINK SCOPE (Bicep parity: useAzureMonitorPrivateLinkScope)
+# AZURE MONITOR PRIVATE LINK SCOPE
 # -----------------------------------------------------------------------------
 
 variable "use_azure_monitor_private_link_scope" {

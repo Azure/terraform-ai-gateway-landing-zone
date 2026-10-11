@@ -1,5 +1,5 @@
 # =============================================================================
-# API CENTER REGISTRATION — Bicep parity: api-center-onboarding.bicep
+# API CENTER REGISTRATION
 # Registers each API in API Center with a Version, a Definition and a
 # Deployment that points at the APIM gateway.
 # =============================================================================

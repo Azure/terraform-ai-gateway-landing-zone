@@ -66,7 +66,7 @@ variable "ip_rules" {
   default     = []
 }
 variable "foundry_principal_ids" {
-  description = "System-assigned principal IDs of AI Foundry accounts for KV Secrets User grant (Bicep: keyvault-rbac.bicep)."
+  description = "System-assigned principal IDs of AI Foundry accounts for KV Secrets User grant."
   type        = list(string)
   default     = []
 }

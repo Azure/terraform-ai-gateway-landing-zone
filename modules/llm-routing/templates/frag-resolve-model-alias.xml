@@ -9,7 +9,7 @@
         Resolution sources (in order):
         1. config-model-aliases — JObject set by central-cache-manager (Unified AI path).
         2. inline-model-aliases — Static JObject populated at deploy time from the modelAliases
-                                  Bicep parameter (used by Azure OpenAI / Universal LLM APIs that
+                                  parameter (used by Azure OpenAI / Universal LLM APIs that
                                   don't load metadata-config).
 
         Input Variables:
@@ -31,7 +31,7 @@
           backend deployment.
     -->
 
-    <!-- Static alias map populated at deploy time from the modelAliases Bicep parameter.
+    <!-- Static alias map populated at deploy time from the modelAliases parameter.
          When no aliases are defined this evaluates to an empty JObject and the fragment is a no-op. -->
     <set-variable name="inline-model-aliases" value="@{
         return new JObject() {

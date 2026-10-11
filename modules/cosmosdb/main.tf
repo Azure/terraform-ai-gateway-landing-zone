@@ -1,6 +1,6 @@
 # =============================================================================
 # MODULE: Cosmos DB
-# Usage analytics store — mirrors Bicep cosmosdb module
+# Usage analytics store
 # =============================================================================
 
 locals {
@@ -10,7 +10,7 @@ locals {
     config        = { name = "streaming-export-config", partition_key = "/type", default_ttl = null }  # Logic App configuration documents
     pii           = { name = "pii-usage-container", partition_key = "/productName", default_ttl = -1 } # PII anonymization audit records
     llm_usage     = { name = "llm-usage-container", partition_key = "/productName", default_ttl = -1 } # LLM token usage records
-    model_pricing = { name = "model-pricing", partition_key = "/model", default_ttl = null }           # Bicep parity: model pricing reference data
+    model_pricing = { name = "model-pricing", partition_key = "/model", default_ttl = null }           # Model pricing reference data
   }
 }
 
@@ -37,7 +37,7 @@ module "cosmos" {
   public_network_access_enabled = var.public_network_access == "Enabled"
   ip_range_filter               = var.public_network_access == "Enabled" ? ["0.0.0.0"] : []
 
-  # Bicep parity: enableAutomaticFailover=true, disableKeyBasedMetadataWriteAccess=true
+  # enableAutomaticFailover=true, disableKeyBasedMetadataWriteAccess=true
   automatic_failover_enabled         = true
   access_key_metadata_writes_enabled = false
 

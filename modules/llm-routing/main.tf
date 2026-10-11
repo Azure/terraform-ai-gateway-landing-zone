@@ -2,8 +2,7 @@
 # LLM ROUTING — turns the LLM backend catalogue into APIM backends, backend
 # pools (load balancing + circuit breaker) and the four generated routing
 # fragments (set-backend-pools, get-available-models, metadata-config,
-# resolve-model-alias). Bicep parity: llm-backends.bicep, llm-backend-pools.bicep,
-# llm-policy-fragments.bicep (dynamic part). Moved from modules/apim (Phase 1).
+# resolve-model-alias).
 # =============================================================================
 
 locals {
@@ -17,7 +16,7 @@ locals {
       priority     = b.priority
       weight       = b.weight
       model_names  = [for m in b.supported_models : m.name]
-      # Bicep parity: pool entries carry authType + authConfigNamedValue so the
+      # pool entries carry authType + authConfigNamedValue so the
       # set-backend-pools fragment can resolve per-pool credentials.
       # Coalesce to "" because `try` only catches missing keys, not explicit
       # nulls — a null here breaks the C# code-gen string templates.
@@ -82,7 +81,7 @@ locals {
 }
 
 # -----------------------------------------------------------------------------
-# LLM BACKENDS (one per endpoint) — llm-backends.bicep
+# LLM BACKENDS (one per endpoint)
 # -----------------------------------------------------------------------------
 
 resource "azapi_resource" "llm_backend" {
@@ -119,10 +118,9 @@ resource "azapi_resource" "llm_backend" {
         }]
       } : null
 
-      # Native APIM backend managed-identity credential (Bicep parity:
-      # llm-backends.bicep credentials.managedIdentity). The x-ms-client-id
-      # header is preserved for backends that key on it. Non-managed-identity
-      # auth schemes are handled in policy fragments, so both keys are null.
+      # Native APIM backend managed-identity credential.
+      # The x-ms-client-id header is preserved for backends that key on it.
+      # Non-managed-identity auth schemes are handled in policy fragments, so both keys are null.
       credentials = {
         managedIdentity = each.value.auth_scheme == "managedIdentity" ? {
           clientId = var.managed_identity_client_id
@@ -142,7 +140,7 @@ resource "azapi_resource" "llm_backend" {
 }
 
 # -----------------------------------------------------------------------------
-# LLM BACKEND POOLS (load balancer) — llm-backend-pools.bicep
+# LLM BACKEND POOLS (load balancer)
 # -----------------------------------------------------------------------------
 
 resource "azapi_resource" "llm_backend_pool" {
@@ -170,11 +168,11 @@ resource "azapi_resource" "llm_backend_pool" {
 }
 
 # -----------------------------------------------------------------------------
-# Dynamic code generation (mirrors Bicep reduce/map over llmBackendConfig)
+# Dynamic code generation (reduce/map over llmBackendConfig)
 # -----------------------------------------------------------------------------
 
 locals {
-  # -- set-backend-pools: per-pool C# JObject blocks (Bicep parity: pool entries
+  # -- set-backend-pools: per-pool C# JObject blocks (pool entries
   #    include authType + authConfigNamedValue so credentials resolve per pool).
   backend_pools_code = join("\n", [
     for idx, pool in local.all_pools : join("\n", [
@@ -267,7 +265,7 @@ locals {
     local.model_deployments_with_aliases_code
   )
 
-  # -- Alias discovery entries (Bicep parity: aliasDeploymentEntries). Each alias
+  # -- Alias discovery entries (aliasDeploymentEntries). Each alias
   #    is appended to the model-deployments JArray so it appears in /deployments
   #    discovery alongside real models; allowedModels filtering treats them
   #    identically, so RBAC extends to aliases automatically.

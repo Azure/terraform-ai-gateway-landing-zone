@@ -142,7 +142,7 @@ variable "foundry" {
 
 variable "foundry_config" {
   description = <<-EOT
-    Foundry connection settings (Bicep foundryConfig).
+    Foundry connection settings.
       connection_name_prefix  "" = Hub-<bu>-<usecase>-<env>
       connection_category     ApiManagement | ModelGateway
       auth_type               ProjectManagedIdentity (default) | ApiKey. With ProjectManagedIdentity the

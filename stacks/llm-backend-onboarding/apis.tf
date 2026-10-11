@@ -4,7 +4,7 @@
 locals {
   apis_dir = "${path.module}/apis"
 
-  # Universal LLM API flavour (Bicep parity: inferenceAPIType).
+  # Universal LLM API flavour.
   universal_llm_api_path = lookup({ AzureOpenAI = "openai", AzureAI = "inference", OpenAI = "openai", OpenAIV1 = "models" }, var.inference_api_type, "models")
   universal_llm_spec_path = lookup({
     AzureOpenAI = "${local.apis_dir}/azure-openai-api/AIFoundryOpenAI.json"

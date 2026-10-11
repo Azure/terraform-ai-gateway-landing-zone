@@ -1,6 +1,5 @@
 # =============================================================================
 # APIM POLICY FRAGMENTS — deploys a map of policy fragments.
-# Bicep parity: policy-fragments.bicep + llm-policy-fragments.bicep (static part).
 # =============================================================================
 
 resource "azurerm_api_management_policy_fragment" "this" {

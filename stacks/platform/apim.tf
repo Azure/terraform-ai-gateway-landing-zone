@@ -30,7 +30,7 @@ module "apim" {
   # Private VIP hostnames: greenfield creates the zones; in an ALZ the hub does.
   create_internal_dns = local.greenfield
 
-  # Availability zones (Bicep parity: Premium + more than one unit).
+  # Availability zones.
   apim_zones = local.apim_cfg.sku == "Premium" && local.apim_cfg.capacity > 1 ? (
     local.apim_cfg.capacity == 2 ? ["1", "2"] : ["1", "2", "3"]
   ) : []

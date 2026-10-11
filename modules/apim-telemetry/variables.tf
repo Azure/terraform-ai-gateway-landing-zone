@@ -9,7 +9,7 @@ variable "api_management_name" {
 }
 
 variable "app_insights_connection_string" {
-  description = "Application Insights connection string — used in the AppInsights logger (Bicep parity)."
+  description = "Application Insights connection string — used in the AppInsights logger."
   type        = string
   sensitive   = true
   default     = ""
@@ -33,13 +33,13 @@ variable "enable_pii_redaction" {
 
 variable "eventhub_pii_hub_name" {
   type        = string
-  description = "Name of the PII usage event hub (matches Bicep output eventHubPIIName)."
+  description = "Name of the PII usage event hub."
   default     = "pii-usage"
 }
 
 variable "eventhub_usage_hub_name" {
   type        = string
-  description = "Name of the APIM usage event hub inside the namespace (matches Bicep output eventHub.name)."
+  description = "Name of the APIM usage event hub inside the namespace."
   default     = "ai-usage"
 }
 

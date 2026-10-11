@@ -30,7 +30,6 @@ variable "dns_zone_id" {
   description = "Resource ID of the privatelink.servicebus.windows.net DNS zone (empty = no DNS zone group)."
   type        = string
 }
-# Bicep parity:
 #  - APIM UAMI needs Data Sender (to publish from loggers).
 #  - Logic App / Usage UAMI needs Data Receiver (to consume usage events).
 variable "apim_identity_principal_id" {
@@ -54,7 +53,7 @@ variable "log_analytics_id" {
 }
 
 # -----------------------------------------------------------------------------
-# OPTIONAL DISASTER RECOVERY (Bicep parity: disasterRecoveryConfig)
+# OPTIONAL DISASTER RECOVERY
 # -----------------------------------------------------------------------------
 # When set, creates a Microsoft.EventHub/namespaces/disasterRecoveryConfigs
 # resource with alias 'default' pairing this namespace with a partner namespace

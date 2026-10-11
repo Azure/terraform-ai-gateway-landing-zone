@@ -75,7 +75,7 @@ variable "ase_subnet_prefix" {
   default     = "10.170.1.0/24"
 }
 # V2 SKUs (StandardV2/PremiumV2) use outbound VNet integration: the APIM subnet
-# is delegated to Microsoft.Web/serverFarms (Bicep parity).
+# is delegated to Microsoft.Web/serverFarms.
 variable "subscription_id" {
   description = "Subscription of the resource group (AVM modules take the resource group ID)."
   type        = string

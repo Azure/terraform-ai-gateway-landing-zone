@@ -1,8 +1,6 @@
 # =============================================================================
 # GATEWAY API — publishes one API on API Management with its policy,
 # operation policies, diagnostics and (optionally) a product.
-# Replaces the near-identical universal-llm-api / azure-openai-api /
-# unified-ai-api submodules and the inline APIs of modules/apim (Phase 1).
 # =============================================================================
 
 locals {
@@ -229,7 +227,6 @@ resource "azurerm_api_management_api_diagnostic" "app_insights" {
   }
 }
 
-# Bicep parity: `metrics: true` on the API-level applicationinsights diagnostic.
 # azurerm doesn't expose it; without it <emit-metric>/<llm-emit-token-metric>
 # samples are dropped.
 resource "azapi_update_resource" "app_insights_metrics" {

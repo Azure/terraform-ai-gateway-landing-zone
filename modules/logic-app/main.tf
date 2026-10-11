@@ -1,7 +1,6 @@
 # =============================================================================
 # MODULE: Logic App (Standard)
 # Usage ingestion — reads from Event Hub, writes to Cosmos DB
-# Mirrors: src/usage-ingestion-logicapp/
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -54,7 +53,7 @@ module "storage" {
     }
   } : null
 
-  # Bicep parity (functionapp/storageaccount.bicep): one PE per subresource with
+  # one PE per subresource with
   # its DNS zone (no file PE on ASE: no content share). With ALZ
   # Deploy-Private-DNS-Zones the policy owns the zone groups.
   private_endpoints_manage_dns_zone_group = !var.dns_zone_group_managed_by_policy
@@ -117,7 +116,7 @@ locals {
 
 # -----------------------------------------------------------------------------
 # APP SERVICE PLAN (Azure Verified Module)
-#   workflow_standard : WS1/WS2/WS3 (Bicep kind=elastic, maxElastic=20)
+#   workflow_standard : WS1/WS2/WS3 (kind=elastic, maxElastic=20)
 #   ase_v3            : Isolated v2 (I*v2) in the App Service Environment v3
 #                       (modules/app-hosting, or a shared/BYO ASE), with CPU
 #                       autoscale between worker_count and max_worker_count.
@@ -137,7 +136,7 @@ module "service_plan" {
   sku_name                     = local.use_ase ? var.ase_sku_size : var.sku_size
   app_service_environment_id   = local.use_ase ? var.app_service_environment_id : null
   worker_count                 = local.use_ase ? var.ase_worker_count : 1
-  maximum_elastic_worker_count = local.use_ase ? null : 20 # Bicep parity: hostingPlan.properties.maximumElasticWorkerCount
+  maximum_elastic_worker_count = local.use_ase ? null : 20 # hostingPlan.properties.maximumElasticWorkerCount
   zone_balancing_enabled       = local.use_ase && var.ase_zone_redundant
 }
 
@@ -199,7 +198,7 @@ resource "azurerm_monitor_autoscale_setting" "service_plan" {
 }
 
 locals {
-  # App settings shared by both hosting models (Bicep parity: logicapp.bicep).
+  # App settings shared by both hosting models.
   common_app_settings = {
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = var.app_insights_connection_string
     "FUNCTIONS_WORKER_RUNTIME"              = "node"
@@ -270,7 +269,7 @@ locals {
 
 # -----------------------------------------------------------------------------
 # LOGIC APP STANDARD — Workflow Service Plan (default)
-# Bicep parity: SystemAssigned + UserAssigned identity.
+# SystemAssigned + UserAssigned identity.
 # -----------------------------------------------------------------------------
 
 resource "azurerm_logic_app_standard" "usage_ingestion" {
@@ -294,7 +293,7 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
     identity_ids = [var.managed_identity_id]
   }
 
-  # Bicep parity: functionAppSiteConfig — TLS 1.2, FTPS-only, pre-warmed, CORS.
+  # functionAppSiteConfig — TLS 1.2, FTPS-only, pre-warmed, CORS.
   site_config {
     vnet_route_all_enabled           = true
     ftps_state                       = "FtpsOnly"
@@ -480,7 +479,7 @@ locals {
 }
 
 # -----------------------------------------------------------------------------
-# API CONNECTION: azuremonitorlogs (Bicep parity: api-connection.json)
+# API CONNECTION: azuremonitorlogs
 # Uses azapi — azurerm provider does not model Microsoft.Web/connections.
 # -----------------------------------------------------------------------------
 
@@ -596,7 +595,7 @@ resource "azurerm_role_assignment" "storage_account_contributor" {
 }
 
 # -----------------------------------------------------------------------------
-# RBAC on the Logic App SYSTEM-ASSIGNED principal (Bicep parity)
+# RBAC on the Logic App SYSTEM-ASSIGNED principal
 # - Cosmos SQL Role (Data Contributor 00000000-0000-0000-0000-000000000002)
 # - Event Hubs Data Owner (RG scope)
 # - Monitor Logs Reader (RG scope — for azuremonitorlogs workflows)

@@ -107,7 +107,7 @@ variable "configure_circuit_breaker" {
 }
 
 variable "inference_api_type" {
-  description = "Universal LLM API contract (Bicep inferenceAPIType): AzureOpenAI, AzureAI, OpenAI or OpenAIV1."
+  description = "Universal LLM API contract: AzureOpenAI, AzureAI, OpenAI or OpenAIV1."
   type        = string
   default     = "OpenAIV1"
 

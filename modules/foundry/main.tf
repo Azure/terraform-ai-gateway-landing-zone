@@ -1,7 +1,5 @@
 # =============================================================================
 # MODULE: Foundry
-# Terraform port of ai-hub-gateway-solution-accelerator-citadel-v1/bicep/infra/
-#   modules/foundry/foundry.bicep
 # Samples referenced:
 #   https://github.com/microsoft-foundry/foundry-samples/tree/main/
 #     infrastructure/infrastructure-setup-terraform
@@ -30,7 +28,7 @@ locals {
     c.default_project_name != "" ? c.default_project_name : var.foundry_project_default_name
   ]
 
-  # Preserve order matching Bicep: cognitiveservices, openai, ai.azure.com
+  # Preserve order: cognitiveservices, openai, ai.azure.com
   dns_zone_ids_ordered = [
     lookup(var.dns_zone_ids, "cognitive_services", ""),
     lookup(var.dns_zone_ids, "openai", ""),
@@ -40,7 +38,6 @@ locals {
 
 # -----------------------------------------------------------------------------
 # AI Foundry (AIServices) accounts
-# Bicep: foundryResources (Microsoft.CognitiveServices/accounts@2026-05-01)
 # -----------------------------------------------------------------------------
 module "account" {
   source  = "Azure/avm-res-cognitiveservices-account/azurerm"
@@ -83,7 +80,7 @@ module "account" {
   outbound_network_access_restricted = var.outbound_allowed_fqdns != null
   fqdns                              = var.outbound_allowed_fqdns
 
-  # Model deployments of this account (Bicep: deployments.bicep), created one
+  # Model deployments of this account, created one
   # at a time: the account rejects concurrent deployment PUTs (409).
   deployment_serialization_enabled = true
   cognitive_deployments = {
@@ -106,8 +103,7 @@ module "account" {
     } if m.ai_service_index == count.index
   }
 
-  # Private endpoint with all three Foundry DNS zones (Bicep:
-  # private-endpoint-multi-dns.bicep). With ALZ Deploy-Private-DNS-Zones the
+  # Private endpoint with all three Foundry DNS zones. With ALZ Deploy-Private-DNS-Zones the
   # policy owns the zone group.
   # The zone group is created below (azapi_resource.pe_dns_zone_group): the
   # module names every zone config after the group, which Azure rejects with
@@ -161,7 +157,6 @@ locals {
 
 # -----------------------------------------------------------------------------
 # AI Foundry Project (one per account)
-# Bicep: aiProject (Microsoft.CognitiveServices/accounts/projects@2026-05-01)
 # -----------------------------------------------------------------------------
 resource "azapi_resource" "project" {
   count     = length(local.instances)
@@ -187,7 +182,6 @@ resource "azapi_resource" "project" {
 
 # -----------------------------------------------------------------------------
 # RBAC: deployer → Azure AI Project Manager on each Foundry
-# Bicep: aiProjectManagerRoleAssignment
 # -----------------------------------------------------------------------------
 resource "azurerm_role_assignment" "deployer_project_manager" {
   count = length(local.instances)
@@ -200,7 +194,6 @@ resource "azurerm_role_assignment" "deployer_project_manager" {
 
 # -----------------------------------------------------------------------------
 # RBAC: APIM MI → Cognitive Services User on each Foundry
-# Bicep: roleAssignmentCognitiveServicesUser
 # -----------------------------------------------------------------------------
 resource "azurerm_role_assignment" "apim_cognitive_services_user" {
   count                = length(local.instances)
@@ -212,7 +205,6 @@ resource "azurerm_role_assignment" "apim_cognitive_services_user" {
 
 # -----------------------------------------------------------------------------
 # Diagnostic settings → Log Analytics (AllMetrics)
-# Bicep: diagnosticSettings
 # -----------------------------------------------------------------------------
 # An ARM PUT is a create-or-update: it succeeds even when Azure Policy already
 # created a setting with this name. Azure deletes it with the account.
@@ -233,7 +225,6 @@ resource "azapi_resource_action" "foundry_diagnostics" {
 
 # -----------------------------------------------------------------------------
 # Application Insights connection on each Foundry
-# Bicep: appInsightsConnection
 # -----------------------------------------------------------------------------
 resource "azapi_resource" "app_insights_connection" {
   count = var.enable_app_insights_connection ? length(local.instances) : 0

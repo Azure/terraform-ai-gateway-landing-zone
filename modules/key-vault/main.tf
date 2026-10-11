@@ -9,7 +9,7 @@
 #   deployer_kv_admin           deployer gets Key Vault Administrator
 #   uami_kv_secrets_user        APIM/Logic App identity gets Key Vault Secrets User
 #   foundry_kv_secrets_user_<n> each AI Foundry system-assigned identity gets
-#                               Key Vault Secrets User (Bicep keyvault-rbac.bicep).
+#                               Key Vault Secrets User.
 #   secret_writer_<k> / secret_reader_<k>
 #                               pipeline identities: Secrets Officer / Secrets User.
 #                               Keys use foundry_principal_count because the IDs

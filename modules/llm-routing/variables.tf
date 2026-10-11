@@ -4,7 +4,7 @@ variable "api_management_id" {
 }
 
 variable "llm_backend_config" {
-  description = "Bicep llmBackendConfig — one entry per LLM endpoint."
+  description = "llmBackendConfig — one entry per LLM endpoint."
   type = list(object({
     backend_id   = string
     backend_type = string

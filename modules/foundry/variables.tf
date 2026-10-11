@@ -1,6 +1,5 @@
 # =============================================================================
 # MODULE: Foundry - Input Variables
-# Mirrors parameters of bicep/infra/modules/foundry/foundry.bicep
 # =============================================================================
 
 variable "resource_group_id" {
@@ -29,7 +28,6 @@ variable "foundry_project_default_name" {
   default     = "citadel-governance-project"
 }
 
-# Mirrors aiServicesConfig in foundry.bicep
 variable "foundry_instances" {
   description = "List of AI Foundry (AIServices) account definitions."
   type = list(object({
@@ -41,7 +39,6 @@ variable "foundry_instances" {
   default = []
 }
 
-# Mirrors modelsConfig in foundry.bicep
 variable "foundry_models" {
   description = "Model deployments to create across the Foundry accounts."
   type = list(object({
@@ -61,7 +58,7 @@ variable "apim_principal_id" {
 }
 
 variable "deployer_object_id" {
-  description = "Principal ID granted 'Azure AI Project Manager' on each Foundry (matches deployer() in Bicep)."
+  description = "Principal ID granted 'Azure AI Project Manager' on each Foundry."
   type        = string
 }
 
