@@ -349,3 +349,15 @@ run "a_model_under_two_backend_types_keeps_both_routes" {
     error_message = "One model, two routes: the native and the OpenAI-compatible backend."
   }
 }
+
+# Regression: context.Request.Url.Host is null on an API without a serviceUrl, which made the
+# SigV4 canonical-headers step throw a NullReferenceException (HTTP 500). The host is derived
+# from the signing region instead.
+run "bedrock_sigv4_does_not_depend_on_the_request_url_host" {
+  command = plan
+
+  assert {
+    condition     = strcontains(file("${path.module}/fragments/frag-set-backend-authorization.xml"), "bedrock-runtime.{region}.amazonaws.com") && !strcontains(file("${path.module}/fragments/frag-set-backend-authorization.xml"), "var host = uri.Host")
+    error_message = "The SigV4 signing host must come from the AWS region, not from context.Request.Url.Host."
+  }
+}

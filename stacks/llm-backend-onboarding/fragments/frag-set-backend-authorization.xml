@@ -86,7 +86,10 @@
 
                     var method = context.Request.Method;
                     var uri = context.Request.Url;
-                    var host = uri.Host;
+                    // Repo fix (differs from upstream): sign the Bedrock runtime host derived from the
+                    // SigV4 region. context.Request.Url.Host is null when the API has no serviceUrl
+                    // (NullReferenceException below) and is only a placeholder when it has one.
+                    var host = $"bedrock-runtime.{region}.amazonaws.com";
 
                     // Create canonical path
                     // modelId may contain '/' (inference-profile ARNs, e.g.
@@ -213,7 +216,7 @@
                 }</value>
             </set-header>
             <set-header name="Host" exists-action="override">
-                <value>@(context.Request.Url.Host)</value>
+                <value>@("bedrock-runtime." + "{{aws-region}}" + ".amazonaws.com")</value>
             </set-header>
         </when>
         <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-bearer" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-header" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-anthropic" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-gemini")">

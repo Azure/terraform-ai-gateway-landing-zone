@@ -280,7 +280,12 @@ get_available_models, metadata_config, backend_contract}` upload.
 - **Backend credentials.** Key-based backends (`api-key-bearer`,
   `api-key-header`, `api-key-gemini`, `api-key-anthropic`) carry their header on
   the APIM backend resource itself (`{{named value}}`); only `aws-sigv4` is
-  signed in the policy (`set-backend-authorization`).
+  signed in the policy (`set-backend-authorization`). The SigV4 host is
+  `bedrock-runtime.<aws-region>.amazonaws.com`, derived from the `aws-region`
+  named value (a deviation from upstream, which signs `context.Request.Url.Host`
+  and fails with a NullReferenceException on an API without a `serviceUrl`). A
+  bedrock backend on a non-default host (VPC or FIPS endpoint) is not supported
+  by this signing.
 - **Release Version API.** [release-version-api.tf](../stacks/llm-backend-onboarding/release-version-api.tf)
   publishes `GET /version` (release of this deployment) and
   `GET /version/backend-contract` (the `backend-contract` fragment). The contract
