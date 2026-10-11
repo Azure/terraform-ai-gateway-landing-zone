@@ -29,7 +29,7 @@ Declared identically in every stack's `variables.common.tf`.
 | app-hosting | `ase` (`subnet_id`, `zone_redundant`, `internal_load_balancing_mode`), `dns` | [stacks/app-hosting](../stacks/app-hosting/README.md) |
 | platform | `apim`, `network` (alz_spoke / byo), `features`, `foundry` (incl. `enabled`), `language_service`, `content_safety_service`, `key_vault`, `redis`, `api_center`, `apim_logging`, `usage_pipeline` (incl. `logic_app.private_endpoint` / `public_network_access` / `private_endpoint_name`), `monitoring` (incl. `policy_managed_diagnostics`), `dev_access`, `secret_writer_principal_ids`, `secret_reader_principal_ids`, `deny_storage_shared_key` | [stacks/platform](../stacks/platform/README.md) |
 | gateway-config | `entra_auth`, `features`, `pii_service`, `content_safety_service`, `ai_search_instances`, `embeddings_backend_url`, `ms_learn_mcp_backend_url`, `api_diagnostics` | [stacks/gateway-config](../stacks/gateway-config/README.md) |
-| llm-backend-onboarding | `foundry_backends`, `llm_backend_config`, `extra_llm_backends`, `model_aliases`, `inference_api_type`, `features`, `aws`, `configure_circuit_breaker` | [stacks/llm-backend-onboarding](../stacks/llm-backend-onboarding/README.md) |
+| llm-backend-onboarding | `foundry_backends` (incl. `circuit_breaker`), `llm_backends` (incl. a `circuit_breaker` per backend), `model_aliases`, `inference_api_type`, `features`, `aws` | [stacks/llm-backend-onboarding](../stacks/llm-backend-onboarding/README.md) |
 | access-contracts | `use_case`, `api_name_mapping`, `services`, `key_vault`, `foundry`, `foundry_config` (incl. `auth_type`, `managed_identity_audience`), `secret_rotation_days`, `secret_validity_days` | [stacks/access-contracts](../stacks/access-contracts/README.md) |
 
 ## Where the old root inputs went
@@ -46,7 +46,7 @@ Declared identically in every stack's `variables.common.tf`.
 | `features.pii_*`, `content_safety`, `azure_ai_search`, `document_intelligence`, `embeddings_backend`, `mcp_sample`, `api_center_onboarding` | `gateway-config.tfvars` `features` |
 | `features.unified_ai_api`, `ai_model_inference`, `openai_realtime` | `llm-backend-onboarding.tfvars` `features` |
 | `entra_auth_enabled`, `entra_*`, `enable_jwt_auth`, `jwt_*`, `enable_entra_id_setup` | `identity.tfvars` (the app) + `gateway-config.tfvars` `entra_auth` |
-| `llm_backend_config`, `extra_llm_backends`, `configure_circuit_breaker`, `inference_api_type` | `llm-backend-onboarding.tfvars` |
+| `foundry_backends`, `llm_backends`, `inference_api_type` | `llm-backend-onboarding.tfvars` |
 | `enable_foundry_apim_connection`, `foundry_apim_connections` | an access contract with `foundry = { enabled = true }` |
 | `rollout_phase`, `skip_logic_app_code_deploy` | gone: each stack is its own phase; `task logic-app-code` republishes the workflows |
 | `create_apim_gateway_key_secret`, `kv_auto_detect_deployer_ip` | gone |

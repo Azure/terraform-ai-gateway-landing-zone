@@ -18,7 +18,7 @@ Each has a private endpoint, Entra-only auth (no keys) and the
 features off in `gateway-config.tfvars`.
 
 There are no Foundry deployments to derive LLM backends from, so the models
-come from `extra_llm_backends` in `llm-backend-onboarding.tfvars` (here an
+come from `llm_backends` in `llm-backend-onboarding.tfvars` (here an
 existing Azure OpenAI resource, called with the APIM managed identity: grant
 it `Cognitive Services OpenAI User` there). No Foundry means no agent subnet
 (`subnets_enabled.agent = false`), no Foundry Application Insights and no

@@ -1,6 +1,14 @@
-# Foundry backends are derived from stacks/platform; extra_llm_backends are appended.
-inference_api_type        = "OpenAIV1"
-configure_circuit_breaker = true
+# Backends deployed: one per Foundry account of stacks/platform (derived), then the
+# llm_backends below. foundry_backends.enabled = false would deploy only llm_backends.
+inference_api_type = "OpenAIV1"
+
+# Circuit breaker of the Foundry-derived backends (every property is optional; these are
+# the defaults except failure_count). Each backend below can set its own.
+foundry_backends = {
+  circuit_breaker = {
+    failure_count = 5 # failures within failure_interval that trip the breaker (default 3)
+  }
+}
 
 features = {
   unified_ai_api        = true # the single /models-style endpoint over every backend
@@ -15,7 +23,7 @@ aws = {
   secret_key_secret_uri = "https://<key-vault-name>.vault.azure.net/secrets/aws-secret-key"
 }
 
-extra_llm_backends = [
+llm_backends = [
   # Azure OpenAI resource outside Foundry, called with the APIM managed identity.
   {
     backend_id   = "aoai-legacy-westeurope"
@@ -28,6 +36,12 @@ extra_llm_backends = [
     ]
     priority = 2 # lower priority than the Foundry backends: used when they fail
     weight   = 50
+    # Trip faster and recover sooner than the defaults (3 failures / PT5M, out for PT1M).
+    circuit_breaker = {
+      failure_count    = 2
+      failure_interval = "PT1M"
+      trip_duration    = "PT30S"
+    }
   },
   # Third-party OpenAI-compatible endpoint with a bearer key from Key Vault.
   {
@@ -43,6 +57,11 @@ extra_llm_backends = [
     supported_models = [
       { name = "partner-large", sku = "OnDemand", capacity = 1, modelFormat = "Partner" },
     ]
+    # Count every 5xx and 429 as a failure and honour the partner's own Retry-After.
+    circuit_breaker = {
+      status_code_ranges = [{ min = 429, max = 429 }, { min = 500, max = 599 }]
+      accept_retry_after = true
+    }
   },
   # AWS Bedrock, signed in the APIM policy with the aws.* credentials above.
   {
@@ -53,6 +72,7 @@ extra_llm_backends = [
     supported_models = [
       { name = "anthropic.claude-sonnet", sku = "OnDemand", capacity = 1, modelFormat = "Anthropic" },
     ]
+    circuit_breaker = { enabled = false } # no circuit breaker on this backend
   },
 ]
 

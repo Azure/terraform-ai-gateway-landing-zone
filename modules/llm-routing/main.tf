@@ -101,20 +101,18 @@ resource "azapi_resource" "llm_backend" {
       url         = each.value.endpoint
       protocol    = "http"
 
-      circuitBreaker = var.configure_circuit_breaker ? {
+      # One rule per backend (the APIM limit), built from the backend's own circuit_breaker.
+      circuitBreaker = each.value.circuit_breaker.enabled ? {
         rules = [{
           failureCondition = {
-            count        = 3
-            errorReasons = ["Server errors"]
-            interval     = "PT5M"
-            statusCodeRanges = [
-              { min = 429, max = 429 },
-              { min = 500, max = 503 }
-            ]
+            count            = each.value.circuit_breaker.failure_count
+            errorReasons     = each.value.circuit_breaker.error_reasons
+            interval         = each.value.circuit_breaker.failure_interval
+            statusCodeRanges = [for r in each.value.circuit_breaker.status_code_ranges : { min = r.min, max = r.max }]
           }
           name             = "${each.value.backend_id}-breaker-rule"
-          tripDuration     = "PT1M"
-          acceptRetryAfter = true
+          tripDuration     = each.value.circuit_breaker.trip_duration
+          acceptRetryAfter = each.value.circuit_breaker.accept_retry_after
         }]
       } : null
 

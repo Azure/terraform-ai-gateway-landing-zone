@@ -134,7 +134,7 @@ This notebook automates the full lifecycle of registering LLM backends with your
 | 2 | **Initialize APIM Client** — Connect to the existing Governance Hub deployment |
 | 3 | **Extract current backends** — Retrieve existing backend pools and routing configuration |
 | 4 | **Discover managed identity** — Display the APIM user-assigned managed identity (informational; the stack finds it by name) |
-| 5 | **Generate variables file** — Write `environments/<env>/llm-backend-onboarding.tfvars` (`foundry_backends` / `llm_backend_config` / `extra_llm_backends`, `model_aliases`, `features`, `aws`) |
+| 5 | **Generate variables file** — Write `environments/<env>/llm-backend-onboarding.tfvars` (`foundry_backends` / `llm_backends`, `model_aliases`, `features`, `aws`) |
 | 6 | **Deploy** — Apply `stacks/llm-backend-onboarding` (`task apply STACK=llm-backend-onboarding ENV=<env>`) to create backends, pools, and policy fragments |
 | 7 | **Verify deployment** — Confirm backends and policy fragments were created |
 | 8 | **Verify GET /deployments** — Test the `get-available-models` policy fragment for Foundry integration |

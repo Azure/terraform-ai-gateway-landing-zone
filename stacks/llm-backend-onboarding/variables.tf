@@ -1,32 +1,59 @@
 variable "foundry_backends" {
   description = <<-EOT
-    LLM backends derived from the Foundry accounts of stacks/platform: one backend per
+    LLM backends derived from the Foundry accounts of stacks/platform: ONE backend per
     account, serving every model deployed on it (read from Azure, so this file doesn't
-    repeat the platform configuration).
-      enabled        false = only llm_backend_config / extra_llm_backends.
-      account_names  null = every account in the workload resource group whose name
-                     starts with aif-<workload>-<environment>- (the naming contract).
-      api_version    Inference API version for the derived models.
+    repeat the platform configuration). The first account has priority 1, the others
+    priority 2, all weight 100.
+      enabled          false = no derived backends: only llm_backends are deployed
+                       (platform foundry.enabled = false, or Foundry accounts that
+                       stacks/platform doesn't own).
+      account_names    null = every account in the workload resource group whose name
+                       starts with aif-<workload>-<environment>- (the naming contract).
+      api_version      Inference API version for the derived models.
+      circuit_breaker  Circuit breaker of every derived backend: the same options as
+                       llm_backends[*].circuit_breaker.
   EOT
   type = object({
     enabled       = optional(bool, true)
     account_names = optional(list(string))
     api_version   = optional(string, "2024-02-15-preview")
+    circuit_breaker = optional(object({
+      enabled            = optional(bool, true)
+      failure_count      = optional(number, 3)
+      failure_interval   = optional(string, "PT5M")
+      trip_duration      = optional(string, "PT1M")
+      status_code_ranges = optional(list(object({ min = number, max = number })), [{ min = 429, max = 429 }, { min = 500, max = 503 }])
+      error_reasons      = optional(list(string), ["Server errors"])
+      accept_retry_after = optional(bool, true)
+    }), {})
   })
   default  = {}
   nullable = false
 }
 
-variable "llm_backend_config" {
+variable "llm_backends" {
   description = <<-EOT
-    FULL override of the LLM backends (replaces the Foundry-derived list). One entry per endpoint:
-      backend_id        unique id (APIM backend name)
+    LLM backends deployed IN ADDITION to the Foundry-derived ones (foundry_backends): Azure
+    OpenAI outside Foundry, third-party OpenAI-compatible endpoints, AWS Bedrock, Foundry
+    accounts that stacks/platform doesn't own. Set foundry_backends.enabled = false to
+    deploy only these. One entry per endpoint, each becoming one APIM backend:
+      backend_id        unique APIM backend name (also across the Foundry-derived ones,
+                        named foundry-<region>-<index>)
       backend_type      ai-foundry | azure-openai | external | aws-bedrock
       endpoint          base URL
       auth_type         managed-identity | aws-sigv4 | api-key-bearer | api-key-header | none
       auth_config       named_value_key + key_vault_secret_uri (versionless; secret_value is for tests only)
       supported_models  models served (name, apiVersion, timeout, inferenceApiVersion, ...)
-      priority / weight load-balancing within a pool
+      priority / weight load-balancing within a pool (models served by 2+ backends get a pool)
+      circuit_breaker   One rule per backend; every property is optional:
+        enabled             false = no circuit breaker (default true).
+        failure_count       Failures within failure_interval that trip it (3).
+        failure_interval    ISO 8601 window in which failures are counted (PT5M).
+        trip_duration       ISO 8601 time the backend stays out of rotation (PT1M).
+        status_code_ranges  HTTP status ranges counted as failures, 200-599, at most 10
+                            ([429], [500-503]).
+        error_reasons       APIM error reasons counted as failures, at most 10 (["Server errors"]).
+        accept_retry_after  Honour the Retry-After header of the backend as trip duration (true).
   EOT
   type = list(object({
     backend_id   = string
@@ -52,37 +79,15 @@ variable "llm_backend_config" {
     }))
     priority = optional(number, 1)
     weight   = optional(number, 100)
-  }))
-  default  = []
-  nullable = false
-}
-
-variable "extra_llm_backends" {
-  description = "Backends APPENDED to the Foundry-derived ones (e.g. Azure OpenAI outside Foundry, third-party endpoints, AWS Bedrock). Same shape as llm_backend_config; ignored when llm_backend_config is set."
-  type = list(object({
-    backend_id   = string
-    backend_type = string
-    endpoint     = string
-    auth_scheme  = optional(string)
-    auth_type    = optional(string)
-    auth_config = optional(object({
-      named_value_key      = optional(string)
-      key_vault_secret_uri = optional(string)
-      secret_value         = optional(string)
-    }))
-    supported_models = list(object({
-      name                = string
-      sku                 = optional(string, "Standard")
-      capacity            = optional(number, 100)
-      modelFormat         = optional(string, "OpenAI")
-      modelVersion        = optional(string, "1")
-      apiVersion          = optional(string, "2024-02-15-preview")
-      timeout             = optional(number, 120)
-      inferenceApiVersion = optional(string, "")
-      retirementDate      = optional(string, "")
-    }))
-    priority = optional(number, 1)
-    weight   = optional(number, 100)
+    circuit_breaker = optional(object({
+      enabled            = optional(bool, true)
+      failure_count      = optional(number, 3)
+      failure_interval   = optional(string, "PT5M")
+      trip_duration      = optional(string, "PT1M")
+      status_code_ranges = optional(list(object({ min = number, max = number })), [{ min = 429, max = 429 }, { min = 500, max = 503 }])
+      error_reasons      = optional(list(string), ["Server errors"])
+      accept_retry_after = optional(bool, true)
+    }), {})
   }))
   default  = []
   nullable = false
@@ -98,12 +103,6 @@ variable "model_aliases" {
   }))
   default  = []
   nullable = false
-}
-
-variable "configure_circuit_breaker" {
-  description = "Per-backend circuit breaker rules (recommended for production)."
-  type        = bool
-  default     = true
 }
 
 variable "inference_api_type" {

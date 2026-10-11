@@ -276,7 +276,7 @@ Platform-team requests for an ALZ:
 
 | Change | Edit | Command (CI does it on merge) |
 |---|---|---|
-| Add or change an LLM backend, model alias or credential | `llm-backend-onboarding.tfvars` (`extra_llm_backends`, `model_aliases`, `aws`) | `task apply STACK=llm-backend-onboarding ENV=<env>` |
+| Add or change an LLM backend, model alias or credential | `llm-backend-onboarding.tfvars` (`llm_backends`, `foundry_backends`, `model_aliases`, `aws`) | `task apply STACK=llm-backend-onboarding ENV=<env>` |
 | New Foundry model deployment | `platform.tfvars` `foundry.models` | `task apply STACK=platform …`, then `STACK=llm-backend-onboarding` (backends are derived from the deployments) |
 | Onboard a use case | new `access-contracts/<use-case>.tfvars` | `task contract ENV=<env> USE_CASE=<use-case>` |
 | Change a shared fragment or service API | `stacks/gateway-config/fragments/` or `apis/` | `task apply STACK=gateway-config …` |
@@ -453,7 +453,7 @@ content_safety_service = { source = "dedicated" }
   User` on them. Gateway-config finds the dedicated accounts by name, like every
   other resource, so apply `platform` first.
 - Without Foundry there are no deployments to derive LLM backends from: list your
-  models in `llm-backend-onboarding.tfvars` `extra_llm_backends` (a `check` warns
+  models in `llm-backend-onboarding.tfvars` `llm_backends` (with `foundry_backends = { enabled = false }`; a `check` warns
   when there are none). Set `subnets_enabled.agent = false` in `network.tfvars`, and
   leave `foundry` off in access contracts unless a team brings its own Foundry
   project (`foundry.project_id`).

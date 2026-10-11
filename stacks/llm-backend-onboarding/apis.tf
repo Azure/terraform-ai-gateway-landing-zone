@@ -13,7 +13,7 @@ locals {
     OpenAIV1    = "${local.apis_dir}/universal-llm-api/AIFoundryOpenAIV1.json"
   }, var.inference_api_type, "${local.apis_dir}/universal-llm-api/PassThrough.json")
 
-  has_llm_backends = length(local.llm_backend_config) > 0
+  has_llm_backends = length(local.all_llm_backends) > 0
 
   # With Entra auth (gateway-config) the APIs take a JWT instead of a key.
   subscription_required = !local.entra_auth_enabled

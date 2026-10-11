@@ -9,7 +9,7 @@ locals {
   }
 
   backend_auth_named_values = {
-    for b in local.llm_backend_config :
+    for b in local.all_llm_backends :
     b.auth_config.named_value_key => {
       key_vault_secret_uri = try(b.auth_config.key_vault_secret_uri, null) != null ? b.auth_config.key_vault_secret_uri : ""
       secret_value         = try(b.auth_config.secret_value, null) != null ? b.auth_config.secret_value : ""

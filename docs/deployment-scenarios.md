@@ -47,7 +47,7 @@ stay valid as the stacks evolve.
   `multi-provider-llm`.
 - **No Foundry accounts, but PII redaction and content safety:**
   `no-foundry-ai-services` (standalone Language and Content Safety accounts,
-  models from `extra_llm_backends`).
+  models from `llm_backends`).
 - **Every optional switch in one place (to copy from):** `all-features`.
 - **APIM network variants:** `apim-v2-private-endpoint`,
   `apim-premiumv2-injection`, `premium-internal-vnet` and `apim-external-vnet`;

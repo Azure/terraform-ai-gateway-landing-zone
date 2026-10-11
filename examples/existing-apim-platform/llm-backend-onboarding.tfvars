@@ -4,7 +4,7 @@ foundry_backends = { enabled = false }
 inference_api_type = "OpenAIV1"
 features           = { api_center_onboarding = false }
 
-extra_llm_backends = [
+llm_backends = [
   # Existing Foundry / Azure OpenAI accounts; the existing APIM identity needs
   # Cognitive Services User (Foundry) or Cognitive Services OpenAI User on them.
   {

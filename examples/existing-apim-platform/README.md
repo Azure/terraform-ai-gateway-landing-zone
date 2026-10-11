@@ -26,7 +26,7 @@ fragments and named values with the same names must not already exist on that
 APIM (there is no import path). The Foundry-derived PII and Content Safety
 features and the Foundry-derived backends need the platform's Foundry
 naming contract, so they're off here; backends are listed in
-`extra_llm_backends`.
+`llm_backends`.
 
 Bootstrap runs with `create_workload_resource_group = false`. It still grants
 the apply identity `Contributor` and a conditional `Role Based Access Control

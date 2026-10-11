@@ -7,7 +7,7 @@ features = {
   api_center_onboarding = true
 }
 
-extra_llm_backends = [
+llm_backends = [
   # An existing Azure OpenAI resource, called with the APIM managed identity
   # (it needs Cognitive Services OpenAI User there).
   {

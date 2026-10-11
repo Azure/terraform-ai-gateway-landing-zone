@@ -8,6 +8,34 @@ output "backend_ids" {
   value       = module.llm_routing.backend_ids
 }
 
+output "llm_backends" {
+  description = "What was deployed, per APIM backend: where it comes from (foundry = derived from a platform Foundry account, llm_backends = listed in tfvars), its type, endpoint, load-balancing priority and weight, the models it serves and its circuit breaker."
+  value = merge(
+    {
+      for b in local.foundry_derived : b.backend_id => {
+        source          = "foundry"
+        type            = b.backend_type
+        endpoint        = b.endpoint
+        priority        = b.priority
+        weight          = b.weight
+        models          = [for m in b.supported_models : m.name]
+        circuit_breaker = b.circuit_breaker
+      }
+    },
+    {
+      for b in var.llm_backends : b.backend_id => {
+        source          = "llm_backends"
+        type            = b.backend_type
+        endpoint        = b.endpoint
+        priority        = b.priority
+        weight          = b.weight
+        models          = [for m in b.supported_models : m.name]
+        circuit_breaker = b.circuit_breaker
+      }
+    },
+  )
+}
+
 output "pool_ids" {
   description = "LLM backend pools (models served by more than one backend)."
   value       = module.llm_routing.pool_ids

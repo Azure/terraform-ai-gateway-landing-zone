@@ -115,7 +115,7 @@ These pieces plug into the dependency graph via:
 
 1. **Module outputs** — e.g. `local.all_pools` is computed inside
    [modules/llm-routing](../modules/llm-routing/main.tf) from
-   `var.llm_backend_config` and consumed there by `local.backend_pools_code`;
+   `var.llm_backend_config` (the stack's `local.all_llm_backends`) and consumed there by `local.backend_pools_code`;
    `local.apim_id` (from `data.azurerm_api_management.this`) feeds every
    fragment / API module's `api_management_id`.
 2. **Explicit dependency lists** — `module.shared_fragments` receives
@@ -218,11 +218,12 @@ created** (even when the backend config is empty) because the core API
 policies reference them unconditionally and APIM validates fragment IDs at
 policy-save time.
 
-The stack builds the backend config in `local.llm_backend_config`: by default
-one backend per Foundry account of `stacks/platform`, with its models read
-from the account's deployments (`azapi_resource_list`), plus
-`var.extra_llm_backends`. A non-empty `var.llm_backend_config` replaces the
-derived list.
+The stack builds the backend list in `local.all_llm_backends`
+([backends.tf](../stacks/llm-backend-onboarding/backends.tf) documents it, and the
+`llm_backends` output lists the result): one backend per Foundry account of
+`stacks/platform` (`foundry_backends`, with its models read from the account's
+deployments through `azapi_resource_list`), followed by `var.llm_backends`.
+`foundry_backends.enabled = false` deploys only `var.llm_backends`.
 
 | Fragment | Source XML | Placeholder | Injected content |
 |---|---|---|---|
@@ -349,7 +350,7 @@ several APIs live in
 The `deployments` / `deployment-by-name` operation policies
 `<include-fragment fragment-id="get-available-models" />`. On
 `universal-llm-api` and `azure-openai-api` they are **gated** on
-`local.has_llm_backends` (`length(local.llm_backend_config) > 0`) —
+`local.has_llm_backends` (`length(local.all_llm_backends) > 0`) —
 if no LLM backends are configured these operation policies aren't attached.
 
 ### 4.3 Product-level policies
@@ -480,7 +481,7 @@ named value referenced by a fragment) — the graph doesn't know about
 | llm `features.ai_model_inference` | — | Creates `ai-model-inference-api` + policy |
 | llm `features.openai_realtime` | — | Creates the WebSocket API via azapi (no API-scope policy) |
 | gateway-config `features.mcp_sample` | — | Creates weather-api + weather-mcp + ms-learn-mcp + 3 policies |
-| `length(local.llm_backend_config) > 0` (llm) | Dynamic fragments carry real pool/model data (they are always created) | Enables the `deployments` / `deployment-by-name` operation policies on universal-llm / azure-openai |
+| `length(local.all_llm_backends) > 0` (llm) | Dynamic fragments carry real pool/model data (they are always created) | Enables the `deployments` / `deployment-by-name` operation policies on universal-llm / azure-openai |
 | `length(var.model_aliases) > 0` (llm) | Injects alias deployments into `get-available-models` / `metadata-config` and populates `resolve-model-alias` | Aliases resolve to underlying models at request time |
 | Access contract (`environments/<env>/access-contracts/<use-case>.tfvars`: `services` + `use_case`) | — | Creates per-use-case products + product-API links + subscription + policy (+ optional KV secrets / Foundry connection) against the existing APIM |
 
@@ -496,7 +497,7 @@ named value referenced by a fragment) — the graph doesn't know about
 | Add a new LLM API | Same, under `stacks/llm-backend-onboarding/apis/<api>/` and `local.llm_apis_raw` in [stacks/llm-backend-onboarding/apis.tf](../stacks/llm-backend-onboarding/apis.tf) |
 | Add a new named value | Model-agnostic: add a key to `local.plain_named_values` in [stacks/gateway-config/named-values.tf](../stacks/gateway-config/named-values.tf) (already in `depends_on_ids` / `api_policy_depends_on`). Backend credentials: add a resource in [stacks/llm-backend-onboarding/named-values.tf](../stacks/llm-backend-onboarding/named-values.tf) and add it to `depends_on_ids` of `module.llm_fragments` |
 | Change the generated routing fragments | Edit the templates in [modules/llm-routing/templates/](../modules/llm-routing/templates/) or the generator `locals` in [modules/llm-routing/main.tf](../modules/llm-routing/main.tf) |
-| Add a new backend pool routing rule | Add the model to `foundry.models` in `platform.tfvars` and re-apply platform, then llm-backend-onboarding; or add to `extra_llm_backends` / `llm_backend_config` in `environments/<env>/llm-backend-onboarding.tfvars` — dynamic fragments regenerate automatically |
+| Add a new backend pool routing rule | Add the model to `foundry.models` in `platform.tfvars` and re-apply platform, then llm-backend-onboarding; or add to `llm_backends` in `environments/<env>/llm-backend-onboarding.tfvars` — dynamic fragments regenerate automatically |
 | Add a per-use-case access contract | Add `environments/<env>/access-contracts/<use-case>.tfvars` with `use_case`, `services` and `api_name_mapping`, then run `task contract ENV=<env> USE_CASE=<use-case>` (no XML: the product policy comes from the service properties; set a complete `policy_xml` only for a custom policy) |
 | Onboard an LLM backend to a live APIM | Edit `environments/<env>/llm-backend-onboarding.tfvars` and run `task apply STACK=llm-backend-onboarding ENV=<env>` |
 
@@ -543,11 +544,12 @@ backends, routing and the LLM APIs against the existing APIM
 
 - Through `module.llm_routing` ([backends.tf](../stacks/llm-backend-onboarding/backends.tf)):
   `azapi_resource.llm_backend` (`Microsoft.ApiManagement/service/backends@2024-06-01-preview`)
-  per backend, with circuit-breaker rules gated on `var.configure_circuit_breaker`,
+  per backend, with a circuit-breaker rule built from the backend's own `circuit_breaker`
+  (`foundry_backends.circuit_breaker` for the derived ones; `enabled = false` opts out),
   `<model>-backend-pool`s for any model served by 2+ backends, and the 3 dynamic
   fragments (`set-backend-pools`, `get-available-models`, `metadata-config`)
   plus `resolve-model-alias`, all with `var.model_aliases` support. Backends
-  are derived from the Foundry deployments unless `var.llm_backend_config` is set.
+  are derived from the Foundry deployments, followed by `var.llm_backends`.
 - The model-aware static fragments of `module.llm_fragments` (§3.1).
 - Named values `aws-access-key` / `aws-secret-key` / `aws-region` and a
   per-backend `backend_api_key` named value (§3.3). This stack is their only

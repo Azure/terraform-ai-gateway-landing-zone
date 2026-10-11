@@ -119,7 +119,7 @@ variable "foundry" {
       enabled                    false = no Foundry accounts, projects, models or Foundry Application
                                  Insights (e.g. a customer that only wants the Language and Content
                                  Safety services below, or brings its own models through
-                                 llm-backend-onboarding extra_llm_backends).
+                                 llm-backend-onboarding llm_backends).
       instances                  One account (+ default project) per entry; name "" = generated.
       models                     Deployments; ai_service_index selects the instance.
       external_access            Public network access to the accounts.

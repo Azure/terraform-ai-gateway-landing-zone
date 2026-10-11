@@ -64,11 +64,11 @@ task validate ENV=dev                           # post-deploy smoke tests
 Other commands:
 
 ```bash
-task apply STACK=platform ENV=dev                        # one stack
-task contract ENV=dev USE_CASE=team-a-chatbot            # one access contract (one use case)
-task plan-all ENV=dev                                    # plan everything, read-only
-task down ENV=dev                                        # tear down (contracts and stacks, reverse order)
-task                                                     # the full list
+task apply STACK=platform ENV=dev                        # deploy a specific stack only
+task contract ENV=dev USE_CASE=team-a-chatbot            # deploy a specific access contract (one use case)
+task plan-all ENV=dev                                    # plan all stacks, read-only
+task down ENV=dev                                        # tear down all stacks and contracts, reverse order
+task                                                     # list all available tasks
 ```
 
 ### Scenarios ([examples/](examples/), [docs/deployment-scenarios.md](docs/deployment-scenarios.md))
@@ -102,7 +102,7 @@ task                                                     # the full list
 | Network model | `common.tfvars` `network_mode`; `network.tfvars` | greenfield / alz_spoke / byo — [DEPLOYMENT_GUIDE §5](docs/DEPLOYMENT_GUIDE.md#5-network-modes) |
 | APIM SKU × network | `platform.tfvars` `apim` | none · external · internal · integration · injection — [apim-network-modes.md](docs/operations/apim-network-modes.md) |
 | Foundry accounts and models | `platform.tfvars` `foundry` | LLM backends are derived from the deployments in `llm-backend-onboarding` |
-| External LLMs, aliases | `llm-backend-onboarding.tfvars` | `extra_llm_backends` (Key Vault-referenced credentials), `model_aliases` |
+| External LLMs, aliases | `llm-backend-onboarding.tfvars` | `llm_backends` (Key Vault-referenced credentials, a circuit breaker per backend), `model_aliases` |
 | Entra JWT auth | `identity.tfvars` + `gateway-config.tfvars` `entra_auth` | the app is looked up by name |
 | Usage pipeline | `platform.tfvars` `usage_pipeline` | `ase_v3` (keyless, run-from-package) or `workflow_standard` (shared-key exception) |
 | Access contracts | `access-contracts/<use-case>.tfvars` | keys never in state (ephemeral read, write-only secrets) |

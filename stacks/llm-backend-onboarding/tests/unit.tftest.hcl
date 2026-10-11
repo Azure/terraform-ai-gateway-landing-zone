@@ -85,8 +85,16 @@ run "backends_derived_from_foundry_deployments" {
     error_message = "Only accounts that follow the naming contract, in index order."
   }
   assert {
-    condition     = [for b in local.llm_backend_config : b.priority] == [1, 2] && local.llm_backend_config[0].supported_models[0].name == "gpt-4o-mini"
+    condition     = [for b in local.all_llm_backends : b.priority] == [1, 2] && local.all_llm_backends[0].supported_models[0].name == "gpt-4o-mini"
     error_message = "One backend per account (primary first) serving its deployments."
+  }
+  assert {
+    condition     = output.llm_backends["foundry-swedencentral-0"].source == "foundry" && tolist(output.llm_backends["foundry-swedencentral-1"].models) == tolist(["gpt-4o-mini"])
+    error_message = "The llm_backends output says where each backend comes from and what it serves."
+  }
+  assert {
+    condition     = local.all_llm_backends[0].circuit_breaker.enabled && local.all_llm_backends[0].circuit_breaker.failure_count == 3 && local.all_llm_backends[0].circuit_breaker.trip_duration == "PT1M"
+    error_message = "Derived backends get the default circuit breaker."
   }
   assert {
     condition     = length(module.llm_routing.pool_ids) == 1
@@ -118,12 +126,12 @@ run "entra_auth_drops_the_subscription_key" {
   }
 }
 
-run "full_override_and_optional_apis" {
+run "own_backends_only_and_optional_apis" {
   command = plan
 
   variables {
     foundry_backends = { enabled = false }
-    llm_backend_config = [{
+    llm_backends = [{
       backend_id       = "aoai-external"
       backend_type     = "azure-openai"
       endpoint         = "https://aoai.openai.azure.com/"
@@ -136,7 +144,7 @@ run "full_override_and_optional_apis" {
 
   assert {
     condition     = length(data.azapi_resource_list.foundry_accounts) == 0 && keys(azurerm_api_management_named_value.backend_api_key) == ["aoai-key"]
-    error_message = "Override: no Foundry lookup; the backend key is a Key Vault named value."
+    error_message = "foundry_backends.enabled = false: no Foundry lookup; the backend key is a Key Vault named value."
   }
   assert {
     condition     = length(module.llm_api) == 5 && contains(keys(local.llm_fragments), "path-builder")
@@ -149,7 +157,7 @@ run "plaintext_backend_secret_is_flagged" {
 
   variables {
     foundry_backends = { enabled = false }
-    llm_backend_config = [{
+    llm_backends = [{
       backend_id       = "ext"
       backend_type     = "external"
       endpoint         = "https://ext.example.com/"
@@ -161,13 +169,13 @@ run "plaintext_backend_secret_is_flagged" {
   expect_failures = [check.no_plaintext_backend_secrets]
 }
 
-# extra_llm_backends with differently shaped entries (key vs. managed identity)
+# llm_backends with differently shaped entries (key vs. managed identity)
 # are appended to the Foundry-derived ones.
-run "extra_backends_with_mixed_shapes_are_appended" {
+run "own_backends_with_mixed_shapes_are_appended" {
   command = plan
 
   variables {
-    extra_llm_backends = [
+    llm_backends = [
       {
         backend_id       = "aoai-mi"
         backend_type     = "azure-openai"
@@ -187,8 +195,60 @@ run "extra_backends_with_mixed_shapes_are_appended" {
   }
 
   assert {
-    condition     = [for b in local.llm_backend_config : b.backend_id] == ["foundry-swedencentral-0", "foundry-swedencentral-1", "aoai-mi", "partner"]
-    error_message = "Foundry-derived backends first, then the extra ones in order."
+    condition     = [for b in local.all_llm_backends : b.backend_id] == ["foundry-swedencentral-0", "foundry-swedencentral-1", "aoai-mi", "partner"]
+    error_message = "Foundry-derived backends first, then your own in order."
+  }
+  assert {
+    condition     = tolist([for k, b in output.llm_backends : "${k}=${b.source}"]) == tolist(["aoai-mi=llm_backends", "foundry-swedencentral-0=foundry", "foundry-swedencentral-1=foundry", "partner=llm_backends"])
+    error_message = "The llm_backends output lists every deployed backend with its source."
+  }
+}
+
+# A circuit breaker per backend: derived backends share foundry_backends.circuit_breaker,
+# each of your own has its own, and one can opt out.
+run "circuit_breakers_are_set_per_backend" {
+  command = plan
+
+  variables {
+    foundry_backends = {
+      circuit_breaker = { failure_count = 5, trip_duration = "PT5M" }
+    }
+    llm_backends = [
+      {
+        backend_id       = "aoai-strict"
+        backend_type     = "azure-openai"
+        endpoint         = "https://aoai.openai.azure.com/"
+        auth_type        = "managed-identity"
+        supported_models = [{ name = "gpt-4.1" }]
+        circuit_breaker = {
+          failure_interval   = "PT30S"
+          status_code_ranges = [{ min = 500, max = 599 }]
+          accept_retry_after = false
+        }
+      },
+      {
+        backend_id       = "partner"
+        backend_type     = "external"
+        endpoint         = "https://partner.example.com"
+        auth_type        = "api-key-bearer"
+        auth_config      = { named_value_key = "partner-key", key_vault_secret_uri = "https://kv.vault.azure.net/secrets/partner-key" }
+        supported_models = [{ name = "partner-large" }]
+        circuit_breaker  = { enabled = false }
+      },
+    ]
+  }
+
+  assert {
+    condition     = [for b in local.foundry_derived : b.circuit_breaker.failure_count] == [5, 5] && [for b in local.foundry_derived : b.circuit_breaker.trip_duration] == ["PT5M", "PT5M"] && local.foundry_derived[0].circuit_breaker.failure_interval == "PT5M"
+    error_message = "foundry_backends.circuit_breaker applies to every derived backend; what it doesn't set stays at the default."
+  }
+  assert {
+    condition     = output.llm_backends["aoai-strict"].circuit_breaker.failure_interval == "PT30S" && output.llm_backends["aoai-strict"].circuit_breaker.failure_count == 3 && !output.llm_backends["aoai-strict"].circuit_breaker.accept_retry_after
+    error_message = "A backend of your own sets its own properties and keeps the defaults for the rest."
+  }
+  assert {
+    condition     = !output.llm_backends["partner"].circuit_breaker.enabled && output.llm_backends["foundry-swedencentral-0"].circuit_breaker.enabled
+    error_message = "One backend can opt out without affecting the others."
   }
 }
 
@@ -202,20 +262,20 @@ run "no_backends_is_flagged" {
   }
 
   assert {
-    condition     = length(local.llm_backend_config) == 0 && length(module.llm_routing.pool_ids) == 0
-    error_message = "No Foundry and no extra backends: nothing to route to."
+    condition     = length(local.all_llm_backends) == 0 && length(module.llm_routing.pool_ids) == 0
+    error_message = "No Foundry and no backends of your own: nothing to route to."
   }
 
   expect_failures = [check.llm_backends_exist]
 }
 
-# Without Foundry the backends are the extra ones alone.
-run "extra_backends_stand_alone_without_foundry" {
+# Without Foundry the backends are the ones of your own alone.
+run "own_backends_stand_alone_without_foundry" {
   command = plan
 
   variables {
     foundry_backends = { enabled = false }
-    extra_llm_backends = [{
+    llm_backends = [{
       backend_id       = "aoai-mi"
       backend_type     = "azure-openai"
       endpoint         = "https://aoai.openai.azure.com/"
@@ -225,7 +285,7 @@ run "extra_backends_stand_alone_without_foundry" {
   }
 
   assert {
-    condition     = [for b in local.llm_backend_config : b.backend_id] == ["aoai-mi"] && length(data.azapi_resource_list.foundry_accounts) == 0
-    error_message = "Only the extra backends; no Foundry lookup."
+    condition     = [for b in local.all_llm_backends : b.backend_id] == ["aoai-mi"] && length(data.azapi_resource_list.foundry_accounts) == 0
+    error_message = "Only the backends of llm_backends; no Foundry lookup."
   }
 }
