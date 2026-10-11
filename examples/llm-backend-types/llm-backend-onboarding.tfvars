@@ -12,8 +12,8 @@
 inference_api_type = "OpenAIV1"
 
 features = {
-  # Gemini and Bedrock are reached through the Unified AI API (/unified-ai), which builds
-  # the provider-specific path of each backend type.
+  # Needed for native Bedrock (/unified-ai/bedrock/...) and the OpenAI-compatible /unified-ai/v1
+  # surface, which also serves the multi-cloud alias. The Universal LLM API needs nothing.
   unified_ai_api = true
 }
 

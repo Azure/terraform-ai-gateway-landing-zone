@@ -182,7 +182,7 @@ has the same shape, over `local.llm_fragments`.
 
 | Catalogue | Always on? | Fragment IDs |
 |---|---|---|
-| gateway-config `local.shared_fragments` | Yes | `ai-usage`, `raise-throttling-events`, `throttling-events`, `security-handler`, `entra-auth`, `aad-auth`, `aad-auth-custom`, `llm-usage`, `openai-usage`, `openai-usage-streaming`, `ai-foundry-compatibility`, `set-response-headers`, `strip-backend-headers`, `set-asset-kind` |
+| gateway-config `local.shared_fragments` | Yes | `ai-usage`, `raise-throttling-events`, `raise-alert-events`, `throttling-events`, `security-handler`, `entra-auth`, `aad-auth`, `aad-auth-custom`, `llm-usage`, `openai-usage`, `openai-usage-streaming`, `ai-foundry-compatibility`, `set-response-headers`, `strip-backend-headers`, `set-asset-kind`, `mcp-usage`, `a2a-usage` |
 | gateway-config `local.pii_fragments` | `features.pii_anonymization = true` | `pii-anonymization`, `pii-deanonymization`, `pii-state-saving` |
 | llm-backend-onboarding `local.llm_fragments` | Yes | `set-backend-authorization`, `set-target-backend-pool`, `set-llm-usage`, `set-llm-requested-model`, `validate-model-access`, `responses-id-security`, `responses-id-cache-store`, `ai-foundry-deployments` |
 | llm-backend-onboarding `local.llm_fragments` | `features.unified_ai_api = true` | `central-cache-manager`, `request-processor`, `path-builder` |
@@ -207,7 +207,7 @@ has the same shape, over `local.llm_fragments`.
 
 ### 3.2 Dynamic fragments (computed from the LLM backend config + `var.model_aliases`)
 
-Mirrored from Bicep's `llm-policy-fragments.bicep`. Owned by
+Owned by
 [modules/llm-routing](../modules/llm-routing/README.md) (called as
 `module "llm_routing"` from
 [stacks/llm-backend-onboarding/backends.tf](../stacks/llm-backend-onboarding/backends.tf)).
@@ -227,10 +227,11 @@ deployments through `azapi_resource_list`), followed by `var.llm_backends`.
 
 | Fragment | Source XML | Placeholder | Injected content |
 |---|---|---|---|
-| `set-backend-pools` | `frag-set-backend-pools.xml` | `//{backendPoolsCode}` | C# `JObject` literals for every pool in `local.all_pools` |
+| `set-backend-pools` | `frag-set-backend-pools.xml` | `//{backendPoolsCode}` | C# `JObject` literals for every pool in `local.all_pools`, followed by one **virtual pool per model alias** (`poolType = alias`, `isAlias = true`, with the real pools that host each member model) |
 | `get-available-models` | `frag-get-available-models.xml` | `//{modelDeploymentsCode}` | C# `JObject` literals for every model across all backends **plus an alias deployment entry per `var.model_aliases`** |
-| `metadata-config` | `frag-metadata-config.xml` | `//{modelsConfigCode}` / `//{modelAliasesCode}` | JSON mapping `model → {pool, apiVersion, timeout}` + alias-to-model mappings |
-| `resolve-model-alias` | `frag-resolve-model-alias.xml` | `//{inlineAliasesCode}` | C# alias→underlying-model lookup generated from `var.model_aliases` (own resource `azurerm_api_management_policy_fragment.resolve_model_alias`, always created) |
+| `metadata-config` | `frag-metadata-config.xml` | `//{modelsConfigCode}` / `//{modelAliasesCode}` | JSON mapping `model → {backend, apiVersion, timeout, inferenceApiVersion, modelPath}` + alias-to-model mappings |
+| `resolve-model-alias` | `frag-resolve-model-alias.xml` | none | Post-resolution rewrite of the request body (the alias itself is resolved by `set-target-backend-pool` from the alias pools of `set-backend-pools`) |
+| `backend-contract` | `frag-backend-contract.xml` | `//{backendContractJson}` | The live routing contract as JSON (version, APIM, backends with circuit breakers, pools, aliases, session affinity); served by the Release Version API |
 
 The generators live in `locals { … }` blocks in
 [modules/llm-routing/main.tf](../modules/llm-routing/main.tf), which also
@@ -238,17 +239,53 @@ creates the LLM backends (`azapi_resource.llm_backend`) and backend pools
 (`azapi_resource.llm_backend_pool`):
 
 - `local.backend_pools_code` iterates `local.all_pools` (derived in the
-  same file by grouping `var.llm_backend_config` by supported model).
+  same file by grouping the backends by **(model, backend type)**: a model
+  served by 2+ backends of one type becomes a pool named
+  `<model>-<type>-backend-pool`, anything else a direct backend) and appends
+  the alias virtual pools.
 - `local.model_deployments_code` iterates a flattened list of all models
   across all backends.
 - `local.metadata_models_code` produces a `model → pool` lookup using the
-  first backend that advertises support for each model.
+  last pool that advertises support for each model.
 
 Each `replace(file(...), "//{placeholder}", local.generated)` produces the
 final XML string stored in `local.set_backend_pools_xml`,
-`local.get_available_models_xml`, and `local.metadata_config_xml`, which is
-what `azurerm_api_management_policy_fragment.{set_backend_pools,
-get_available_models, metadata_config}` upload.
+`local.get_available_models_xml`, `local.metadata_config_xml` and
+`local.backend_contract_xml`, which is what
+`azurerm_api_management_policy_fragment.{set_backend_pools,
+get_available_models, metadata_config, backend_contract}` upload.
+
+#### Routing model (what the fragments do with this data)
+
+- **Pools per backend type.** The same model id served by an `aws-bedrock`
+  native backend and an `aws-bedrock-mantle` OpenAI-compatible one stays two
+  routes, so each API surface can pick the route it can speak to.
+- **Compatible pool types.** Each API surface lists the backend types it routes
+  to (`compatiblePoolTypes`): the Universal LLM API and the `inference` /
+  `openai-compat` Unified surfaces to `ai-foundry`, `azure-openai`,
+  `aws-bedrock-mantle`, `gemini-openai` and `external` (the last is this
+  repository's addition); the Azure OpenAI API to `azure-openai` and
+  `ai-foundry`; the native surfaces to their own type (`/unified-ai/bedrock` →
+  `aws-bedrock`, `/unified-ai/gemini` → `gemini`, `/unified-ai/claude` →
+  `anthropic`); `/unified-ai/v1/images` to the image types (`ai-foundry`,
+  `azure-openai`, `azure-flux`, `azure-mai`).
+- **Aliases are virtual pools.** `set-target-backend-pool` finds the alias in
+  `backendPools`, picks a member by `priority` or `weighted`, keeps only members
+  compatible with the surface, and exposes the remaining members as
+  `alias-fallback-members` for the retry block (cross-model, cross-cloud
+  fallback on 429/5xx). `resolve-model-alias` then only rewrites the body.
+- **Session affinity.** A pool of a model flagged `sessionAwareModel` gets an
+  APIM affinity cookie (`session_affinity`), so stateful APIs (Responses,
+  Assistants) stay on one backend. Clients must replay the cookie.
+- **Backend credentials.** Key-based backends (`api-key-bearer`,
+  `api-key-header`, `api-key-gemini`, `api-key-anthropic`) carry their header on
+  the APIM backend resource itself (`{{named value}}`); only `aws-sigv4` is
+  signed in the policy (`set-backend-authorization`).
+- **Release Version API.** [release-version-api.tf](../stacks/llm-backend-onboarding/release-version-api.tf)
+  publishes `GET /version` (release of this deployment) and
+  `GET /version/backend-contract` (the `backend-contract` fragment). The contract
+  lists backend endpoints and the *names* of their key named values, never a
+  value, and the API requires a subscription key.
 
 ### 3.3 Named values (variables fragments consume)
 
@@ -388,10 +425,10 @@ What happens at runtime when a client calls
      <set-variable name="allowedBackendPools" .../>   // per-instance RBAC
      <set-variable name="defaultBackendPool" .../>
      <include-fragment id="validate-model-access"/>  // enforces contract allowedModels
-     <include-fragment id="resolve-model-alias"/>    // DYNAMIC: alias → underlying model
-     <include-fragment id="set-backend-pools"/>      // DYNAMIC: injects pool defs from the backend config
-     <include-fragment id="set-target-backend-pool"/> // picks pool for requested model
-     <include-fragment id="set-backend-authorization"/> // MI token, key, or OAuth
+     <include-fragment id="set-backend-pools"/>      // DYNAMIC: injects pool defs (and alias virtual pools) from the backend config
+     <include-fragment id="set-target-backend-pool"/> // resolves an alias, picks the pool for the requested model
+     <include-fragment id="resolve-model-alias"/>    // DYNAMIC: rewrites the body to the resolved model
+     <include-fragment id="set-backend-authorization"/> // aws-sigv4 signing and URL rewrite (other credentials sit on the backend)
      <include-fragment id="strip-backend-headers"/>  // drops browser / ARR / X-Forwarded-* headers
      <include-fragment id="set-llm-usage"/>          // captures token usage for EH
      <include-fragment id="ai-foundry-compatibility"/> // CORS
@@ -407,11 +444,12 @@ What happens at runtime when a client calls
      <base/>
      <include-fragment id="responses-id-cache-store"/> // records Responses API ownership
      <include-fragment id="set-response-headers"/>   // UAIG-* diagnostic headers
+     <include-fragment id="raise-alert-events"/>     // AI Gateway Alert metric (throttling, quota, backend failures)
    }
 
 5. on-error {
      <base/>
-     <include-fragment id="raise-throttling-events"/> // pushes 429 metrics to Monitor
+     <include-fragment id="raise-alert-events"/>     // same metric, derived from the error
      <include-fragment id="set-response-headers"/>
    }
 ```
@@ -482,7 +520,7 @@ named value referenced by a fragment) — the graph doesn't know about
 | llm `features.openai_realtime` | — | Creates the WebSocket API via azapi (no API-scope policy) |
 | gateway-config `features.mcp_sample` | — | Creates weather-api + weather-mcp + ms-learn-mcp + 3 policies |
 | `length(local.all_llm_backends) > 0` (llm) | Dynamic fragments carry real pool/model data (they are always created) | Enables the `deployments` / `deployment-by-name` operation policies on universal-llm / azure-openai |
-| `length(var.model_aliases) > 0` (llm) | Injects alias deployments into `get-available-models` / `metadata-config` and populates `resolve-model-alias` | Aliases resolve to underlying models at request time |
+| `length(var.model_aliases) > 0` (llm) | Adds alias deployments to `get-available-models` / `metadata-config` and alias virtual pools to `set-backend-pools` | Aliases resolve to underlying models at request time, with cross-model fallback |
 | Access contract (`environments/<env>/access-contracts/<use-case>.tfvars`: `services` + `use_case`) | — | Creates per-use-case products + product-API links + subscription + policy (+ optional KV secrets / Foundry connection) against the existing APIM |
 
 ---
@@ -546,10 +584,13 @@ backends, routing and the LLM APIs against the existing APIM
   `azapi_resource.llm_backend` (`Microsoft.ApiManagement/service/backends@2024-06-01-preview`)
   per backend, with a circuit-breaker rule built from the backend's own `circuit_breaker`
   (`foundry_backends.circuit_breaker` for the derived ones; `enabled = false` opts out),
-  `<model>-backend-pool`s for any model served by 2+ backends, and the 3 dynamic
-  fragments (`set-backend-pools`, `get-available-models`, `metadata-config`)
-  plus `resolve-model-alias`, all with `var.model_aliases` support. Backends
+  `<model>-<type>-backend-pool`s (APIM backend pools, API `2025-03-01-preview` for session
+  affinity) for any model served by 2+ backends of one type, and the 4 dynamic
+  fragments (`set-backend-pools`, `get-available-models`, `metadata-config`,
+  `backend-contract`) plus `resolve-model-alias`, all with `var.model_aliases` support. Backends
   are derived from the Foundry deployments, followed by `var.llm_backends`.
+- The Release Version API (`release-version-api.tf`): `GET /version` and
+  `GET /version/backend-contract`.
 - The model-aware static fragments of `module.llm_fragments` (§3.1).
 - Named values `aws-access-key` / `aws-secret-key` / `aws-region` and a
   per-backend `backend_api_key` named value (§3.3). This stack is their only

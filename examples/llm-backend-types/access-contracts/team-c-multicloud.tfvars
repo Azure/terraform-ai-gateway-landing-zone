@@ -7,8 +7,8 @@ use_case = {
 }
 
 api_name_mapping = {
-  LLM = ["universal-llm-api", "azure-openai-api"] # Foundry and the external provider
-  UAI = ["unified-ai-api"]                        # Gemini, Bedrock Mantle, Bedrock, and the multi-cloud alias
+  LLM = ["universal-llm-api", "azure-openai-api"] # Foundry, the external provider, Gemini and Bedrock Mantle
+  UAI = ["unified-ai-api"]                        # the same, native Bedrock and the multi-cloud alias
 }
 
 services = [
@@ -16,7 +16,7 @@ services = [
     code                 = "LLM"
     endpoint_secret_name = "TEAMC-LLM-ENDPOINT"
     api_key_secret_name  = "TEAMC-LLM-KEY"
-    allowed_models       = ["gpt-5.4-mini", "partner-large"]
+    allowed_models       = ["gpt-5.4-mini", "partner-large", "gemini-2.5-flash", "openai.gpt-oss-120b"]
   },
   {
     code                 = "UAI"

@@ -8,10 +8,10 @@ it authenticates and which client path reaches it.
 | Backend | `backend_type` | Authentication | Secret in Key Vault | Client path |
 |---|---|---|---|---|
 | Foundry (account of `platform.tfvars`) | derived, `ai-foundry` | managed identity of APIM | none | Universal LLM API `/models/chat/completions`, Azure OpenAI API, `/unified-ai/v1/chat/completions` |
-| External OpenAI-compatible | `external` | `api-key-bearer` | `Bearer <key>` | Universal LLM API `/models/chat/completions` |
-| Google Gemini | `gemini-openai` | `api-key-bearer` | `Bearer <key>` | Unified AI API `/unified-ai/v1/chat/completions` |
-| AWS Bedrock Mantle (OpenAI-compatible) | `aws-bedrock-mantle` | `api-key-bearer` | `Bearer <key>` | Unified AI API `/unified-ai/v1/chat/completions` |
-| AWS Bedrock (native Converse) | `aws-bedrock` | `aws-sigv4`, signed in the gateway policy | access key id and secret key (`aws` variable) | Unified AI API `/unified-ai/model/{modelId}/converse` |
+| External OpenAI-compatible | `external` | `api-key-bearer` | `Bearer <key>` | Universal LLM API `/models/chat/completions`, `/unified-ai/v1/chat/completions` |
+| Google Gemini | `gemini-openai` | `api-key-bearer` | `Bearer <key>` | Universal LLM API `/models/chat/completions`, `/unified-ai/v1/chat/completions` |
+| AWS Bedrock Mantle (OpenAI-compatible) | `aws-bedrock-mantle` | `api-key-bearer` | `Bearer <key>` | Universal LLM API `/models/chat/completions`, `/unified-ai/v1/chat/completions` |
+| AWS Bedrock (native Converse) | `aws-bedrock` | `aws-sigv4`, signed in the gateway policy | access key id and secret key (`aws` variable) | Unified AI API `/unified-ai/bedrock/model/{modelId}/converse` |
 
 How the key reaches the provider: for `api-key-bearer` (and `api-key-header`)
 APIM adds the named value as a header of the backend (`Authorization`, or
@@ -63,35 +63,38 @@ LLMKEY=$(az keyvault secret show --vault-name "$KV" -n TEAMC-LLM-KEY --query val
 UAI=$(az keyvault secret show --vault-name "$KV" -n TEAMC-UAI-ENDPOINT --query value -o tsv)
 UAIKEY=$(az keyvault secret show --vault-name "$KV" -n TEAMC-UAI-KEY --query value -o tsv)
 
-# Foundry, and the external provider (Universal LLM API)
-curl -s "$LLM/chat/completions" -H "api-key: $LLMKEY" -H "Content-Type: application/json" \
-  -d '{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"Hello"}]}'
-curl -s "$LLM/chat/completions" -H "api-key: $LLMKEY" -H "Content-Type: application/json" \
-  -d '{"model":"partner-large","messages":[{"role":"user","content":"Hello"}]}'
+# Foundry, the external provider, Gemini and Bedrock Mantle (Universal LLM API): the same call for all
+for MODEL in gpt-5.4-mini partner-large gemini-2.5-flash openai.gpt-oss-120b; do
+  curl -s "$LLM/chat/completions" -H "api-key: $LLMKEY" -H "Content-Type: application/json" \
+    -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Hello\"}]}"
+done
 
-# Gemini, Bedrock Mantle and the multi-cloud alias (Unified AI API, OpenAI-compatible)
+# The same through the Unified AI API (OpenAI-compatible surface), and the multi-cloud alias
 curl -s "$UAI/v1/chat/completions" -H "api-key: $UAIKEY" -H "Content-Type: application/json" \
   -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"Hello"}]}'
 curl -s "$UAI/v1/chat/completions" -H "api-key: $UAIKEY" -H "Content-Type: application/json" \
   -d '{"model":"multi-cloud","messages":[{"role":"user","content":"Hello"}]}'
 
-# Bedrock, native Converse API
-curl -s "$UAI/model/us.anthropic.claude-3-5-haiku-20241022-v1:0/converse" -H "api-key: $UAIKEY" -H "Content-Type: application/json" \
+# Bedrock, native Converse API (only on the Unified AI API, under /bedrock)
+curl -s "$UAI/bedrock/model/us.anthropic.claude-3-5-haiku-20241022-v1:0/converse" -H "api-key: $UAIKEY" -H "Content-Type: application/json" \
   -d '{"messages":[{"role":"user","content":[{"text":"Hello"}]}]}'
 ```
 
 ## Limits
 
-- `external` backends are served by the Universal LLM API only (there is no path
-  template for them in the Unified AI API), and the Universal LLM API rewrites
-  the URL for Foundry and Azure OpenAI only: that's why Gemini and Bedrock go
-  through `/unified-ai`, and why the external endpoint carries its `/v1`.
-- The Unified AI API takes the backend from the model name. Bedrock model ids
-  contain `:` and `.`: keep them in `allowed_models` exactly as AWS names them.
+- Each API surface only routes to the backend types it can speak to (the
+  `compatiblePoolTypes` of its policy): the Universal LLM API and the OpenAI-compatible
+  Unified surface to `ai-foundry`, `azure-openai`, `aws-bedrock-mantle`, `gemini-openai`
+  and `external`; the Azure OpenAI API to `azure-openai` and `ai-foundry`; native Bedrock
+  (`/unified-ai/bedrock`) to `aws-bedrock` only. `external` is this repository's addition
+  to the upstream accelerator, which doesn't route to it: its endpoint carries the API
+  root (`https://api.partner.example.com/v1`) and the gateway appends `/chat/completions`.
+- The gateway takes the backend from the model name. Bedrock model ids contain `:`
+  and `.`: keep them in `allowed_models` exactly as AWS names them.
 - The provider paths are built by the fragments of
   `stacks/llm-backend-onboarding/fragments` and `modules/llm-routing/templates`.
-  The Gemini, AWS and partner endpoints need accounts of yours: the Foundry
-  path is the one the quickstart verifies.
+  The Gemini, AWS and partner endpoints need accounts of yours: nothing here
+  was called against them.
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this folder
 define the topology. See `docs/deployment-scenarios.md`.

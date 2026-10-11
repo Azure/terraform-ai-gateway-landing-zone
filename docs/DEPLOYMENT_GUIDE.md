@@ -276,7 +276,8 @@ Platform-team requests for an ALZ:
 
 | Change | Edit | Command (CI does it on merge) |
 |---|---|---|
-| Add or change an LLM backend, model alias or credential | `llm-backend-onboarding.tfvars` (`llm_backends`, `foundry_backends`, `model_aliases`, `aws`) | `task apply STACK=llm-backend-onboarding ENV=<env>` |
+| Add or change an LLM backend, model alias or credential | `llm-backend-onboarding.tfvars` (`llm_backends`, `foundry_backends`, `model_aliases`, `aws`, `session_affinity`) | `task apply STACK=llm-backend-onboarding ENV=<env>` |
+| See what the gateway routes to right now | nothing: `GET <gateway>/version/backend-contract` (subscription key) returns the live backends, pools, aliases and circuit breakers | |
 | New Foundry model deployment | `platform.tfvars` `foundry.models` | `task apply STACK=platform …`, then `STACK=llm-backend-onboarding` (backends are derived from the deployments) |
 | Onboard a use case | new `access-contracts/<use-case>.tfvars` | `task contract ENV=<env> USE_CASE=<use-case>` |
 | Change a shared fragment or service API | `stacks/gateway-config/fragments/` or `apis/` | `task apply STACK=gateway-config …` |
