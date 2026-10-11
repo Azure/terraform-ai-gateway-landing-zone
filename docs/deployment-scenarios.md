@@ -22,6 +22,7 @@ stay valid as the stacks evolve.
 | [ase-hosting](../examples/ase-hosting/) | greenfield (+ `snet-cicd`) | network, app-hosting, platform, gateway-config, llm, 1 contract | StandardV2, integration | ASE v3 reference: zone redundant, I2v2 autoscaling 2 to 6, run-from-package | pair; keys | runner in `snet-cicd` |
 | [shared-ase](../examples/shared-ase/) | greenfield (+ extra DNS links) | network, platform, gateway-config, llm, 1 contract | StandardV2, integration + PE, public off | ASE v3 owned by another team (`ase.app_service_environment_id`) | pair; keys | runner in `snet-cicd` |
 | [multi-provider-llm](../examples/multi-provider-llm/) | greenfield | network, platform, gateway-config, llm, 1 contract | StandardV2, integration | Workflow Standard | single identity; keys | laptop (`dev_access`) |
+| [llm-backend-types](../examples/llm-backend-types/) | greenfield | network, platform, gateway-config, llm, 1 contract (2 services) | StandardV2, integration | Workflow Standard | single identity; keys | laptop (`dev_access`) |
 | [existing-apim-platform](../examples/existing-apim-platform/) | byo (name overrides) | gateway-config, llm, 1 contract | an APIM you already run | none (not deployed) | pair; Entra JWT (explicit values) | runner with APIM access |
 | [no-foundry-ai-services](../examples/no-foundry-ai-services/) | greenfield | network, platform, gateway-config, llm, 1 contract | StandardV2, integration | Workflow Standard | single identity; keys | laptop (`dev_access`) |
 | [all-features](../examples/all-features/) | greenfield (+ AMPLS zone, extra DNS links) | all but app-hosting, incl. identity | StandardV2, integration + PE | Workflow Standard | pair; Entra JWT | runner in `snet-cicd` |
@@ -44,7 +45,9 @@ stay valid as the stacks evolve.
 - **An APIM service you already have:** `existing-apim-platform` (gateway
   configuration only).
 - **Several model providers (Azure OpenAI, third party, AWS Bedrock):**
-  `multi-provider-llm`.
+  `multi-provider-llm`. **Every backend type (Foundry, AWS Bedrock and Mantle,
+  Gemini, an external OpenAI-compatible provider), its authentication and the
+  client path that reaches it:** `llm-backend-types`.
 - **No Foundry accounts, but PII redaction and content safety:**
   `no-foundry-ai-services` (standalone Language and Content Safety accounts,
   models from `llm_backends`).
@@ -63,7 +66,7 @@ stay valid as the stacks evolve.
 | `<apply-principal-id>`, `<plan-principal-id>` | `task output STACK=bootstrap ENV=<env>` (`apply_principal_id`, `plan_principal_id`) |
 | vended / hub IDs (`alz-corp`, `byo`) | the platform or network team; `task output STACK=network NAME=platform_network` prints the spoke part for `alz_spoke` |
 | `<tenant-id>`, `<gateway-app-client-id>` | `task output STACK=identity ENV=<env>`, or the Entra team when Graph is kept off the pipeline |
-| existing resources (`existing-apim-platform`, `shared-ase`, `multi-provider-llm`: `<existing-apim-name>`, `<ase-name>`, `<team-kv>`, `<aoai-resource>`, ...) | the team that owns them; each README lists what the identities need on them |
+| existing resources (`existing-apim-platform`, `shared-ase`, `multi-provider-llm`, `llm-backend-types`: `<existing-apim-name>`, `<ase-name>`, `<team-kv>`, `<aoai-resource>`, `<key-vault-name>`, ...) | the team that owns them; each README lists what the identities need on them |
 
 ## Promoting between scenarios
 
