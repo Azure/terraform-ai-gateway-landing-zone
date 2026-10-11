@@ -44,8 +44,11 @@ touches only its own contract state. Details: [docs/DEPLOYMENT_GUIDE.md](docs/DE
 
 ## ⚡ Quick start
 
-Prerequisites: Terraform (`.terraform-version`), [Task](https://taskfile.dev),
-Azure CLI, Contributor + User Access Administrator on a subscription (what each stack needs: [DEPLOYMENT_GUIDE §2.1](docs/DEPLOYMENT_GUIDE.md#21-permissions)).
+Prerequisites: 
+- Terraform (`.terraform-version`)
+- [Task](https://taskfile.dev)
+- Azure CLI 
+- Permissions: Contributor + User Access Administrator on a subscription (what each stack needs: [DEPLOYMENT_GUIDE §2.1](docs/DEPLOYMENT_GUIDE.md#21-permissions)).
 
 ```bash
 az login && az account set --subscription <subscription-id>
@@ -58,9 +61,15 @@ task up ENV=dev                                 # every configured stack, then e
 task validate ENV=dev                           # post-deploy smoke tests
 ```
 
-One stack at a time: `task apply STACK=platform ENV=dev`; one use case:
-`task contract ENV=dev USE_CASE=team-a-chatbot`; everything read-only:
-`task plan-all ENV=dev`; teardown: `task down ENV=dev`. Run `task` for the full list.
+Other commands:
+
+```bash
+task apply STACK=platform ENV=dev                        # one stack
+task contract ENV=dev USE_CASE=team-a-chatbot            # one access contract (one use case)
+task plan-all ENV=dev                                    # plan everything, read-only
+task down ENV=dev                                        # tear down (contracts and stacks, reverse order)
+task                                                     # the full list
+```
 
 ### Scenarios ([examples/](examples/), [docs/deployment-scenarios.md](docs/deployment-scenarios.md))
 
