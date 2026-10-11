@@ -1,4 +1,4 @@
-# Bootstrap runs once per environment as a human with Owner (task bootstrap).
+# Bootstrap runs once per environment as a human with Contributor + User Access Administrator (task bootstrap).
 # It is the only stack that registers resource providers: the pipeline
 # identities are scoped to resource groups and can't register them.
 provider "azurerm" {

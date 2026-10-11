@@ -1,7 +1,7 @@
 # Weekly / on demand: deploy examples/quickstart into a sandbox subscription,
 # run the smoke tests, tear it down. GitHub environment "e2e" holds
 # AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_SUBSCRIPTION_ID of an identity with
-# Owner on the sandbox subscription (it runs bootstrap too).
+# Contributor + User Access Administrator on the sandbox subscription (it runs bootstrap too).
 name: e2e
 
 on:

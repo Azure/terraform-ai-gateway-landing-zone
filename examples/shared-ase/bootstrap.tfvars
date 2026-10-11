@@ -1,4 +1,4 @@
-# Used once by `task bootstrap` (Owner). Writes backend.hcl next to this file.
+# Used once by `task bootstrap` (Contributor + User Access Administrator). Writes backend.hcl next to this file.
 github                 = { repository = "<owner>/<repo>" } # null = local runs only (no OIDC credentials)
 pipeline_identity_mode = "pair"                            # pair (plan + apply) | single (sandbox/dev only)
 graph_permissions      = false                             # no identity stack here

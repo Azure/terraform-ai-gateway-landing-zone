@@ -1,7 +1,7 @@
 # =============================================================================
 # Task (https://taskfile.dev) — the single entry point for people and CI.
 #
-#   task bootstrap ENV=dev                         once per environment (Owner)
+#   task bootstrap ENV=dev                         once per environment (Contributor + User Access Administrator)
 #   task up ENV=dev                                every configured stack, then every contract
 #   task apply STACK=platform ENV=dev              one stack
 #   task contract ENV=dev USE_CASE=team-a-chatbot  one access contract
@@ -32,7 +32,7 @@ tasks:
 
   # ── one-time per environment ────────────────────────────────────────────────
   bootstrap:
-    desc: "State account, workload resource group and pipeline identities (Owner, once): task bootstrap ENV=dev [-- -auto-approve]"
+    desc: "State account, workload resource group and pipeline identities (Contributor + User Access Administrator, once): task bootstrap ENV=dev [-- -auto-approve]"
     dir: stacks/bootstrap
     preconditions:
       - sh: test -f {{.ENV_DIR}}/common.tfvars && test -f {{.ENV_DIR}}/bootstrap.tfvars
