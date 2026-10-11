@@ -39,7 +39,7 @@ networking in `snet-cicd` (repository variable `RUNNER_<env>`) or a self-hosted
 runner VM (`cicd_subnet_delegation = "none"`). With `deployment = "zip_deploy"`
 the runner must also resolve `<app>.scm.<ase>.appserviceenvironment.net`, which
 means a VNet link to the ASE zone. For non-production laptop runs see
-`dev_access` in [DEPLOYMENT_GUIDE.md](../../DEPLOYMENT_GUIDE.md) section 4.5.
+`dev_access` in [DEPLOYMENT_GUIDE.md](../../docs/DEPLOYMENT_GUIDE.md) section 4.5.
 
 **Time and cost.** Creating the ASE takes 2 to 4 hours (`app-hosting`), and an
 ASE v3 carries a fixed hourly charge on top of the Isolated v2 instances. Apply

@@ -1,15 +1,15 @@
 # AI Gateway Landing Zone — Quick Start
 
-The shortest path to a working gateway: the [quickstart](examples/quickstart/)
+The shortest path to a working gateway: the [quickstart](../examples/quickstart/)
 scenario (greenfield network, public APIM StandardV2, usage pipeline on
 Workflow Standard, one Foundry model, one access contract). For anything else,
 see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) and
-[docs/deployment-scenarios.md](docs/deployment-scenarios.md).
+[deployment-scenarios.md](deployment-scenarios.md).
 
 ## Prerequisites
 
 - Terraform (version in `.terraform-version`), [Task](https://taskfile.dev) ≥ 3.40, Azure CLI
-- Azure rights per stack, see [Permissions](#permissions)
+- Azure rights: Contributor + User Access Administrator on the subscription (what each stack needs: [DEPLOYMENT_GUIDE §2.1](DEPLOYMENT_GUIDE.md#21-permissions))
 - A region with quota for APIM StandardV2 and your Foundry model (examples use `swedencentral`)
 
 ## 1 — Sign in
@@ -47,7 +47,7 @@ task up ENV=dev            # preflight (Azure Policy), then ~60 min: network →
 Behind a customer policy set (e.g. the Microsoft cloud security benchmark with
 Deny effects) run `task preflight ENV=dev` first; it reports known policy
 blockers before anything is deployed (see
-[docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md)).
+[operations/platform-team-requests.md](operations/platform-team-requests.md)).
 
 `task up` skips stacks without a tfvars file (the quickstart has no
 `identity.tfvars` or `app-hosting.tfvars`).
@@ -69,31 +69,3 @@ curl -s -X POST "$URL/chat/completions" -H "Content-Type: application/json" -H "
 task down ENV=dev                      # contracts and stacks, reverse order
 task destroy STACK=bootstrap ENV=dev   # state account and identities (last)
 ```
-
-## Permissions
-
-**Owner is not needed.** Contributor can't write role assignments or role
-definitions, so the person running `bootstrap` needs **User Access
-Administrator** next to it; nothing else in Owner is used.
-
-Running everything from a laptop (this guide) needs only the two subscription
-roles in the first row: they cover every other row. In CI, `bootstrap` gives the
-apply identity the "workload resource group" rights below, so the pipeline never
-holds subscription-wide rights.
-
-| Stack | Run by | Azure rights | Entra ID |
-|---|---|---|---|
-| `bootstrap` | a person, once | **Contributor + User Access Administrator** on the subscription (creates the two resource groups, registers resource providers, assigns roles, creates the plan role) | Only with `graph_permissions = true`: Privileged Role Administrator (grants the Graph app roles); the quickstart sets it to `false` |
-| `identity` | apply identity | none | Graph `Application.ReadWrite.OwnedBy` (a person: permission to register apps) |
-| `network` | apply identity | Contributor on the workload resource group; `alz_spoke`: Network Contributor on the vended VNet | none |
-| `app-hosting` | apply identity | Contributor on the workload resource group | none |
-| `platform` | apply identity | Contributor, RBAC Administrator (conditioned: no privileged roles) and Resource Policy Contributor on the workload resource group; a shared ASE: `Microsoft.Web/hostingEnvironments/join/action` on it | none |
-| `gateway-config` | apply identity | Contributor on the workload resource group | Graph `Application.Read.All`, only with `entra_auth` enabled and no explicit `client_id` |
-| `llm-backend-onboarding` | apply identity | Contributor on the workload resource group | none |
-| `access-contracts` | apply identity | Contributor on the workload resource group; *Key Vault Secrets Officer* on the platform Key Vault (granted by `platform` through `secret_writer_principal_ids`) | none |
-
-Every stack also needs *Storage Blob Data Contributor* on the state account
-(`bootstrap` grants it). The plan identity gets read-only rights only; see
-[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) and
-[docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md)
-when a platform team issues them.

@@ -7,22 +7,22 @@
 > (including the access contracts), and the service and MCP sample APIs.
 >
 > **Related files:**
-> [stacks/platform/apim.tf](stacks/platform/apim.tf) ·
-> [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) ·
-> [stacks/gateway-config/fragments.tf](stacks/gateway-config/fragments.tf) ·
-> [stacks/gateway-config/backends.tf](stacks/gateway-config/backends.tf) ·
-> [stacks/gateway-config/apis.tf](stacks/gateway-config/apis.tf) ·
-> [stacks/llm-backend-onboarding/named-values.tf](stacks/llm-backend-onboarding/named-values.tf) ·
-> [stacks/llm-backend-onboarding/fragments.tf](stacks/llm-backend-onboarding/fragments.tf) ·
-> [stacks/llm-backend-onboarding/backends.tf](stacks/llm-backend-onboarding/backends.tf) ·
-> [stacks/llm-backend-onboarding/apis.tf](stacks/llm-backend-onboarding/apis.tf) ·
-> [stacks/access-contracts/main.tf](stacks/access-contracts/main.tf) ·
-> [modules/apim-policy-fragments/](modules/apim-policy-fragments/README.md) ·
-> [modules/llm-routing/main.tf](modules/llm-routing/main.tf) ·
-> [modules/gateway-api/](modules/gateway-api/README.md) ·
-> [modules/apim-telemetry/](modules/apim-telemetry/README.md) ·
-> [modules/access-contract/main.tf](modules/access-contract/main.tf) ·
-> [modules/apim/main.tf](modules/apim/main.tf)
+> [stacks/platform/apim.tf](../stacks/platform/apim.tf) ·
+> [stacks/gateway-config/named-values.tf](../stacks/gateway-config/named-values.tf) ·
+> [stacks/gateway-config/fragments.tf](../stacks/gateway-config/fragments.tf) ·
+> [stacks/gateway-config/backends.tf](../stacks/gateway-config/backends.tf) ·
+> [stacks/gateway-config/apis.tf](../stacks/gateway-config/apis.tf) ·
+> [stacks/llm-backend-onboarding/named-values.tf](../stacks/llm-backend-onboarding/named-values.tf) ·
+> [stacks/llm-backend-onboarding/fragments.tf](../stacks/llm-backend-onboarding/fragments.tf) ·
+> [stacks/llm-backend-onboarding/backends.tf](../stacks/llm-backend-onboarding/backends.tf) ·
+> [stacks/llm-backend-onboarding/apis.tf](../stacks/llm-backend-onboarding/apis.tf) ·
+> [stacks/access-contracts/main.tf](../stacks/access-contracts/main.tf) ·
+> [modules/apim-policy-fragments/](../modules/apim-policy-fragments/README.md) ·
+> [modules/llm-routing/main.tf](../modules/llm-routing/main.tf) ·
+> [modules/gateway-api/](../modules/gateway-api/README.md) ·
+> [modules/apim-telemetry/](../modules/apim-telemetry/README.md) ·
+> [modules/access-contract/main.tf](../modules/access-contract/main.tf) ·
+> [modules/apim/main.tf](../modules/apim/main.tf)
 >
 > The policy model is split across four stacks that each target the APIM
 > service of `stacks/platform` by its deterministic name (`data` sources, no
@@ -107,21 +107,21 @@ modules/
 ```
 
 Each fragment file has exactly one owner:
-[scripts/ci/check-policy-assets.sh](scripts/ci/check-policy-assets.sh) fails
+[scripts/ci/check-policy-assets.sh](../scripts/ci/check-policy-assets.sh) fails
 if a `stacks/<stack>/fragments/frag-<name>.xml` file isn't wired up in that
 stack's `fragments.tf`, or if an XML file name exists in two places.
 
 These pieces plug into the dependency graph via:
 
 1. **Module outputs** — e.g. `local.all_pools` is computed inside
-   [modules/llm-routing](modules/llm-routing/main.tf) from
+   [modules/llm-routing](../modules/llm-routing/main.tf) from
    `var.llm_backend_config` and consumed there by `local.backend_pools_code`;
    `local.apim_id` (from `data.azurerm_api_management.this`) feeds every
    fragment / API module's `api_management_id`.
 2. **Explicit dependency lists** — `module.shared_fragments` receives
    `depends_on_ids` = the gateway-config named values, and
    `module.llm_fragments` the `aws-*` and per-backend named values. Every API
-   created through [modules/gateway-api](modules/gateway-api/README.md)
+   created through [modules/gateway-api](../modules/gateway-api/README.md)
    receives `policy_depends_on = local.api_policy_depends_on` (the stack's
    fragment IDs, plus the named values in gateway-config and the
    `module.llm_routing` fragments in llm-backend-onboarding) so APIM's
@@ -132,7 +132,7 @@ These pieces plug into the dependency graph via:
    the gateway-config fragments are referenced by name from the later stacks.
    llm-backend-onboarding checks that the shared fragments it needs exist
    (`check "shared_fragments_exist"` in
-   [data.tf](stacks/llm-backend-onboarding/data.tf)).
+   [data.tf](../stacks/llm-backend-onboarding/data.tf)).
 
 ---
 
@@ -140,16 +140,16 @@ These pieces plug into the dependency graph via:
 
 The reusable fragments are split by owner. Each stack catalogues its
 fragments in `fragments.tf` and deploys them with
-[modules/apim-policy-fragments](modules/apim-policy-fragments/README.md); the
+[modules/apim-policy-fragments](../modules/apim-policy-fragments/README.md); the
 XML bodies live next to it, prefixed with `frag-`:
 
-* [stacks/gateway-config/fragments/](stacks/gateway-config/fragments/) —
+* [stacks/gateway-config/fragments/](../stacks/gateway-config/fragments/) —
   model-agnostic fragments (`module.shared_fragments`).
-* [stacks/llm-backend-onboarding/fragments/](stacks/llm-backend-onboarding/fragments/) —
+* [stacks/llm-backend-onboarding/fragments/](../stacks/llm-backend-onboarding/fragments/) —
   model-aware fragments (`module.llm_fragments`).
 
 The generated routing fragments are owned by
-[modules/llm-routing](modules/llm-routing/main.tf), called from
+[modules/llm-routing](../modules/llm-routing/main.tf), called from
 llm-backend-onboarding. There are three kinds.
 
 ### 3.1 Static fragments (unconditional)
@@ -177,7 +177,7 @@ module "shared_fragments" {              # stacks/gateway-config/fragments.tf
 ```
 
 `module "llm_fragments"` in
-[stacks/llm-backend-onboarding/fragments.tf](stacks/llm-backend-onboarding/fragments.tf)
+[stacks/llm-backend-onboarding/fragments.tf](../stacks/llm-backend-onboarding/fragments.tf)
 has the same shape, over `local.llm_fragments`.
 
 | Catalogue | Always on? | Fragment IDs |
@@ -191,7 +191,7 @@ has the same shape, over `local.llm_fragments`.
 > `pii-anonymization` / `pii-deanonymization` / `pii-state-saving`
 > fragments are passed as `azapi_fragments` and created by
 > `azapi_resource.this` in
-> [modules/apim-policy-fragments](modules/apim-policy-fragments/main.tf)
+> [modules/apim-policy-fragments](../modules/apim-policy-fragments/main.tf)
 > (a direct idempotent PUT) because the `azurerm` fragment resource hit an
 > LRO polling bug (404 *PolicyFragment not found* during `CreateOrUpdate`).
 
@@ -203,16 +203,16 @@ has the same shape, over `local.llm_fragments`.
 > asset types: APIM doesn't expose the API type to policy, so the product policy lists
 > the granted tool and agent APIs by name (`contractToolApis`, `contractAgentApis`) and
 > the fragment sets `assetKind` (anything unlisted is `llm`). It is used only by the
-> [multi-asset product policy](modules/access-contract/policies/product-policy.xml.tftpl).
+> [multi-asset product policy](../modules/access-contract/policies/product-policy.xml.tftpl).
 
 ### 3.2 Dynamic fragments (computed from the LLM backend config + `var.model_aliases`)
 
 Mirrored from Bicep's `llm-policy-fragments.bicep`. Owned by
-[modules/llm-routing](modules/llm-routing/README.md) (called as
+[modules/llm-routing](../modules/llm-routing/README.md) (called as
 `module "llm_routing"` from
-[stacks/llm-backend-onboarding/backends.tf](stacks/llm-backend-onboarding/backends.tf)).
+[stacks/llm-backend-onboarding/backends.tf](../stacks/llm-backend-onboarding/backends.tf)).
 Each one takes a placeholder-based XML template from
-[modules/llm-routing/templates/](modules/llm-routing/templates/) and injects
+[modules/llm-routing/templates/](../modules/llm-routing/templates/) and injects
 generated code into it at plan time via `replace()`. They are **always
 created** (even when the backend config is empty) because the core API
 policies reference them unconditionally and APIM validates fragment IDs at
@@ -232,7 +232,7 @@ derived list.
 | `resolve-model-alias` | `frag-resolve-model-alias.xml` | `//{inlineAliasesCode}` | C# alias→underlying-model lookup generated from `var.model_aliases` (own resource `azurerm_api_management_policy_fragment.resolve_model_alias`, always created) |
 
 The generators live in `locals { … }` blocks in
-[modules/llm-routing/main.tf](modules/llm-routing/main.tf), which also
+[modules/llm-routing/main.tf](../modules/llm-routing/main.tf), which also
 creates the LLM backends (`azapi_resource.llm_backend`) and backend pools
 (`azapi_resource.llm_backend_pool`):
 
@@ -256,13 +256,13 @@ policy or fragment that references them. Each one has a single owner:
 
 | Named value | File | Populated from |
 |---|---|---|
-| `uami-client-id` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | Client ID of the APIM user-assigned identity of `stacks/platform` (looked up by name) |
-| `piiServiceUrl` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | Language endpoint (only with `features.pii_redaction`): the primary Foundry account (`pii_service.source = foundry`, default), the standalone Language account of `stacks/platform` (`dedicated`) or `pii_service.url` |
-| `contentSafetyServiceUrl` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | Content Safety endpoint (only with `features.content_safety`): the primary Foundry account (`content_safety_service.source = foundry`, default), the standalone Content Safety account of `stacks/platform` (`dedicated`) or `content_safety_service.url` |
-| `tenant-id`, `client-id`, `audience`, `entra-auth` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | With `entra_auth.enabled`: `entra_auth.*`, or the gateway app of `stacks/identity` looked up by name when no explicit IDs are set. Otherwise safe placeholders, and `entra-auth = "false"` |
-| `JWT-TenantId`, `JWT-AppRegistrationId`, `JWT-Issuer`, `JWT-OpenIdConfigUrl` | [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) | Derived from the same Entra values and `entra_auth.login_endpoint`, or `not-configured` |
-| `aws-access-key`, `aws-secret-key`, `aws-region` | [stacks/llm-backend-onboarding/named-values.tf](stacks/llm-backend-onboarding/named-values.tf) | Key Vault references from `aws.access_key_secret_uri` / `aws.secret_key_secret_uri` and `aws.region`, otherwise non-secret `NOT_CONFIGURED` placeholders. Always created so the `set-backend-authorization` fragment compiles without an AWS Bedrock backend |
-| `backend_api_key` (per-backend) | [stacks/llm-backend-onboarding/named-values.tf](stacks/llm-backend-onboarding/named-values.tf) | One per backend whose `auth_config.named_value_key` is set; a secret Key Vault reference when `key_vault_secret_uri` is supplied, otherwise an explicit `secret_value` (testing only, non-compliant; a `check` warns) or a non-secret `NOT_CONFIGURED` placeholder |
+| `uami-client-id` | [stacks/gateway-config/named-values.tf](../stacks/gateway-config/named-values.tf) | Client ID of the APIM user-assigned identity of `stacks/platform` (looked up by name) |
+| `piiServiceUrl` | [stacks/gateway-config/named-values.tf](../stacks/gateway-config/named-values.tf) | Language endpoint (only with `features.pii_redaction`): the primary Foundry account (`pii_service.source = foundry`, default), the standalone Language account of `stacks/platform` (`dedicated`) or `pii_service.url` |
+| `contentSafetyServiceUrl` | [stacks/gateway-config/named-values.tf](../stacks/gateway-config/named-values.tf) | Content Safety endpoint (only with `features.content_safety`): the primary Foundry account (`content_safety_service.source = foundry`, default), the standalone Content Safety account of `stacks/platform` (`dedicated`) or `content_safety_service.url` |
+| `tenant-id`, `client-id`, `audience`, `entra-auth` | [stacks/gateway-config/named-values.tf](../stacks/gateway-config/named-values.tf) | With `entra_auth.enabled`: `entra_auth.*`, or the gateway app of `stacks/identity` looked up by name when no explicit IDs are set. Otherwise safe placeholders, and `entra-auth = "false"` |
+| `JWT-TenantId`, `JWT-AppRegistrationId`, `JWT-Issuer`, `JWT-OpenIdConfigUrl` | [stacks/gateway-config/named-values.tf](../stacks/gateway-config/named-values.tf) | Derived from the same Entra values and `entra_auth.login_endpoint`, or `not-configured` |
+| `aws-access-key`, `aws-secret-key`, `aws-region` | [stacks/llm-backend-onboarding/named-values.tf](../stacks/llm-backend-onboarding/named-values.tf) | Key Vault references from `aws.access_key_secret_uri` / `aws.secret_key_secret_uri` and `aws.region`, otherwise non-secret `NOT_CONFIGURED` placeholders. Always created so the `set-backend-authorization` fragment compiles without an AWS Bedrock backend |
+| `backend_api_key` (per-backend) | [stacks/llm-backend-onboarding/named-values.tf](../stacks/llm-backend-onboarding/named-values.tf) | One per backend whose `auth_config.named_value_key` is set; a secret Key Vault reference when `key_vault_secret_uri` is supplied, otherwise an explicit `secret_value` (testing only, non-compliant; a `check` warns) or a non-secret `NOT_CONFIGURED` placeholder |
 
 The gateway-config values are one resource,
 `azurerm_api_management_named_value.plain`, with `for_each` over
@@ -283,13 +283,13 @@ Every fragment depends on the named values of its own stack
 ### 4.1 API-level policies
 
 Each API is one entry in an API catalogue and is deployed by the generic
-[modules/gateway-api](modules/gateway-api/README.md) module:
+[modules/gateway-api](../modules/gateway-api/README.md) module:
 
-* Service APIs: [stacks/gateway-config/apis.tf](stacks/gateway-config/apis.tf)
+* Service APIs: [stacks/gateway-config/apis.tf](../stacks/gateway-config/apis.tf)
   (`local.first_wave_raw` → `module.api["<name>"]`, plus
   `local.second_wave_raw` → `module.api_dependent["<name>"]` for APIs that must
   be created after another API or backend).
-* LLM APIs: [stacks/llm-backend-onboarding/apis.tf](stacks/llm-backend-onboarding/apis.tf)
+* LLM APIs: [stacks/llm-backend-onboarding/apis.tf](../stacks/llm-backend-onboarding/apis.tf)
   (`local.llm_apis_raw` → `module.llm_api["<name>"]`).
 
 Each API loads a full policy document from the stack's `apis/<api>/` folder
@@ -298,15 +298,15 @@ APIs whose `features.*` flag is on are in the catalogue.
 
 | API (catalogue key) | Policy XML | Uses fragments |
 |---|---|---|
-| `universal-llm-api` (`module.llm_api`) | [universal-llm-api-policy-v2.xml](stacks/llm-backend-onboarding/apis/universal-llm-api/universal-llm-api-policy-v2.xml) | `security-handler`, `set-llm-requested-model`, `responses-id-security`, `validate-model-access`, `resolve-model-alias`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `strip-backend-headers`, `set-llm-usage`, `ai-foundry-compatibility`, `responses-id-cache-store`, `set-response-headers`, `raise-throttling-events` |
-| `azure-openai-api` (`module.llm_api`) | [azure-open-ai-api-policy.xml](stacks/llm-backend-onboarding/apis/azure-openai-api/azure-open-ai-api-policy.xml) | `security-handler`, `set-llm-requested-model`, `responses-id-security`, `validate-model-access`, `resolve-model-alias`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `strip-backend-headers`, `set-llm-usage`, `responses-id-cache-store`, `set-response-headers`, `raise-throttling-events` |
-| `unified-ai-api` (`module.llm_api`) | [unified-ai-api-policy.xml](stacks/llm-backend-onboarding/apis/unified-ai-api/unified-ai-api-policy.xml) | `security-handler`, `metadata-config`, `central-cache-manager`, `request-processor`, `responses-id-security`, `validate-model-access`, `resolve-model-alias`, `path-builder`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `strip-backend-headers`, `set-llm-usage`, `ai-foundry-compatibility`, `responses-id-cache-store`, `set-response-headers`, `raise-throttling-events` |
-| `ai-model-inference-api` (`module.llm_api`) | [ai-model-inference-api-policy.xml](stacks/llm-backend-onboarding/apis/ai-model-inference-api/ai-model-inference-api-policy.xml) | None |
-| `openai-realtime-ws-api` (`module.llm_api`, `type = "websocket"`) | [openai-realtime-policy.xml](stacks/llm-backend-onboarding/apis/openai-realtime-ws-api/openai-realtime-policy.xml) — **not attached**: WebSocket APIs don't accept an API-scope policy (it belongs on the upgraded WebSocket operation) | WebSocket auth only |
-| `azure-ai-search-index-api` (`module.api`) | [ai-search-index-api-policy.xml](stacks/gateway-config/apis/azure-ai-search-index-api/ai-search-index-api-policy.xml) | None (managed-identity auth via `{{uami-client-id}}`) |
-| `document-intelligence-api-legacy` (`module.api`) + `document-intelligence-api` (`module.api_dependent`) | [doc-intelligence-api-policy.xml](stacks/gateway-config/apis/document-intelligence-api/doc-intelligence-api-policy.xml) | None |
-| `weather-api` (`module.api`) | [policy.xml](stacks/gateway-config/apis/weather-api/policy.xml) | None (sample) |
-| `weather-mcp` + `ms-learn-mcp` (`module.api_dependent`, `type = "mcp"`) | [mcp-default-policy.xml](stacks/gateway-config/apis/shared/mcp-default-policy.xml) | MCP default auth |
+| `universal-llm-api` (`module.llm_api`) | [universal-llm-api-policy-v2.xml](../stacks/llm-backend-onboarding/apis/universal-llm-api/universal-llm-api-policy-v2.xml) | `security-handler`, `set-llm-requested-model`, `responses-id-security`, `validate-model-access`, `resolve-model-alias`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `strip-backend-headers`, `set-llm-usage`, `ai-foundry-compatibility`, `responses-id-cache-store`, `set-response-headers`, `raise-throttling-events` |
+| `azure-openai-api` (`module.llm_api`) | [azure-open-ai-api-policy.xml](../stacks/llm-backend-onboarding/apis/azure-openai-api/azure-open-ai-api-policy.xml) | `security-handler`, `set-llm-requested-model`, `responses-id-security`, `validate-model-access`, `resolve-model-alias`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `strip-backend-headers`, `set-llm-usage`, `responses-id-cache-store`, `set-response-headers`, `raise-throttling-events` |
+| `unified-ai-api` (`module.llm_api`) | [unified-ai-api-policy.xml](../stacks/llm-backend-onboarding/apis/unified-ai-api/unified-ai-api-policy.xml) | `security-handler`, `metadata-config`, `central-cache-manager`, `request-processor`, `responses-id-security`, `validate-model-access`, `resolve-model-alias`, `path-builder`, `set-backend-pools`, `set-target-backend-pool`, `set-backend-authorization`, `strip-backend-headers`, `set-llm-usage`, `ai-foundry-compatibility`, `responses-id-cache-store`, `set-response-headers`, `raise-throttling-events` |
+| `ai-model-inference-api` (`module.llm_api`) | [ai-model-inference-api-policy.xml](../stacks/llm-backend-onboarding/apis/ai-model-inference-api/ai-model-inference-api-policy.xml) | None |
+| `openai-realtime-ws-api` (`module.llm_api`, `type = "websocket"`) | [openai-realtime-policy.xml](../stacks/llm-backend-onboarding/apis/openai-realtime-ws-api/openai-realtime-policy.xml) — **not attached**: WebSocket APIs don't accept an API-scope policy (it belongs on the upgraded WebSocket operation) | WebSocket auth only |
+| `azure-ai-search-index-api` (`module.api`) | [ai-search-index-api-policy.xml](../stacks/gateway-config/apis/azure-ai-search-index-api/ai-search-index-api-policy.xml) | None (managed-identity auth via `{{uami-client-id}}`) |
+| `document-intelligence-api-legacy` (`module.api`) + `document-intelligence-api` (`module.api_dependent`) | [doc-intelligence-api-policy.xml](../stacks/gateway-config/apis/document-intelligence-api/doc-intelligence-api-policy.xml) | None |
+| `weather-api` (`module.api`) | [policy.xml](../stacks/gateway-config/apis/weather-api/policy.xml) | None (sample) |
+| `weather-mcp` + `ms-learn-mcp` (`module.api_dependent`, `type = "mcp"`) | [mcp-default-policy.xml](../stacks/gateway-config/apis/shared/mcp-default-policy.xml) | MCP default auth |
 
 `universal-llm-api`, `azure-openai-api` and `openai-realtime-ws-api` set
 `subscription_required` from gateway-config's `entra-auth` named value, read
@@ -331,20 +331,20 @@ exist because of the apply order.
 ### 4.2 Operation-level policies
 
 Declared per catalogue entry in
-[stacks/llm-backend-onboarding/apis.tf](stacks/llm-backend-onboarding/apis.tf)
+[stacks/llm-backend-onboarding/apis.tf](../stacks/llm-backend-onboarding/apis.tf)
 (`operation_policies` / `azapi_operation_policies`) and applied by
-[modules/gateway-api](modules/gateway-api/README.md). Policies shared by
+[modules/gateway-api](../modules/gateway-api/README.md). Policies shared by
 several APIs live in
-[stacks/llm-backend-onboarding/apis/shared/](stacks/llm-backend-onboarding/apis/shared/).
+[stacks/llm-backend-onboarding/apis/shared/](../stacks/llm-backend-onboarding/apis/shared/).
 
 | Operation | API | Policy XML |
 |---|---|---|
-| `deployments` (GET `/deployments`) | `universal-llm-api` | [universal-llm-api-deployments-policy.xml](stacks/llm-backend-onboarding/apis/shared/universal-llm-api-deployments-policy.xml) |
-| `deployment-by-name` (GET `/deployments/{id}`) | `universal-llm-api` | [universal-llm-api-deployment-by-name-policy.xml](stacks/llm-backend-onboarding/apis/shared/universal-llm-api-deployment-by-name-policy.xml) |
+| `deployments` (GET `/deployments`) | `universal-llm-api` | [universal-llm-api-deployments-policy.xml](../stacks/llm-backend-onboarding/apis/shared/universal-llm-api-deployments-policy.xml) |
+| `deployment-by-name` (GET `/deployments/{id}`) | `universal-llm-api` | [universal-llm-api-deployment-by-name-policy.xml](../stacks/llm-backend-onboarding/apis/shared/universal-llm-api-deployment-by-name-policy.xml) |
 | `listModels` / `retrieveModel` (only when `inference_api_type = "OpenAIV1"`) | `universal-llm-api` | Same two files as above |
-| `deployments` (GET `/deployments`) | `azure-openai-api` | [universal-llm-api-deployments-policy.xml](stacks/llm-backend-onboarding/apis/shared/universal-llm-api-deployments-policy.xml) |
-| `deployment-by-name` (GET `/deployments/{id}/info`) | `azure-openai-api` | [universal-llm-api-deployment-by-name-policy.xml](stacks/llm-backend-onboarding/apis/shared/universal-llm-api-deployment-by-name-policy.xml) |
-| `deployments` + `deployment-by-name` (unified-AI, via azapi) | `unified-ai-api` | [unified-ai-api-deployments-policy.xml](stacks/llm-backend-onboarding/apis/unified-ai-api/unified-ai-api-deployments-policy.xml), [unified-ai-api-deployment-by-name-policy.xml](stacks/llm-backend-onboarding/apis/unified-ai-api/unified-ai-api-deployment-by-name-policy.xml) |
+| `deployments` (GET `/deployments`) | `azure-openai-api` | [universal-llm-api-deployments-policy.xml](../stacks/llm-backend-onboarding/apis/shared/universal-llm-api-deployments-policy.xml) |
+| `deployment-by-name` (GET `/deployments/{id}/info`) | `azure-openai-api` | [universal-llm-api-deployment-by-name-policy.xml](../stacks/llm-backend-onboarding/apis/shared/universal-llm-api-deployment-by-name-policy.xml) |
+| `deployments` + `deployment-by-name` (unified-AI, via azapi) | `unified-ai-api` | [unified-ai-api-deployments-policy.xml](../stacks/llm-backend-onboarding/apis/unified-ai-api/unified-ai-api-deployments-policy.xml), [unified-ai-api-deployment-by-name-policy.xml](../stacks/llm-backend-onboarding/apis/unified-ai-api/unified-ai-api-deployment-by-name-policy.xml) |
 
 The `deployments` / `deployment-by-name` operation policies
 `<include-fragment fragment-id="get-available-models" />`. On
@@ -356,8 +356,8 @@ if no LLM backends are configured these operation policies aren't attached.
 
 | Product | Policy XML | Where |
 |---|---|---|
-| `unified-ai-product` | [unified-ai-product-subscription.xml](stacks/llm-backend-onboarding/apis/unified-ai-api/unified-ai-product-subscription.xml) | `product` attribute of the `unified-ai-api` entry in [stacks/llm-backend-onboarding/apis.tf](stacks/llm-backend-onboarding/apis.tf) (created by [modules/gateway-api](modules/gateway-api/README.md)) |
-| Per-use-case access-contract products | Generated from the service properties (`allowed_models`, `token_limit`, `enable_response_headers`, `jwt_required`) with [modules/access-contract/policies/product-policy.xml.tftpl](modules/access-contract/policies/product-policy.xml.tftpl), or a complete per-service `policy_xml` | [modules/access-contract/main.tf](modules/access-contract/main.tf), called from [stacks/access-contracts/main.tf](stacks/access-contracts/main.tf) |
+| `unified-ai-product` | [unified-ai-product-subscription.xml](../stacks/llm-backend-onboarding/apis/unified-ai-api/unified-ai-product-subscription.xml) | `product` attribute of the `unified-ai-api` entry in [stacks/llm-backend-onboarding/apis.tf](../stacks/llm-backend-onboarding/apis.tf) (created by [modules/gateway-api](../modules/gateway-api/README.md)) |
+| Per-use-case access-contract products | Generated from the service properties (`allowed_models`, `token_limit`, `enable_response_headers`, `jwt_required`) with [modules/access-contract/policies/product-policy.xml.tftpl](../modules/access-contract/policies/product-policy.xml.tftpl), or a complete per-service `policy_xml` | [modules/access-contract/main.tf](../modules/access-contract/main.tf), called from [stacks/access-contracts/main.tf](../stacks/access-contracts/main.tf) |
 
 There is no built-in default product: a general-purpose product (formerly
 `default-ai-access`) or a Foundry → gateway connection is an access contract
@@ -490,12 +490,12 @@ named value referenced by a fragment) — the graph doesn't know about
 
 | Task | Edit this file |
 |---|---|
-| Add a new reusable policy snippet | Model-agnostic: add `frag-<name>.xml` to [stacks/gateway-config/fragments/](stacks/gateway-config/fragments/) and a `"<name>" = "<description>"` entry to `local.shared_fragments` (or the feature-gated `local.pii_fragments`) in [stacks/gateway-config/fragments.tf](stacks/gateway-config/fragments.tf). Model-aware: same in [stacks/llm-backend-onboarding/fragments/](stacks/llm-backend-onboarding/fragments/) and `local.llm_fragments` in [stacks/llm-backend-onboarding/fragments.tf](stacks/llm-backend-onboarding/fragments.tf). If an LLM policy needs a new shared fragment, also add it to `local.required_shared_fragments` there |
-| Change which fragments an API uses | Edit the API's policy XML (e.g. [universal-llm-api-policy-v2.xml](stacks/llm-backend-onboarding/apis/universal-llm-api/universal-llm-api-policy-v2.xml)); no Terraform changes needed |
-| Add a new service API with its own policy | Put the spec + policy XML under `stacks/gateway-config/apis/<api>/` and add an entry to `local.first_wave_raw` in [stacks/gateway-config/apis.tf](stacks/gateway-config/apis.tf), or `local.second_wave_raw` if it must be created after another API/backend (set `api_depends_on`). [modules/gateway-api](modules/gateway-api/README.md) creates the API, policies, diagnostics and optional product; fragment/named-value dependencies are already wired via `local.api_policy_depends_on` |
-| Add a new LLM API | Same, under `stacks/llm-backend-onboarding/apis/<api>/` and `local.llm_apis_raw` in [stacks/llm-backend-onboarding/apis.tf](stacks/llm-backend-onboarding/apis.tf) |
-| Add a new named value | Model-agnostic: add a key to `local.plain_named_values` in [stacks/gateway-config/named-values.tf](stacks/gateway-config/named-values.tf) (already in `depends_on_ids` / `api_policy_depends_on`). Backend credentials: add a resource in [stacks/llm-backend-onboarding/named-values.tf](stacks/llm-backend-onboarding/named-values.tf) and add it to `depends_on_ids` of `module.llm_fragments` |
-| Change the generated routing fragments | Edit the templates in [modules/llm-routing/templates/](modules/llm-routing/templates/) or the generator `locals` in [modules/llm-routing/main.tf](modules/llm-routing/main.tf) |
+| Add a new reusable policy snippet | Model-agnostic: add `frag-<name>.xml` to [stacks/gateway-config/fragments/](../stacks/gateway-config/fragments/) and a `"<name>" = "<description>"` entry to `local.shared_fragments` (or the feature-gated `local.pii_fragments`) in [stacks/gateway-config/fragments.tf](../stacks/gateway-config/fragments.tf). Model-aware: same in [stacks/llm-backend-onboarding/fragments/](../stacks/llm-backend-onboarding/fragments/) and `local.llm_fragments` in [stacks/llm-backend-onboarding/fragments.tf](../stacks/llm-backend-onboarding/fragments.tf). If an LLM policy needs a new shared fragment, also add it to `local.required_shared_fragments` there |
+| Change which fragments an API uses | Edit the API's policy XML (e.g. [universal-llm-api-policy-v2.xml](../stacks/llm-backend-onboarding/apis/universal-llm-api/universal-llm-api-policy-v2.xml)); no Terraform changes needed |
+| Add a new service API with its own policy | Put the spec + policy XML under `stacks/gateway-config/apis/<api>/` and add an entry to `local.first_wave_raw` in [stacks/gateway-config/apis.tf](../stacks/gateway-config/apis.tf), or `local.second_wave_raw` if it must be created after another API/backend (set `api_depends_on`). [modules/gateway-api](../modules/gateway-api/README.md) creates the API, policies, diagnostics and optional product; fragment/named-value dependencies are already wired via `local.api_policy_depends_on` |
+| Add a new LLM API | Same, under `stacks/llm-backend-onboarding/apis/<api>/` and `local.llm_apis_raw` in [stacks/llm-backend-onboarding/apis.tf](../stacks/llm-backend-onboarding/apis.tf) |
+| Add a new named value | Model-agnostic: add a key to `local.plain_named_values` in [stacks/gateway-config/named-values.tf](../stacks/gateway-config/named-values.tf) (already in `depends_on_ids` / `api_policy_depends_on`). Backend credentials: add a resource in [stacks/llm-backend-onboarding/named-values.tf](../stacks/llm-backend-onboarding/named-values.tf) and add it to `depends_on_ids` of `module.llm_fragments` |
+| Change the generated routing fragments | Edit the templates in [modules/llm-routing/templates/](../modules/llm-routing/templates/) or the generator `locals` in [modules/llm-routing/main.tf](../modules/llm-routing/main.tf) |
 | Add a new backend pool routing rule | Add the model to `foundry.models` in `platform.tfvars` and re-apply platform, then llm-backend-onboarding; or add to `extra_llm_backends` / `llm_backend_config` in `environments/<env>/llm-backend-onboarding.tfvars` — dynamic fragments regenerate automatically |
 | Add a per-use-case access contract | Add `environments/<env>/access-contracts/<use-case>.tfvars` with `use_case`, `services` and `api_name_mapping`, then run `task contract ENV=<env> USE_CASE=<use-case>` (no XML: the product policy comes from the service properties; set a complete `policy_xml` only for a custom policy) |
 | Onboard an LLM backend to a live APIM | Edit `environments/<env>/llm-backend-onboarding.tfvars` and run `task apply STACK=llm-backend-onboarding ENV=<env>` |
@@ -511,10 +511,10 @@ their own for day-2 onboarding.
 
 ### 9.1 Access contracts
 
-[stacks/access-contracts/main.tf](stacks/access-contracts/main.tf) onboards a
+[stacks/access-contracts/main.tf](../stacks/access-contracts/main.tf) onboards a
 single use case per state (`environments/<env>/access-contracts/<use-case>.tfvars`,
 applied with `task contract`) by calling
-[modules/access-contract](modules/access-contract/main.tf). Inputs are
+[modules/access-contract](../modules/access-contract/main.tf). Inputs are
 `var.use_case` (`{ business_unit, use_case_name, environment }`),
 `var.api_name_mapping` (service code → existing APIM API names), and
 `var.services` (list of `{ code, endpoint_secret_name, api_key_secret_name,
@@ -537,11 +537,11 @@ Per service `code` it creates:
 
 ### 9.2 LLM backend onboarding
 
-[stacks/llm-backend-onboarding](stacks/llm-backend-onboarding/) registers LLM
+[stacks/llm-backend-onboarding](../stacks/llm-backend-onboarding/) registers LLM
 backends, routing and the LLM APIs against the existing APIM
 (`data.azurerm_api_management.this`). It creates:
 
-- Through `module.llm_routing` ([backends.tf](stacks/llm-backend-onboarding/backends.tf)):
+- Through `module.llm_routing` ([backends.tf](../stacks/llm-backend-onboarding/backends.tf)):
   `azapi_resource.llm_backend` (`Microsoft.ApiManagement/service/backends@2024-06-01-preview`)
   per backend, with circuit-breaker rules gated on `var.configure_circuit_breaker`,
   `<model>-backend-pool`s for any model served by 2+ backends, and the 3 dynamic

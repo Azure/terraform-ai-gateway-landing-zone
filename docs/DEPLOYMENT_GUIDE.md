@@ -2,8 +2,8 @@
 
 How to deploy and run the gateway: the stack layout, the commands (Task or
 plain Terraform), CI/CD, day-2 operations and troubleshooting. The scenario
-templates are in [examples/](examples/) and described in
-[docs/deployment-scenarios.md](docs/deployment-scenarios.md).
+templates are in [examples/](../examples/) and described in
+[deployment-scenarios.md](deployment-scenarios.md).
 
 ---
 
@@ -15,17 +15,17 @@ planning a higher one, and a policy edit doesn't refresh Cosmos DB.
 
 | # | Stack | Owns | Typical duration (new env) | Runs when |
 |---|---|---|---|---|
-| 0 | [bootstrap](stacks/bootstrap/) | State account (one container per stack), workload resource group, plan + apply pipeline identities, their RBAC | 2–3 min | once, by a person with Contributor + User Access Administrator (`task bootstrap`) |
-| 1 | [identity](stacks/identity/) | Entra app APIM validates JWTs against (no client secret) | < 1 min | `identity.tfvars` exists |
-| 2 | [network](stacks/network/) | `greenfield`: VNet, subnets, NSGs, private DNS zones. `alz_spoke`: subnets + NSGs + UDR in the vended VNet | 2–5 min | `network.tfvars` exists (not in `byo`) |
-| 2b | [app-hosting](stacks/app-hosting/) | ILB App Service Environment v3 + its private DNS zone | **2–4 h** | `app-hosting.tfvars` exists (keyless usage pipeline) |
-| 3 | [platform](stacks/platform/) | Identities, monitoring, Key Vault, Cosmos DB, Event Hub, Foundry, Redis, API Center, APIM service + telemetry, usage-ingestion Logic App | 45–90 min (APIM) | always |
-| 4 | [gateway-config](stacks/gateway-config/) | Named values, shared policy fragments, non-LLM backends, service APIs, API Center registrations | 5–10 min | always |
-| 5 | [llm-backend-onboarding](stacks/llm-backend-onboarding/) | LLM backends and pools (derived from the Foundry deployments), routing and model-aware fragments, LLM APIs, backend credentials | 2–5 min | always |
-| 6 | [access-contracts](stacks/access-contracts/) | Per use case: products, subscriptions, Key Vault secrets, Foundry connection — **one state per use case** | ~1 min each | one file per use case |
+| 0 | [bootstrap](../stacks/bootstrap/) | State account (one container per stack), workload resource group, plan + apply pipeline identities, their RBAC | 2–3 min | once, by a person with Contributor + User Access Administrator (`task bootstrap`) |
+| 1 | [identity](../stacks/identity/) | Entra app APIM validates JWTs against (no client secret) | < 1 min | `identity.tfvars` exists |
+| 2 | [network](../stacks/network/) | `greenfield`: VNet, subnets, NSGs, private DNS zones. `alz_spoke`: subnets + NSGs + UDR in the vended VNet | 2–5 min | `network.tfvars` exists (not in `byo`) |
+| 2b | [app-hosting](../stacks/app-hosting/) | ILB App Service Environment v3 + its private DNS zone | **2–4 h** | `app-hosting.tfvars` exists (keyless usage pipeline) |
+| 3 | [platform](../stacks/platform/) | Identities, monitoring, Key Vault, Cosmos DB, Event Hub, Foundry, Redis, API Center, APIM service + telemetry, usage-ingestion Logic App | 45–90 min (APIM) | always |
+| 4 | [gateway-config](../stacks/gateway-config/) | Named values, shared policy fragments, non-LLM backends, service APIs, API Center registrations | 5–10 min | always |
+| 5 | [llm-backend-onboarding](../stacks/llm-backend-onboarding/) | LLM backends and pools (derived from the Foundry deployments), routing and model-aware fragments, LLM APIs, backend credentials | 2–5 min | always |
+| 6 | [access-contracts](../stacks/access-contracts/) | Per use case: products, subscriptions, Key Vault secrets, Foundry connection — **one state per use case** | ~1 min each | one file per use case |
 
 **How stacks find each other.** Every stack computes the same names from
-`workload`, `environment` and `subscription_id` ([modules/naming](modules/naming/)),
+`workload`, `environment` and `subscription_id` ([modules/naming](../modules/naming/)),
 and looks up what other stacks own with data sources. There's no
 `terraform_remote_state` and nothing to copy between stacks. Only things that
 can't be found by name come from tfvars: hub-provided IDs in an ALZ, or the
@@ -55,16 +55,32 @@ az account set --subscription <workload-subscription-id>
 Providers use the CLI token locally and OIDC in CI. The state backend uses
 Entra ID (`use_azuread_auth = true`), never storage keys.
 
-**Rights.** `task bootstrap` needs **Contributor + User Access Administrator**
-on the subscription once (Owner is not required; it creates the resource groups,
-registers the resource providers, assigns roles and creates the plan role). With
-`graph_permissions = true` the Graph app roles also need a Privileged Role
-Administrator. Afterwards you act as the **apply identity**: Contributor + RBAC
-Administrator (conditioned: no Owner / User Access Administrator / RBAC
-Administrator) on the workload group, Storage Blob Data Contributor on the state
-account, and for `stacks/identity` Graph `Application.ReadWrite.OwnedBy`. The
-rights of every stack are listed in
-[QUICK_START.md](QUICK_START.md#permissions).
+### 2.1 Permissions
+
+**Owner is not needed.** Contributor can't write role assignments or role
+definitions, so the person running `bootstrap` needs **User Access
+Administrator** next to it; nothing else in Owner is used.
+
+Running everything from a laptop (as the [Quick Start](QUICK_START.md) does)
+needs only the two subscription roles in the first row: they cover every other
+row. In CI, `bootstrap` gives the apply identity the "workload resource group"
+rights below, so the pipeline never holds subscription-wide rights.
+
+| Stack | Run by | Azure rights | Entra ID |
+|---|---|---|---|
+| `bootstrap` | a person, once | **Contributor + User Access Administrator** on the subscription (creates the two resource groups, registers resource providers, assigns roles, creates the plan role) | Only with `graph_permissions = true`: Privileged Role Administrator (grants the Graph app roles); the quickstart sets it to `false` |
+| `identity` | apply identity | none | Graph `Application.ReadWrite.OwnedBy` (a person: permission to register apps) |
+| `network` | apply identity | Contributor on the workload resource group; `alz_spoke`: Network Contributor on the vended VNet | none |
+| `app-hosting` | apply identity | Contributor on the workload resource group | none |
+| `platform` | apply identity | Contributor, RBAC Administrator (conditioned: no privileged roles) and Resource Policy Contributor on the workload resource group; a shared ASE: `Microsoft.Web/hostingEnvironments/join/action` on it | none |
+| `gateway-config` | apply identity | Contributor on the workload resource group | Graph `Application.Read.All`, only with `entra_auth` enabled and no explicit `client_id` |
+| `llm-backend-onboarding` | apply identity | Contributor on the workload resource group | none |
+| `access-contracts` | apply identity | Contributor on the workload resource group; *Key Vault Secrets Officer* on the platform Key Vault (granted by `platform` through `secret_writer_principal_ids`) | none |
+
+Every stack also needs *Storage Blob Data Contributor* on the state account
+(`bootstrap` grants it). The plan identity gets read-only rights only. When a
+platform team issues the rights instead, see
+[operations/platform-team-requests.md](operations/platform-team-requests.md).
 
 ---
 
@@ -112,7 +128,7 @@ tags            = { workload = "ai-gateway", environment = "dev" }
 
 Names follow `<prefix>-<workload>-<env>[-<seed>]`, e.g. `apim-aigw-dev-k3x9p`;
 the seed is derived from the subscription, workload and environment unless
-`naming.unique_seed` is set. See [modules/naming](modules/naming/README.md).
+`naming.unique_seed` is set. See [modules/naming](../modules/naming/README.md).
 
 ---
 
@@ -149,7 +165,7 @@ known Deny policy isn't exempted, so you find out before the 30 to 60 minute
 APIM creation instead of after it. It needs only Reader, and only warns if
 Azure Policy can't be queried. Today it knows *API Management calls to API
 backends should be authenticated*; see
-[platform-team-requests.md](docs/operations/platform-team-requests.md#apim-backend-authentication-policy-microsoft-cloud-security-benchmark).
+[platform-team-requests.md](operations/platform-team-requests.md#apim-backend-authentication-policy-microsoft-cloud-security-benchmark).
 
 Applies every configured stack in order, then every access contract. Each step
 runs `init` → `plan -out=tfplan` → `apply tfplan`. Check the result:
@@ -248,11 +264,11 @@ The commands are the same in every mode; only the environment folder differs.
 
 `apim_vnet_mode` in `network.tfvars` must equal `apim.vnet_mode` in
 `platform.tfvars` (APIM network matrix:
-[docs/operations/apim-network-modes.md](docs/operations/apim-network-modes.md)).
+[operations/apim-network-modes.md](operations/apim-network-modes.md)).
 There's no in-place move from `greenfield` to `alz_spoke`: deploy a new
 `alz_spoke` environment from the same code and move traffic and use cases.
 Platform-team requests for an ALZ:
-[docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md).
+[operations/platform-team-requests.md](operations/platform-team-requests.md).
 
 ---
 
@@ -288,7 +304,7 @@ They are rewritten every `secret_rotation_days`.
 
 `usage_pipeline.logic_app.code_deploy = true` publishes
 `logicapp-src/usage-ingestion-logicapp` (or `code_source_path`) with the
-infrastructure ([modules/logic-app/code-deploy.tf](modules/logic-app/code-deploy.tf)):
+infrastructure ([modules/logic-app/code-deploy.tf](../modules/logic-app/code-deploy.tf)):
 
 | Method | Used by | What runs | Network access the runner needs |
 |---|---|---|---|
@@ -448,7 +464,7 @@ content_safety_service = { source = "dedicated" }
 - Verified live: both kinds deploy through the module, and APIM's calls work with an
   Entra token (Language `language/:analyze-text` redacts the entities; Content
   Safety `contentsafety/text:analyze` scores the text). Example:
-  [examples/no-foundry-ai-services](examples/no-foundry-ai-services/).
+  [examples/no-foundry-ai-services](../examples/no-foundry-ai-services/).
 
 ### 6.5 Access contract product policy
 
@@ -477,7 +493,7 @@ services = [{
 
 Every policy also calls `set-llm-requested-model` and carries the commented hint for
 raising throttling events in `on-error`. The template is
-[modules/access-contract/policies/product-policy.xml.tftpl](modules/access-contract/policies/product-policy.xml.tftpl).
+[modules/access-contract/policies/product-policy.xml.tftpl](../modules/access-contract/policies/product-policy.xml.tftpl).
 
 #### One product for several asset types (LLM, tools, agents)
 
@@ -536,14 +552,14 @@ do this to test custom policies.
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| [ci.yml](.github/workflows/ci.yml) | PR, main | fmt, tflint, terraform-docs, repository rules (`scripts/ci/check-*.sh`), checkov, gitleaks, validate + mocked unit tests per module/stack, examples plan against their stacks. No Azure access. |
-| [plan.yml](.github/workflows/plan.yml) | PR touching stacks/modules/environments | plans the affected stacks and contracts (`scripts/ci/changed-stacks.sh`) per environment with the **plan** identity; summary in the run; deletes of protected types fail |
-| [apply.yml](.github/workflows/apply.yml) | push to main, dispatch | applies the affected stacks in order, dev → test → prod (approvals on the GitHub environments) |
-| [drift.yml](.github/workflows/drift.yml) | nightly | `plan -detailed-exitcode` for every stack; opens an issue per drifted environment |
-| [e2e.yml](.github/workflows/e2e.yml) | weekly, dispatch | `examples/quickstart` → bootstrap, `task up`, `task validate`, teardown in a sandbox subscription |
-| [release.yml](.github/workflows/release.yml) | main | release-please (changelog, tags) |
+| [ci.yml](../.github/workflows/ci.yml) | PR, main | fmt, tflint, terraform-docs, repository rules (`scripts/ci/check-*.sh`), checkov, gitleaks, validate + mocked unit tests per module/stack, examples plan against their stacks. No Azure access. |
+| [plan.yml](../.github/workflows/plan.yml) | PR touching stacks/modules/environments | plans the affected stacks and contracts (`scripts/ci/changed-stacks.sh`) per environment with the **plan** identity; summary in the run; deletes of protected types fail |
+| [apply.yml](../.github/workflows/apply.yml) | push to main, dispatch | applies the affected stacks in order, dev → test → prod (approvals on the GitHub environments) |
+| [drift.yml](../.github/workflows/drift.yml) | nightly | `plan -detailed-exitcode` for every stack; opens an issue per drifted environment |
+| [e2e.yml](../.github/workflows/e2e.yml) | weekly, dispatch | `examples/quickstart` → bootstrap, `task up`, `task validate`, teardown in a sandbox subscription |
+| [release.yml](../.github/workflows/release.yml) | main | release-please (changelog, tags) |
 
-All of them run Task through [_stack.yml](.github/workflows/_stack.yml).
+All of them run Task through [_stack.yml](../.github/workflows/_stack.yml).
 
 **Setup per environment** (after `task bootstrap`):
 
@@ -562,7 +578,7 @@ Set the repository variables `ENVIRONMENTS_REPOSITORY` (`<owner>/<config-repo>`)
 and `DEPLOYMENT_ENVIRONMENTS` (a JSON array such as `["dev","test","prod"]`;
 unset or empty disables deployment), and the repository secret
 `ENVIRONMENTS_REPOSITORY_TOKEN` (a fine-grained token or GitHub App token with
-read access to that repository's contents). [_stack.yml](.github/workflows/_stack.yml)
+read access to that repository's contents). [_stack.yml](../.github/workflows/_stack.yml)
 checks it out and copies only the requested environment's folder.
 
 Changes in the configuration repository don't trigger this repository's
@@ -631,12 +647,12 @@ a human, or keep the names and let `recover_soft_deleted_key_vaults` recover.
 | `llm-backend-onboarding`: `Missing shared fragments (apply stacks/gateway-config first)` | stacks applied out of order | apply `gateway-config` |
 | `llm-backend-onboarding` plans no backends | no Foundry deployments yet, or accounts named outside the naming contract | apply `platform` first, or set `foundry_backends.account_names` |
 | `AuthorizationFailure` / `ForbiddenByFirewall` on Key Vault or the package blob | the machine running Terraform can't reach the private data plane | run from a runner in `snet-cicd`, or `dev_access` (greenfield non-prod); behind a proxy use a runner |
-| `RequestDisallowedByPolicy` on `Microsoft.ApiManagement/service/backends` (policy *API Management calls to API backends should be authenticated*) | the customer's policy (often the Microsoft cloud security benchmark with the effect raised to `Deny`) doesn't recognise managed-identity / policy-applied backend authentication: a false positive | request the exemption in [platform-team-requests.md](docs/operations/platform-team-requests.md#apim-backend-authentication-policy-microsoft-cloud-security-benchmark); `task preflight ENV=<env>` detects it up front |
+| `RequestDisallowedByPolicy` on `Microsoft.ApiManagement/service/backends` (policy *API Management calls to API backends should be authenticated*) | the customer's policy (often the Microsoft cloud security benchmark with the effect raised to `Deny`) doesn't recognise managed-identity / policy-applied backend authentication: a false positive | request the exemption in [platform-team-requests.md](operations/platform-team-requests.md#apim-backend-authentication-policy-microsoft-cloud-security-benchmark); `task preflight ENV=<env>` detects it up front |
 | `RequestDisallowedByPolicy` on the Logic App storage account | ALZ `Deny-Storage-Shared-Key` vs Workflow Standard | `usage_pipeline.logic_app.hosting = "ase_v3"` (decision D3) |
 | Workflow Standard: workflow publish fails with `504 GatewayTimeout`, the Logic App host reports `ServiceUnavailable`, and every plan wants `allowSharedKeyAccess = false -> true` | tenant or management-group governance turns shared-key access off on storage accounts after they're created (seen in MCAPS tenants); the WS runtime needs the key | use `usage_pipeline.logic_app.hosting = "ase_v3"` (keyless) in that tenant, or get an exemption |
 | `ServiceModelDeprecating` on a Foundry deployment | the model version can't take new deployments any more | pick a current version: `az cognitiveservices model list -l <region>` |
 | `ForbiddenByFirewall` from Key Vault with a client address you didn't allow-list | proxied egress (secure web gateway / SASE) leaves through a rotating pool of addresses | run from a runner in `snet-cicd`; IP allow-listing doesn't hold behind such a proxy |
-| `deny_storage_shared_key needs … "ase_v3"` | precondition in [stacks/platform/policy.tf](stacks/platform/policy.tf) | `hosting = "ase_v3"` or `deny_storage_shared_key = false` |
+| `deny_storage_shared_key needs … "ase_v3"` | precondition in [stacks/platform/policy.tf](../stacks/platform/policy.tf) | `hosting = "ase_v3"` or `deny_storage_shared_key = false` |
 | APIM v2 with `public_network_access = false` is still public after the first apply | Azure rejects creating a service with public access off | expected: the second apply closes it |
 | APIM create sits for 30–60 min; `app-hosting` for 2–4 h | first-time provisioning | normal; don't cancel |
 | Private-only Logic App: `zip_deploy` fails with `403` / times out, or `<site>.scm.azurewebsites.net` resolves to a public IP | SCM is closed to the public and the runner isn't on a network that resolves `privatelink.azurewebsites.net` | run from a runner or VM on the VNet; check the zone is linked and has the `<site>` and `<site>.scm` records ([§6.2](#62-private-logic-app-workflow-standard)) |
