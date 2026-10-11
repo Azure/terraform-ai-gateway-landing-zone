@@ -11,8 +11,9 @@
                    credentials.managedIdentity configured (handles token acquisition natively)
                  - managed-identity: Alias for native-backend-authorization (backward compat)
                  - aws-sigv4: AWS SigV4 signing in policy (cannot be done at backend resource level)
-                 - api-key-bearer: Authorization: Bearer {key} header from named value
-                 - api-key-header: api-key: {value} header from named value
+                 - api-key-bearer / api-key-header: Static auth headers configured on the APIM
+                   backend resource (credentials.header); APIM substitutes {{namedValueKey}} with
+                   the secret when the backend is saved, so this fragment is a no-op for them.
                  - none: No auth (backend credentials configured on APIM backend resource)
                  
                  When skipBackendUrlRewrite is set (by request-processor for Unified AI API),
@@ -201,22 +202,11 @@
                 <value>@(context.Request.Url.Host)</value>
             </set-header>
         </when>
-        <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-bearer")">
-            <!-- API Key Bearer: Authorization: Bearer {key} from APIM named value -->
-            <set-header name="Authorization" exists-action="override">
-                <value>@{
-                    var namedValue = context.Variables.GetValueOrDefault<string>("targetAuthConfigNamedValue", "");
-                    // Named value is resolved at deploy-time by APIM; at runtime we just read the variable
-                    // The actual key lookup happens via the pool's authConfigNamedValue → APIM named value
-                    return "Bearer " + namedValue;
-                }</value>
-            </set-header>
-        </when>
-        <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-header")">
-            <!-- API Key Header: api-key: {value} from APIM named value -->
-            <set-header name="api-key" exists-action="override">
-                <value>@(context.Variables.GetValueOrDefault<string>("targetAuthConfigNamedValue", ""))</value>
-            </set-header>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-bearer" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-header")">
+            <!-- Static-key auth is configured natively on the APIM backend resource
+                 (credentials.header, built by modules/llm-routing): APIM substitutes
+                 {{namedValueKey}} with the secret when the backend is saved, so no policy
+                 expression is needed (and none may overwrite that header). -->
         </when>
         <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "none")">
             <!-- No auth: backend credentials configured on APIM backend resource -->

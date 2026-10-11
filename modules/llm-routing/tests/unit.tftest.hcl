@@ -40,6 +40,7 @@ variables {
       backend_type     = "external"
       endpoint         = "https://partner.example.com"
       auth_type        = "api-key-bearer"
+      auth_config      = { named_value_key = "partner-key" }
       supported_models = [{ name = "partner-large" }]
       circuit_breaker  = { enabled = false }
     },
@@ -110,6 +111,73 @@ run "iso_durations_with_days_hours_and_minutes_are_accepted" {
     condition     = jsondecode(jsonencode(azapi_resource.llm_backend["a"].body)).properties.circuitBreaker.rules[0].tripDuration == "PT1H30M"
     error_message = "P1D and PT1H30M are valid ISO 8601 durations."
   }
+}
+
+# How each backend authenticates to its endpoint: the explicit auth_type, else the default
+# of the backend type. The header of a key-based backend is the named value, as a whole.
+run "backend_credentials_follow_the_effective_auth_type" {
+  command = plan
+
+  variables {
+    llm_backend_config = [
+      { backend_id = "foundry", backend_type = "ai-foundry", endpoint = "https://a.example.com", supported_models = [{ name = "m1" }] },
+      { backend_id = "aoai-key", backend_type = "azure-openai", endpoint = "https://b.example.com", auth_type = "api-key-header", auth_config = { named_value_key = "aoai-key" }, supported_models = [{ name = "m2" }] },
+      { backend_id = "partner", backend_type = "external", endpoint = "https://c.example.com/v1", auth_type = "api-key-bearer", auth_config = { named_value_key = "partner-key" }, supported_models = [{ name = "m3" }] },
+      { backend_id = "open-endpoint", backend_type = "external", endpoint = "https://d.example.com/v1", supported_models = [{ name = "m4" }] },
+      { backend_id = "gemini", backend_type = "gemini-openai", endpoint = "https://generativelanguage.googleapis.com", auth_config = { named_value_key = "gemini-key" }, supported_models = [{ name = "m5" }] },
+      { backend_id = "mantle", backend_type = "aws-bedrock-mantle", endpoint = "https://bedrock-mantle.us-east-1.api.aws", auth_config = { named_value_key = "mantle-key" }, supported_models = [{ name = "m6" }] },
+      { backend_id = "bedrock", backend_type = "aws-bedrock", endpoint = "https://bedrock-runtime.us-east-1.amazonaws.com", supported_models = [{ name = "m7" }] },
+    ]
+  }
+
+  assert {
+    condition     = local.effective_auth_type == { foundry = "managed-identity", aoai-key = "api-key-header", partner = "api-key-bearer", open-endpoint = "none", gemini = "api-key-bearer", mantle = "api-key-bearer", bedrock = "aws-sigv4" }
+    error_message = "auth_type wins; otherwise ai-foundry/azure-openai = managed identity, external = none, gemini-openai and aws-bedrock-mantle = bearer key, aws-bedrock = SigV4."
+  }
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend["foundry"].body)).properties.credentials == { managedIdentity = { clientId = "00000000-0000-0000-0000-0000000000aa", resource = "https://cognitiveservices.azure.com" }, header = { "x-ms-client-id" = ["00000000-0000-0000-0000-0000000000aa"] } }
+    error_message = "Managed identity: the backend acquires the Cognitive Services token itself, even without the legacy auth_scheme."
+  }
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend["partner"].body)).properties.credentials == { managedIdentity = null, header = { Authorization = ["{{partner-key}}"] } }
+    error_message = "api-key-bearer: the Authorization header is the whole named value."
+  }
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend["aoai-key"].body)).properties.credentials.header == { "api-key" = ["{{aoai-key}}"] }
+    error_message = "api-key-header: the api-key header is the named value."
+  }
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend["gemini"].body)).properties.credentials.header == { Authorization = ["{{gemini-key}}"] } && jsondecode(jsonencode(azapi_resource.llm_backend["mantle"].body)).properties.credentials.header == { Authorization = ["{{mantle-key}}"] }
+    error_message = "gemini-openai and aws-bedrock-mantle default to a bearer key."
+  }
+  assert {
+    condition     = jsondecode(jsonencode(azapi_resource.llm_backend["bedrock"].body)).properties.credentials == { managedIdentity = null, header = null } && jsondecode(jsonencode(azapi_resource.llm_backend["open-endpoint"].body)).properties.credentials == { managedIdentity = null, header = null }
+    error_message = "aws-sigv4 is signed in the policy and none sends no credentials: nothing on the backend."
+  }
+}
+
+run "a_key_backend_needs_its_named_value" {
+  command = plan
+
+  variables {
+    llm_backend_config = [
+      { backend_id = "gemini", backend_type = "gemini-openai", endpoint = "https://generativelanguage.googleapis.com", supported_models = [{ name = "m" }] },
+    ]
+  }
+
+  expect_failures = [var.llm_backend_config]
+}
+
+run "an_explicit_key_auth_needs_its_named_value" {
+  command = plan
+
+  variables {
+    llm_backend_config = [
+      { backend_id = "partner", backend_type = "external", endpoint = "https://c.example.com", auth_type = "api-key-bearer", supported_models = [{ name = "m" }] },
+    ]
+  }
+
+  expect_failures = [var.llm_backend_config]
 }
 
 run "duplicate_backend_ids_are_rejected" {

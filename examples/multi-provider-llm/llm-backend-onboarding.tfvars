@@ -43,7 +43,8 @@ llm_backends = [
       trip_duration    = "PT30S"
     }
   },
-  # Third-party OpenAI-compatible endpoint with a bearer key from Key Vault.
+  # Third-party OpenAI-compatible endpoint with a bearer key from Key Vault. APIM sends the
+  # named value as the Authorization header as it is: the secret holds "Bearer <key>".
   {
     backend_id   = "partner-openai-compatible"
     backend_type = "external"

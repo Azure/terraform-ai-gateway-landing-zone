@@ -84,6 +84,34 @@ locals {
 # LLM BACKENDS (one per endpoint)
 # -----------------------------------------------------------------------------
 
+locals {
+  # Authentication of each backend: the explicit auth_type, else the default of its
+  # backend type (the same order the routing fragments use), else managed identity.
+  effective_auth_type = {
+    for b in var.llm_backend_config : b.backend_id => (
+      coalesce(b.auth_type, "-") != "-" ? b.auth_type :
+      b.backend_type == "aws-bedrock" ? "aws-sigv4" :
+      b.backend_type == "external" ? "none" :
+      contains(["aws-bedrock-mantle", "gemini-openai"], b.backend_type) ? "api-key-bearer" :
+      "managed-identity"
+    )
+  }
+
+  # The header APIM adds when it calls the backend (credentials.header of the backend
+  # resource). Key-based types reference the named value of auth_config.named_value_key:
+  # APIM substitutes {{name}} when the backend is saved, but only when it is the WHOLE
+  # header value, so the secret holds the complete value ("Bearer <key>" for
+  # api-key-bearer, the bare key for api-key-header). aws-sigv4 is signed in the policy.
+  credential_header = {
+    for b in var.llm_backend_config : b.backend_id => (
+      local.effective_auth_type[b.backend_id] == "managed-identity" ? tomap({ "x-ms-client-id" = [var.managed_identity_client_id] }) :
+      local.effective_auth_type[b.backend_id] == "api-key-bearer" ? tomap({ "Authorization" = ["{{${try(b.auth_config.named_value_key, "")}}}"] }) :
+      local.effective_auth_type[b.backend_id] == "api-key-header" ? tomap({ "api-key" = ["{{${try(b.auth_config.named_value_key, "")}}}"] }) :
+      null
+    )
+  }
+}
+
 resource "azapi_resource" "llm_backend" {
   for_each = { for b in var.llm_backend_config : b.backend_id => b }
 
@@ -116,17 +144,15 @@ resource "azapi_resource" "llm_backend" {
         }]
       } : null
 
-      # Native APIM backend managed-identity credential.
-      # The x-ms-client-id header is preserved for backends that key on it.
-      # Non-managed-identity auth schemes are handled in policy fragments, so both keys are null.
+      # Native APIM backend credentials: managed identity (token for Cognitive Services) or a
+      # static header from a named value, per the effective auth type (see local.credential_header).
+      # aws-sigv4 and none need nothing here (SigV4 is computed in the policy).
       credentials = {
-        managedIdentity = each.value.auth_scheme == "managedIdentity" ? {
+        managedIdentity = local.effective_auth_type[each.value.backend_id] == "managed-identity" ? {
           clientId = var.managed_identity_client_id
           resource = "https://cognitiveservices.azure.com"
         } : null
-        header = each.value.auth_scheme == "managedIdentity" ? {
-          "x-ms-client-id" = [var.managed_identity_client_id]
-        } : null
+        header = local.credential_header[each.value.backend_id]
       }
 
       tls = {

@@ -6,6 +6,14 @@ variable "api_management_id" {
 variable "llm_backend_config" {
   description = <<-EOT
     llmBackendConfig: one entry per LLM endpoint, each becoming one APIM backend.
+      auth_type        managed-identity | aws-sigv4 | api-key-bearer | api-key-header | none.
+                       Default by backend_type: aws-bedrock = aws-sigv4, external = none,
+                       aws-bedrock-mantle and gemini-openai = api-key-bearer, otherwise
+                       managed-identity. auth_scheme is legacy and ignored.
+      auth_config      named_value_key: the APIM named value holding the key. APIM adds it as the
+                       header of the backend (Authorization for api-key-bearer, api-key for
+                       api-key-header), so the secret holds the COMPLETE header value
+                       ("Bearer <key>" for api-key-bearer, the bare key for api-key-header).
       circuit_breaker  Per-backend circuit breaker rule (APIM allows one rule per backend):
         enabled             false = no circuit breaker on this backend.
         failure_count       Failures within failure_interval that trip the breaker.
@@ -19,7 +27,7 @@ variable "llm_backend_config" {
     backend_id   = string
     backend_type = string
     endpoint     = string
-    auth_scheme  = optional(string) # legacy, retained
+    auth_scheme  = optional(string) # legacy, ignored (auth_type decides)
     auth_type    = optional(string) # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
     auth_config = optional(object({
       named_value_key = optional(string)
@@ -52,6 +60,15 @@ variable "llm_backend_config" {
   validation {
     condition     = length(distinct([for b in var.llm_backend_config : b.backend_id])) == length(var.llm_backend_config)
     error_message = "backend_id must be unique across all LLM backends (it is the APIM backend name), including the Foundry-derived ones named foundry-<region>-<index>."
+  }
+
+  validation {
+    condition = alltrue([
+      for b in var.llm_backend_config :
+      contains(["api-key-bearer", "api-key-header"], coalesce(b.auth_type, contains(["aws-bedrock-mantle", "gemini-openai"], b.backend_type) ? "api-key-bearer" : "-"))
+      ? coalesce(try(b.auth_config.named_value_key, "-"), "-") != "-" : true
+    ])
+    error_message = "Backends with api-key-bearer or api-key-header authentication (including the aws-bedrock-mantle and gemini-openai types, which default to api-key-bearer) need auth_config.named_value_key."
   }
 
   validation {

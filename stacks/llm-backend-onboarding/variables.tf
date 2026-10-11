@@ -41,8 +41,15 @@ variable "llm_backends" {
                         named foundry-<region>-<index>)
       backend_type      ai-foundry | azure-openai | external | aws-bedrock
       endpoint          base URL
-      auth_type         managed-identity | aws-sigv4 | api-key-bearer | api-key-header | none
-      auth_config       named_value_key + key_vault_secret_uri (versionless; secret_value is for tests only)
+      auth_type         managed-identity | aws-sigv4 | api-key-bearer | api-key-header | none.
+                        Default by backend_type: ai-foundry and azure-openai = managed-identity,
+                        external = none, aws-bedrock = aws-sigv4, aws-bedrock-mantle and
+                        gemini-openai = api-key-bearer. (auth_scheme is legacy and ignored.)
+      auth_config       named_value_key + key_vault_secret_uri (versionless; secret_value is for tests only).
+                        Needed for api-key-bearer and api-key-header: APIM sends the named value as the
+                        header of the backend (Authorization or api-key), so the Key Vault secret must hold
+                        the COMPLETE header value: "Bearer <key>" for api-key-bearer, the bare key for
+                        api-key-header. aws-sigv4 uses the aws variable instead.
       supported_models  models served (name, apiVersion, timeout, inferenceApiVersion, ...)
       priority / weight load-balancing within a pool (models served by 2+ backends get a pool)
       circuit_breaker   One rule per backend; every property is optional:

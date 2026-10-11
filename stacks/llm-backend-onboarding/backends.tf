@@ -78,6 +78,10 @@ module "llm_routing" {
   managed_identity_client_id = data.azurerm_user_assigned_identity.apim.client_id
   llm_backend_config         = local.all_llm_backends
   model_aliases              = var.model_aliases
+
+  # APIM resolves the {{named values}} of the backend credentials when it saves a backend,
+  # and refuses a backend whose named value doesn't exist yet.
+  depends_on = [azurerm_api_management_named_value.backend_api_key]
 }
 
 # Without Foundry (platform foundry.enabled = false, or foundry_backends.enabled = false)

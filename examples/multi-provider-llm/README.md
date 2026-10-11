@@ -10,7 +10,9 @@ One gateway in front of several model providers:
 - model aliases with a `priority` (failover) and a `weighted` strategy.
 
 The third-party and AWS credentials are **Key Vault secret references**
-(versionless URIs); no secret value is in Terraform. Create the secrets in
+(versionless URIs); no secret value is in Terraform. The bearer secret holds the
+complete header value (`Bearer <key>`): APIM sends the named value as the
+`Authorization` header of the backend as it is. Create the secrets in
 the platform Key Vault (or any vault the APIM identity can read: it needs
 `Key Vault Secrets User`) before the first `task apply STACK=llm-backend-onboarding`.
 
