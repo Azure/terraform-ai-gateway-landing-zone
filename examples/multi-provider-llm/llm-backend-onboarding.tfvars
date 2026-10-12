@@ -1,22 +1,36 @@
-# Backends deployed: one per Foundry account of stacks/platform (derived), then the
-# llm_backends below. foundry_backends.enabled = false would deploy only llm_backends.
+# One gateway in front of every kind of LLM backend:
+#
+#   Foundry                       derived from stacks/platform: two accounts, so gpt-5.4-mini is a pool
+#   Azure OpenAI outside Foundry  azure-openai, managed identity
+#   External, OpenAI-compatible   a third-party endpoint, bearer key
+#   Google Gemini                 gemini-openai, bearer key
+#   AWS Bedrock Mantle            aws-bedrock-mantle, OpenAI-compatible, bearer key
+#   AWS Bedrock                   aws-bedrock, native Converse API, AWS SigV4
+#
+# Credentials are Key Vault secret references (versionless URIs, read by the APIM identity,
+# which needs Key Vault Secrets User): no secret value is in Terraform. Create the secrets
+# first (see README.md), then `task apply STACK=llm-backend-onboarding`.
 inference_api_type = "OpenAIV1"
 
-# Circuit breaker of the Foundry-derived backends (every property is optional; these are
-# the defaults except failure_count). Each backend below can set its own.
+features = {
+  # Needed for native Bedrock (/unified-ai/bedrock/...) and the OpenAI-compatible /unified-ai/v1
+  # surface, which also serves the multi-cloud alias. The Universal LLM API needs nothing.
+  unified_ai_api        = true
+  api_center_onboarding = true
+}
+
+# 1. Foundry: one backend per Foundry account of platform.tfvars, serving its deployments.
+# Managed identity, nothing to list in llm_backends. foundry_backends.enabled = false would
+# deploy only llm_backends. Only the circuit breaker can be tuned here (every property is
+# optional; these are the defaults except failure_count). Each backend below sets its own.
 foundry_backends = {
   circuit_breaker = {
     failure_count = 5 # failures within failure_interval that trip the breaker (default 3)
   }
 }
 
-features = {
-  unified_ai_api        = true # the single /models-style endpoint over every backend
-  api_center_onboarding = true
-}
-
-# Credentials for aws-bedrock backends with auth_type = "aws-sigv4": versionless
-# Key Vault secret URIs (APIM resolves them with its managed identity).
+# AWS SigV4 credentials of the aws-bedrock backend (the access key id and the secret key,
+# as they are). The Mantle backend uses its own bearer key below.
 aws = {
   region                = "us-east-1"
   access_key_secret_uri = "https://<key-vault-name>.vault.azure.net/secrets/aws-access-key"
@@ -24,7 +38,7 @@ aws = {
 }
 
 llm_backends = [
-  # Azure OpenAI resource outside Foundry, called with the APIM managed identity.
+  # 2. Azure OpenAI resource outside Foundry, called with the APIM managed identity.
   {
     backend_id   = "aoai-legacy-westeurope"
     backend_type = "azure-openai"
@@ -32,10 +46,8 @@ llm_backends = [
     auth_scheme  = "managedIdentity"
     auth_type    = "managed-identity"
     supported_models = [
-      { name = "gpt-5.4-mini", sku = "GlobalStandard", capacity = 50, modelVersion = "2026-03-17" },
+      { name = "gpt-4.1", sku = "GlobalStandard", capacity = 50, modelVersion = "2025-04-14" },
     ]
-    priority = 2 # lower priority than the Foundry backends: used when they fail
-    weight   = 50
     # Trip faster and recover sooner than the defaults (3 failures / PT5M, out for PT1M).
     circuit_breaker = {
       failure_count    = 2
@@ -43,12 +55,14 @@ llm_backends = [
       trip_duration    = "PT30S"
     }
   },
-  # Third-party OpenAI-compatible endpoint with a bearer key from Key Vault. APIM sends the
-  # named value as the Authorization header as it is: the secret holds "Bearer <key>".
+
+  # 3. External OpenAI-compatible provider. The endpoint includes the API root (/v1): the
+  # Universal LLM API appends /chat/completions to it. api-key-bearer: the Key Vault secret
+  # holds the complete header value, "Bearer <key>".
   {
     backend_id   = "partner-openai-compatible"
     backend_type = "external"
-    endpoint     = "https://api.partner.example.com"
+    endpoint     = "https://api.partner.example.com/v1"
     auth_scheme  = "apiKey"
     auth_type    = "api-key-bearer"
     auth_config = {
@@ -58,28 +72,68 @@ llm_backends = [
     supported_models = [
       { name = "partner-large", sku = "OnDemand", capacity = 1, modelFormat = "Partner" },
     ]
-    # Count every 5xx and 429 as a failure and honour the partner's own Retry-After.
+    # A partner API with strict rate limits: count every 429 and 5xx as a failure, honour the
+    # partner's own Retry-After and back off for longer.
     circuit_breaker = {
       status_code_ranges = [{ min = 429, max = 429 }, { min = 500, max = 599 }]
       accept_retry_after = true
+      trip_duration      = "PT5M"
     }
   },
-  # AWS Bedrock, signed in the APIM policy with the aws.* credentials above.
+
+  # 4. Google Gemini through its OpenAI-compatible API (the gateway appends
+  # /v1beta/openai/chat/completions). A bearer key from Google AI Studio; the secret
+  # holds "Bearer <key>".
+  {
+    backend_id   = "gemini-openai"
+    backend_type = "gemini-openai"
+    endpoint     = "https://generativelanguage.googleapis.com"
+    auth_type    = "api-key-bearer" # the default of this backend type, shown for clarity
+    auth_config = {
+      named_value_key      = "gemini-api-key"
+      key_vault_secret_uri = "https://<key-vault-name>.vault.azure.net/secrets/gemini-api-key"
+    }
+    supported_models = [
+      { name = "gemini-2.5-flash", sku = "OnDemand", capacity = 1, modelFormat = "Google", modelVersion = "1" },
+    ]
+  },
+
+  # 5. AWS Bedrock Mantle: OpenAI-compatible endpoint of Bedrock, with a Bedrock API key
+  # as bearer (the secret holds "Bearer <key>").
+  {
+    backend_id   = "bedrock-mantle-us-east-1"
+    backend_type = "aws-bedrock-mantle"
+    endpoint     = "https://bedrock-mantle.us-east-1.api.aws"
+    auth_type    = "api-key-bearer" # the default of this backend type
+    auth_config = {
+      named_value_key      = "bedrock-mantle-api-key"
+      key_vault_secret_uri = "https://<key-vault-name>.vault.azure.net/secrets/bedrock-mantle-api-key"
+    }
+    supported_models = [
+      { name = "openai.gpt-oss-120b", sku = "OnDemand", capacity = 1, modelFormat = "OpenAI", modelVersion = "1" },
+    ]
+  },
+
+  # 6. AWS Bedrock, native Converse API, signed with AWS SigV4 in the gateway policy using
+  # the aws.* credentials above (no auth_config).
   {
     backend_id   = "bedrock-us-east-1"
     backend_type = "aws-bedrock"
     endpoint     = "https://bedrock-runtime.us-east-1.amazonaws.com"
-    auth_type    = "aws-sigv4"
+    auth_type    = "aws-sigv4" # the default of this backend type
     supported_models = [
-      { name = "anthropic.claude-sonnet", sku = "OnDemand", capacity = 1, modelFormat = "Anthropic" },
+      { name = "us.anthropic.claude-3-5-haiku-20241022-v1:0", sku = "OnDemand", capacity = 1, modelFormat = "Anthropic", modelVersion = "1" },
     ]
     circuit_breaker = { enabled = false } # no circuit breaker on this backend
   },
 ]
 
 model_aliases = [
-  # Try the Foundry deployments first, then the Azure OpenAI fallback.
-  { name = "fast", models = ["gpt-5.4-mini"], strategy = "priority" },
+  # Fail over across backend types: Foundry first, then the Azure OpenAI resource.
+  { name = "fast", models = ["gpt-5.4-mini", "gpt-4.1"], strategy = "priority" },
   # Split traffic 80/20 between two models.
   { name = "balanced", models = ["gpt-5.4", "gpt-5.4-mini"], strategy = "weighted", weights = [80, 20] },
+  # The same OpenAI-style request, three clouds: Foundry first, then Bedrock Mantle, then
+  # Gemini when the previous one fails (Unified AI API, /unified-ai/v1/chat/completions).
+  { name = "multi-cloud", models = ["gpt-5.4-mini", "openai.gpt-oss-120b", "gemini-2.5-flash"], strategy = "priority" },
 ]

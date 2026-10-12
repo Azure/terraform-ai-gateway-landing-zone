@@ -16,7 +16,7 @@ services = [
     code                 = "LLM"
     endpoint_secret_name = "TEAMC-LLM-ENDPOINT"
     api_key_secret_name  = "TEAMC-LLM-KEY"
-    allowed_models       = ["gpt-5.4-mini", "partner-large", "gemini-2.5-flash", "openai.gpt-oss-120b"]
+    allowed_models       = ["gpt-5.4-mini", "gpt-4.1", "partner-large", "gemini-2.5-flash", "openai.gpt-oss-120b"]
   },
   {
     code                 = "UAI"
