@@ -361,3 +361,32 @@ run "bedrock_sigv4_does_not_depend_on_the_request_url_host" {
     error_message = "The SigV4 signing host must come from the AWS region, not from context.Request.Url.Host."
   }
 }
+
+# Regression: the Universal LLM and Azure OpenAI specs share tag names and are imported in parallel;
+# APIM then intermittently fails with "Tag with the same name already exists". Both are imported
+# without tags, and nothing else of the spec changes.
+run "llm_specs_are_imported_without_tags" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for key, spec in local.untagged_specs :
+      length(jsondecode(spec).tags) == 0 && alltrue([
+        for path, item in jsondecode(spec).paths :
+        alltrue([for method, operation in item : !can(operation.tags) || length(operation.tags) == 0])
+      ])
+    ])
+    error_message = "The LLM specs must not carry tags (concurrent tag creation fails the APIM import)."
+  }
+  assert {
+    condition = alltrue([
+      for key, spec_file in local.tagged_spec_files : (
+        length(jsondecode(local.untagged_specs[key]).paths) == length(jsondecode(file(spec_file)).paths)
+        && sum([for path, item in jsondecode(local.untagged_specs[key]).paths : length([for method, operation in item : 1 if contains(["get", "put", "post", "delete", "options", "head", "patch", "trace"], method)])])
+        == sum([for path, item in jsondecode(file(spec_file)).paths : length([for method, operation in item : 1 if contains(["get", "put", "post", "delete", "options", "head", "patch", "trace"], method)])])
+        && jsondecode(local.untagged_specs[key]).info.title == jsondecode(file(spec_file)).info.title
+      )
+    ])
+    error_message = "Removing the tags must keep every path and operation of the spec."
+  }
+}

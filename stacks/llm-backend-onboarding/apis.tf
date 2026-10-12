@@ -15,6 +15,28 @@ locals {
 
   has_llm_backends = length(local.all_llm_backends) > 0
 
+  # Operation and top-level tags are removed from the two big LLM specs before they are imported.
+  # APIM creates the tags of an OpenAPI import as service-wide objects, and these two specs share
+  # tag names (Chat, Embeddings, Responses, Vector Stores) while Terraform imports both APIs in
+  # parallel: concurrent creation intermittently fails the import with "Tag with the same name
+  # already exists" (reproduced on a clean APIM: 2 of 6 parallel imports). Tags only group
+  # operations in the developer portal. The JSON files stay verbatim copies of upstream.
+  tagged_spec_files = {
+    universal    = local.universal_llm_spec_path
+    azure_openai = "${local.apis_dir}/azure-openai-api/AIFoundryOpenAI.json"
+  }
+  untagged_specs = {
+    for key, spec_file in local.tagged_spec_files : key => jsonencode(merge(jsondecode(file(spec_file)), {
+      tags = []
+      paths = {
+        for path, item in jsondecode(file(spec_file)).paths : path => {
+          # try(): a path item also holds non-operation keys (parameters, summary) that have no tags.
+          for method, operation in item : method => try(merge(operation, { tags = [] }), operation)
+        }
+      }
+    }))
+  }
+
   # With Entra auth (gateway-config) the APIs take a JWT instead of a key.
   subscription_required = !local.entra_auth_enabled
   api_key_names         = { header = "api-key", query = "api-key" }
@@ -64,7 +86,7 @@ locals {
           path                   = local.universal_llm_api_path
           subscription_required  = local.subscription_required
           subscription_key_names = local.api_key_names
-          spec                   = { format = "openapi+json", value = file(local.universal_llm_spec_path) }
+          spec                   = { format = "openapi+json", value = local.untagged_specs["universal"] }
           policy_xml             = file("${local.apis_dir}/universal-llm-api/universal-llm-api-policy-v2.xml")
         }
         operation_policies = merge(
@@ -85,7 +107,7 @@ locals {
           path                   = "openai"
           subscription_required  = local.subscription_required
           subscription_key_names = local.api_key_names
-          spec                   = { format = "openapi+json", value = file("${local.apis_dir}/azure-openai-api/AIFoundryOpenAI.json") }
+          spec                   = { format = "openapi+json", value = local.untagged_specs["azure_openai"] }
           policy_xml             = file("${local.apis_dir}/azure-openai-api/azure-open-ai-api-policy.xml")
         }
         operation_policies       = local.deployments_operation_policies
