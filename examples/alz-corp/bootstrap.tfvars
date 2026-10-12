@@ -11,7 +11,9 @@ graph_permissions = false # identity stack run by a human / Entra team; entra va
 
 # Outside the workload RG: Network Contributor on the vended VNet (subnets),
 # on the hub / resolver VNet (the ASE DNS zone links to it: virtualNetworks/join),
-# and Reader on the central workspace (platform looks it up).
+# Reader on the central workspace (platform looks it up) and Monitoring Contributor
+# on the hub's Azure Monitor Private Link Scope (platform adds its App Insights
+# components to it).
 additional_apply_role_assignments = {
   vended-vnet = {
     scope                      = "/subscriptions/<sub>/resourceGroups/<rg-vended-net>/providers/Microsoft.Network/virtualNetworks/<vnet-spoke>"
@@ -24,6 +26,10 @@ additional_apply_role_assignments = {
   central-law = {
     scope                      = "/subscriptions/<mgmt-sub>/resourceGroups/<rg-mgmt>/providers/Microsoft.OperationalInsights/workspaces/<law>"
     role_definition_id_or_name = "Reader"
+  }
+  hub-ampls = {
+    scope                      = "/subscriptions/<hub-sub>/resourceGroups/<rg-hub-monitor>/providers/Microsoft.Insights/privateLinkScopes/<ampls-hub>"
+    role_definition_id_or_name = "Monitoring Contributor"
   }
 }
 

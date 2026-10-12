@@ -20,7 +20,7 @@ variable "extra_vnet_link_ids" {
 }
 
 variable "link_monitor_zone" {
-  description = "Link privatelink.monitor.azure.com to the VNets. Only true when AMPLS is deployed: an empty linked monitor zone blackholes App Insights ingestion DNS."
+  description = "Link the Azure Monitor zones (privatelink.monitor.azure.com, and the oms / ods / agentsvc zones when passed) to the VNets. Only true when AMPLS is deployed: an empty linked monitor zone blackholes App Insights ingestion DNS."
   type        = bool
   default     = false
 }

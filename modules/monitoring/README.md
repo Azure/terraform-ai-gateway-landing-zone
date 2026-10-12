@@ -2,10 +2,11 @@
 
 Creates (or reuses, `existing_log_analytics_workspace`) the Log Analytics workspace and the workspace-based Application Insights components:
 
-- **Workspace:** `PerGB2018`, 30-day retention; with the Azure Monitor Private Link Scope the public ingestion endpoint is switched off and queries stay enabled.
+- **Workspace:** `PerGB2018`, 30-day retention.
 - **Application Insights:** one component each for APIM (`appi-apim-<env>`) and the Logic App (`appi-logic-<env>`), and for Foundry (`appi-aif-<env>`) unless `create_foundry_app_insights = false`.
 - **Dashboards:** one portal dashboard per component, when `create_dashboards`.
-- **Azure Monitor Private Link Scope** (`use_azure_monitor_private_link_scope`): the scope `ampls-<env>` with the workspace (when this module created it) and the components, and a private endpoint on `azuremonitor` with the zone group `ampls-dns-group` (none when Azure Policy owns it).
+- **Azure Monitor Private Link Scope:** either created here (`use_azure_monitor_private_link_scope`: the scope `ampls-<env>` with its access modes and a private endpoint on `azuremonitor` with the zone group `ampls-dns-group` over the five Azure Monitor zones, none when Azure Policy owns it), or an existing scope joined (`existing_private_link_scope_id`, e.g. the hub's; one scope per network that shares DNS). The workspace (when created here) and the components become scoped resources.
+- **Public network access:** `public_ingestion_enabled` and `public_query_enabled` switch the public endpoints of the workspace (when created here) and the components off; both need a private link scope. `public_query_components` keeps public query on resources queried through Resource Manager (a Logic App managed connector), which can't use private links.
 
 Called by [stacks/platform](../../stacks/platform/monitoring.tf); the caller passes the providers in.
 
@@ -15,12 +16,14 @@ Called by [stacks/platform](../../stacks/platform/monitoring.tf); the caller pas
 | Name | Version |
 | ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.11 |
+| <a name="requirement_azapi"></a> [azapi](#requirement\_azapi) | >= 2.9, < 3.0 |
 | <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | >= 4.79, < 5.0 |
 
 ## Providers
 
 | Name | Version |
 | ---- | ------- |
+| <a name="provider_azapi"></a> [azapi](#provider\_azapi) | >= 2.9, < 3.0 |
 | <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | >= 4.79, < 5.0 |
 
 ## Modules
@@ -34,11 +37,8 @@ Called by [stacks/platform](../../stacks/platform/monitoring.tf); the caller pas
 
 | Name | Type |
 | ---- | ---- |
+| [azapi_resource.scoped](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azurerm_monitor_private_link_scope.ampls](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_private_link_scope) | resource |
-| [azurerm_monitor_private_link_scoped_service.appi_apim](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_private_link_scoped_service) | resource |
-| [azurerm_monitor_private_link_scoped_service.appi_foundry](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_private_link_scoped_service) | resource |
-| [azurerm_monitor_private_link_scoped_service.appi_logic](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_private_link_scoped_service) | resource |
-| [azurerm_monitor_private_link_scoped_service.law](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/monitor_private_link_scoped_service) | resource |
 | [azurerm_portal_dashboard.app_insights](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/portal_dashboard) | resource |
 | [azurerm_private_endpoint.ampls](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
 | [azurerm_private_endpoint.ampls_policy_dns](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
@@ -54,13 +54,18 @@ Called by [stacks/platform](../../stacks/platform/monitoring.tf); the caller pas
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Name of the resource group the module deploys into. | `string` | n/a | yes |
 | <a name="input_subscription_id"></a> [subscription\_id](#input\_subscription\_id) | Subscription ID used when rendering the App Insights dashboard templates. | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
-| <a name="input_ampls_dns_zone_id_monitor"></a> [ampls\_dns\_zone\_id\_monitor](#input\_ampls\_dns\_zone\_id\_monitor) | Private DNS zone id for privatelink.monitor.azure.com. | `string` | `""` | no |
+| <a name="input_ampls_dns_zone_ids"></a> [ampls\_dns\_zone\_ids](#input\_ampls\_dns\_zone\_ids) | Private DNS zone IDs of the scope's private endpoint (use\_azure\_monitor\_private\_link\_scope): privatelink.monitor.azure.com, .oms.opinsights.azure.com, .ods.opinsights.azure.com, .agentsvc.azure-automation.net and .blob.core.windows.net. Empty = no zone group. | `list(string)` | `[]` | no |
 | <a name="input_ampls_subnet_id"></a> [ampls\_subnet\_id](#input\_ampls\_subnet\_id) | Private endpoint subnet id for the AMPLS scoped PE (when use\_azure\_monitor\_private\_link\_scope is true). | `string` | `""` | no |
 | <a name="input_create_foundry_app_insights"></a> [create\_foundry\_app\_insights](#input\_create\_foundry\_app\_insights) | Create the Foundry Application Insights component (appi-aif-*), its dashboard and its Private Link Scope entry. false when no Foundry accounts are deployed. | `bool` | `true` | no |
 | <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone. | `bool` | `false` | no |
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_existing_log_analytics_workspace"></a> [existing\_log\_analytics\_workspace](#input\_existing\_log\_analytics\_workspace) | Existing (BYO) Log Analytics workspace: resource id and workspace (customer) id. null = create one named log\_analytics\_name. The caller looks the workspace up. | <pre>object({<br/>    id           = string<br/>    workspace_id = string<br/>  })</pre> | `null` | no |
-| <a name="input_use_azure_monitor_private_link_scope"></a> [use\_azure\_monitor\_private\_link\_scope](#input\_use\_azure\_monitor\_private\_link\_scope) | Create an Azure Monitor Private Link Scope (AMPLS) scoping the LAW and App Insights components. | `bool` | `false` | no |
+| <a name="input_existing_private_link_scope_id"></a> [existing\_private\_link\_scope\_id](#input\_existing\_private\_link\_scope\_id) | Resource ID of an existing Azure Monitor Private Link Scope (e.g. the hub's) that the workspace (when created here) and the components join; its private endpoint and DNS belong to its owner. null = none. | `string` | `null` | no |
+| <a name="input_private_link_scope_access_mode"></a> [private\_link\_scope\_access\_mode](#input\_private\_link\_scope\_access\_mode) | Access modes of the scope created here: Open (the networks can still reach Azure Monitor resources outside the scope that accept public traffic) or PrivateOnly (only resources in the scope). | <pre>object({<br/>    ingestion = optional(string, "Open")<br/>    query     = optional(string, "Open")<br/>  })</pre> | `{}` | no |
+| <a name="input_public_ingestion_enabled"></a> [public\_ingestion\_enabled](#input\_public\_ingestion\_enabled) | Accept ingestion from public networks on the workspace (when created here) and the App Insights components. false needs a private link scope: telemetry then only arrives through it (diagnostic settings aren't affected). | `bool` | `true` | no |
+| <a name="input_public_query_components"></a> [public\_query\_components](#input\_public\_query\_components) | Resources that keep accepting public queries when public\_query\_enabled = false: log\_analytics, apim, logic\_app, foundry. For resources queried through Resource Manager (e.g. by a Logic App managed connector), which can't use private links. A workspace-based component's data lives in the workspace: a workspace that blocks public query returns that component's public queries empty, so list both. | `set(string)` | `[]` | no |
+| <a name="input_public_query_enabled"></a> [public\_query\_enabled](#input\_public\_query\_enabled) | Accept queries from public networks on the workspace (when created here) and the App Insights components, except those in public\_query\_components. false needs a private link scope; portal queries then only work from a network connected to it. | `bool` | `true` | no |
+| <a name="input_use_azure_monitor_private_link_scope"></a> [use\_azure\_monitor\_private\_link\_scope](#input\_use\_azure\_monitor\_private\_link\_scope) | Create an Azure Monitor Private Link Scope (AMPLS) with a private endpoint, scoping the workspace (when created here) and the App Insights components. Only one scope per network that shares DNS: in a hub-and-spoke, join the hub's scope (existing\_private\_link\_scope\_id) instead. | `bool` | `false` | no |
 
 ## Outputs
 
@@ -77,4 +82,6 @@ Called by [stacks/platform](../../stacks/platform/monitoring.tf); the caller pas
 | <a name="output_log_analytics_id"></a> [log\_analytics\_id](#output\_log\_analytics\_id) | Resource ID of the Log Analytics workspace (created or existing). |
 | <a name="output_log_analytics_workspace_id"></a> [log\_analytics\_workspace\_id](#output\_log\_analytics\_workspace\_id) | Workspace (customer) ID of the Log Analytics workspace. |
 | <a name="output_logic_app_insights_connection_string"></a> [logic\_app\_insights\_connection\_string](#output\_logic\_app\_insights\_connection\_string) | Connection string of the Logic App Application Insights component. |
+| <a name="output_private_link_scope_id"></a> [private\_link\_scope\_id](#output\_private\_link\_scope\_id) | Azure Monitor Private Link Scope the workspace and components are in (created here or joined); null without one. |
+| <a name="output_public_network_access"></a> [public\_network\_access](#output\_public\_network\_access) | Public ingestion / query per resource of this module (a BYO workspace keeps its own settings). |
 <!-- END_TF_DOCS -->

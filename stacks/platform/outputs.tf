@@ -82,6 +82,14 @@ output "log_analytics_workspace_id" {
   value       = module.monitoring.log_analytics_id
 }
 
+output "monitoring_network" {
+  description = "Azure Monitor Private Link Scope (created or joined; null without one) and public ingestion / query per workspace and App Insights component."
+  value = {
+    private_link_scope_id = module.monitoring.private_link_scope_id
+    public_network_access = module.monitoring.public_network_access
+  }
+}
+
 output "cosmos_db_endpoint" {
   description = "Cosmos DB endpoint (usage records)."
   value       = module.cosmosdb.endpoint

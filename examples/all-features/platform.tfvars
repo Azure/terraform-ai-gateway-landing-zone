@@ -50,8 +50,13 @@ usage_pipeline = {
 }
 
 monitoring = {
-  private_link_scope      = true # needs network.tfvars private_dns.link_monitor_zone
-  app_insights_dashboards = true
+  private_link_scope = true # needs network.tfvars private_dns.link_monitor_zone
+  # Open: the VNet still reaches Azure Monitor resources outside the scope. PrivateOnly only the
+  # scope's, for every network sharing this DNS: switch once everything it needs is in the scope.
+  private_link_scope_access_mode = { ingestion = "Open", query = "Open" }
+  public_ingestion_enabled       = false # telemetry only through the private endpoint
+  public_query_enabled           = false # except the workspace and the APIM component (the usage pipeline's Logic App connector reads it through Resource Manager)
+  app_insights_dashboards        = true
 }
 
 deny_storage_shared_key = false # Workflow Standard needs shared-key storage

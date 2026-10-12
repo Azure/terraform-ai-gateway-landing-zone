@@ -29,7 +29,7 @@ Called by [stacks/network](../../stacks/network/private-dns.tf); the caller pass
 | <a name="input_zone_names"></a> [zone\_names](#input\_zone\_names) | Logical key => private DNS zone name (modules/naming private\_dns\_zones). | `map(string)` | n/a | yes |
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_extra_vnet_link_ids"></a> [extra\_vnet\_link\_ids](#input\_extra\_vnet\_link\_ids) | Additional VNets to link every zone to (name => VNet resource ID), e.g. a runner or jump-box VNet. | `map(string)` | `{}` | no |
-| <a name="input_link_monitor_zone"></a> [link\_monitor\_zone](#input\_link\_monitor\_zone) | Link privatelink.monitor.azure.com to the VNets. Only true when AMPLS is deployed: an empty linked monitor zone blackholes App Insights ingestion DNS. | `bool` | `false` | no |
+| <a name="input_link_monitor_zone"></a> [link\_monitor\_zone](#input\_link\_monitor\_zone) | Link the Azure Monitor zones (privatelink.monitor.azure.com, and the oms / ods / agentsvc zones when passed) to the VNets. Only true when AMPLS is deployed: an empty linked monitor zone blackholes App Insights ingestion DNS. | `bool` | `false` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to the private DNS zones. | `map(string)` | `{}` | no |
 
 ## Outputs

@@ -40,9 +40,19 @@ usage_pipeline = {
 
 # Diagnostics: the platform DINE sends most to the central workspace (D10). Those services'
 # settings belong to Policy, so no workload settings are created for them.
+# Private monitoring: the App Insights components join the hub's Azure Monitor Private Link Scope
+# (one scope per DNS: a second one here would overwrite the hub's records in the shared zones) and
+# accept telemetry only through it. Public query stays on the APIM component, which the usage
+# pipeline's Logic App connector queries through Resource Manager, and is closed on the Logic App
+# and Foundry components. The central workspace keeps the platform team's settings, but it must
+# accept public queries: the APIM component's data lives there, and a closed workspace returns the
+# connector's queries empty.
 monitoring = {
-  log_analytics_workspace_id = "/subscriptions/<mgmt-sub>/resourceGroups/<rg-mgmt>/providers/Microsoft.OperationalInsights/workspaces/<law>"
-  policy_managed_diagnostics = ["cosmosdb", "eventhub", "foundry"]
+  log_analytics_workspace_id     = "/subscriptions/<mgmt-sub>/resourceGroups/<rg-mgmt>/providers/Microsoft.OperationalInsights/workspaces/<law>"
+  policy_managed_diagnostics     = ["cosmosdb", "eventhub", "foundry"]
+  existing_private_link_scope_id = "/subscriptions/<hub-sub>/resourceGroups/<rg-hub-monitor>/providers/Microsoft.Insights/privateLinkScopes/<ampls-hub>"
+  public_ingestion_enabled       = false
+  public_query_enabled           = false
 }
 
 deny_storage_shared_key = false # ALZ assigns Deny-Storage-Shared-Key at the MG

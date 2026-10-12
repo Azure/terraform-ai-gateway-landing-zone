@@ -10,9 +10,9 @@ stay valid as the stacks evolve.
 | Scenario | `network_mode` | Stacks | APIM | Usage pipeline | Identity / auth | Runs from |
 |---|---|---|---|---|---|---|
 | [quickstart](../examples/quickstart/) | greenfield | network, platform, gateway-config, llm, 1 contract | StandardV2, integration, public | Workflow Standard (shared-key exception) | single pipeline identity; subscription keys | laptop (`dev_access`) |
-| [dev-greenfield-private](../examples/dev-greenfield-private/) | greenfield (+ `snet-cicd`) | all, incl. identity and app-hosting | StandardV2, integration + PE, public off | ASE v3, keyless, run-from-package, Deny shared key | plan + apply identities; Entra JWT | runner in `snet-cicd` |
+| [dev-greenfield-private](../examples/dev-greenfield-private/) | greenfield (+ `snet-cicd`, Azure Monitor zones) | all, incl. identity and app-hosting | StandardV2, integration + PE, public off | ASE v3, keyless, run-from-package, Deny shared key | plan + apply identities; Entra JWT; private Log Analytics / App Insights (own AMPLS) | runner in `snet-cicd` |
 | [byo-hub-spoke-network](../examples/byo-hub-spoke-network/) | byo | platform, gateway-config, llm | Developer, internal | Workflow Standard | pair; keys | runner with VNet access |
-| [alz-corp](../examples/alz-corp/) | alz_spoke | network, app-hosting, platform, gateway-config, llm, contract | Premium ×3 (zones), internal | ASE v3 ×2 workers, zone redundant | vended identities; Entra JWT (explicit values) | private runner |
+| [alz-corp](../examples/alz-corp/) | alz_spoke | network, app-hosting, platform, gateway-config, llm, contract | Premium ×3 (zones), internal | ASE v3 ×2 workers, zone redundant | vended identities; Entra JWT (explicit values); private App Insights in the hub's AMPLS | private runner |
 | [premium-internal-vnet](../examples/premium-internal-vnet/) | greenfield | network, app-hosting, platform, gateway-config, llm | Premium ×3, internal | ASE v3 | pair; keys | runner in `snet-cicd` |
 | [apim-v2-private-endpoint](../examples/apim-v2-private-endpoint/) | greenfield | same | StandardV2, integration + PE, public off | ASE v3 | pair; keys | runner in `snet-cicd` |
 | [apim-premiumv2-injection](../examples/apim-premiumv2-injection/) | greenfield | same | PremiumV2, injection (private VIP) | ASE v3 | pair; keys | runner in `snet-cicd` |
@@ -23,7 +23,7 @@ stay valid as the stacks evolve.
 | [multi-provider-llm](../examples/multi-provider-llm/) | greenfield | network, platform, gateway-config, llm, 2 contracts | StandardV2, integration | Workflow Standard | single identity; keys | laptop (`dev_access`) |
 | [existing-apim-platform](../examples/existing-apim-platform/) | byo (name overrides) | gateway-config, llm, 1 contract | an APIM you already run | none (not deployed) | pair; Entra JWT (explicit values) | runner with APIM access |
 | [no-foundry-ai-services](../examples/no-foundry-ai-services/) | greenfield | network, platform, gateway-config, llm, 1 contract | StandardV2, integration | Workflow Standard | single identity; keys | laptop (`dev_access`) |
-| [all-features](../examples/all-features/) | greenfield (+ AMPLS zone, extra DNS links) | all but app-hosting, incl. identity | StandardV2, integration + PE | Workflow Standard | pair; Entra JWT | runner in `snet-cicd` |
+| [all-features](../examples/all-features/) | greenfield (+ Azure Monitor zones, extra DNS links) | all but app-hosting, incl. identity | StandardV2, integration + PE | Workflow Standard | pair; Entra JWT | runner in `snet-cicd` |
 
 ## Choosing
 
@@ -32,7 +32,8 @@ stay valid as the stacks evolve.
   `gateway-config.tfvars` and set `features.api_center = false` in
   `platform.tfvars`.
 - **Private dev/test without a platform team:** `dev-greenfield-private` (ASE v3,
-  keyless, hours to create) or `dev-greenfield-private-ws` (Workflow Standard
+  keyless, hours to create; Log Analytics and App Insights private too) or
+  `dev-greenfield-private-ws` (Workflow Standard
   with a private endpoint, faster, needs shared-key storage). The VNet isn't
   connected to a hub, so neither is for Corp.
 - **Azure Landing Zone (Corp):** `alz-corp`. Request the vended spoke, hub DNS

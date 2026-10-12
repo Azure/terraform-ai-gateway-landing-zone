@@ -385,20 +385,48 @@ variable "monitoring" {
     Log Analytics and Azure Monitor.
       log_analytics_workspace_id       null = create a workspace; set = use this (BYO / platform) workspace.
       log_analytics_subscription_id    Subscription of the BYO workspace when it differs from subscription_id.
-      private_link_scope               Deploy an Azure Monitor Private Link Scope (AMPLS).
+      private_link_scope               Create an Azure Monitor Private Link Scope (AMPLS) with a private endpoint
+                                       (greenfield / byo: needs network.tfvars private_dns.link_monitor_zone,
+                                       or the five Azure Monitor zone IDs in network.private_dns_zone_ids).
+                                       Only one scope per network that shares DNS: in an ALZ hub-and-spoke,
+                                       join the hub's instead.
+      existing_private_link_scope_id   Join an existing scope (e.g. the hub's): the workspace (when created
+                                       here) and the App Insights components become its scoped resources.
+                                       The apply identity needs write access on that scope.
+      private_link_scope_access_mode   { ingestion, query } of the scope created here: Open (default) or
+                                       PrivateOnly (the networks reach only resources in the scope).
+      public_ingestion_enabled         false: the workspace (when created here) and the components accept
+                                       telemetry only through the private link (needs a scope and APIM in a
+                                       VNet). Diagnostic settings aren't affected.
+      public_query_enabled             false: the Logic App and Foundry App Insights components accept
+                                       queries only from networks connected to the scope (portal Logs,
+                                       workbooks and dashboards too). The workspace and the APIM component
+                                       keep public query: the usage pipeline reads the APIM component with
+                                       the Logic App managed connector, whose queries go through Resource
+                                       Manager (no private link), and a workspace that blocks public query
+                                       returns them empty. The other components' data, stored in the same
+                                       workspace, stays queryable there (RBAC applies).
       app_insights_dashboards          Create the Application Insights dashboards.
       policy_managed_diagnostics       Services whose Azure Monitor settings belong to Policy:
                                        apim, cosmosdb, eventhub, foundry, logic_app. No workload
                                        settings are created/overwritten for these services. foundry
                                        covers every Cognitive Services account (Foundry, Language,
                                        Content Safety).
+    A BYO workspace keeps its own network settings and scope membership (its owner's).
   EOT
   type = object({
-    log_analytics_workspace_id    = optional(string)
-    log_analytics_subscription_id = optional(string)
-    private_link_scope            = optional(bool, false)
-    app_insights_dashboards       = optional(bool, true)
-    policy_managed_diagnostics    = optional(set(string), [])
+    log_analytics_workspace_id     = optional(string)
+    log_analytics_subscription_id  = optional(string)
+    private_link_scope             = optional(bool, false)
+    existing_private_link_scope_id = optional(string)
+    private_link_scope_access_mode = optional(object({
+      ingestion = optional(string, "Open")
+      query     = optional(string, "Open")
+    }), {})
+    public_ingestion_enabled   = optional(bool, true)
+    public_query_enabled       = optional(bool, true)
+    app_insights_dashboards    = optional(bool, true)
+    policy_managed_diagnostics = optional(set(string), [])
   })
   default  = {}
   nullable = false
@@ -414,6 +442,32 @@ variable "monitoring" {
       var.monitoring.log_analytics_workspace_id
     ))
     error_message = "monitoring.log_analytics_workspace_id must be a Log Analytics workspace resource ID (/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<name>)."
+  }
+
+  validation {
+    condition     = !(var.monitoring.private_link_scope && var.monitoring.existing_private_link_scope_id != null)
+    error_message = "monitoring: set private_link_scope (create a scope) or existing_private_link_scope_id (join one), not both."
+  }
+
+  validation {
+    condition     = var.monitoring.existing_private_link_scope_id == null || can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/microsoft\\.insights/privateLinkScopes/[^/]+$", var.monitoring.existing_private_link_scope_id))
+    error_message = "monitoring.existing_private_link_scope_id must be an Azure Monitor Private Link Scope resource ID (/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Insights/privateLinkScopes/<name>)."
+  }
+
+  validation {
+    condition     = alltrue([for m in [var.monitoring.private_link_scope_access_mode.ingestion, var.monitoring.private_link_scope_access_mode.query] : contains(["Open", "PrivateOnly"], m)])
+    error_message = "monitoring.private_link_scope_access_mode.ingestion and .query must be Open or PrivateOnly."
+  }
+
+  validation {
+    condition     = (var.monitoring.public_ingestion_enabled && var.monitoring.public_query_enabled) || var.monitoring.private_link_scope || var.monitoring.existing_private_link_scope_id != null
+    error_message = "monitoring.public_ingestion_enabled / public_query_enabled = false need a private link scope: private_link_scope = true or existing_private_link_scope_id."
+  }
+
+  validation {
+    # APIM sends its App Insights telemetry from its outbound path: without a VNet that's public.
+    condition     = var.monitoring.public_ingestion_enabled || var.apim.vnet_mode != "none"
+    error_message = "monitoring.public_ingestion_enabled = false needs APIM in a VNet (apim.vnet_mode != \"none\"): its App Insights telemetry would have no private path."
   }
 }
 

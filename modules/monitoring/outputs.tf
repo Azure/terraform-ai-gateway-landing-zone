@@ -57,3 +57,16 @@ output "foundry_app_insights_connection_string" {
   value       = try(module.app_insights["foundry"].connection_string, null)
   sensitive   = true
 }
+
+output "private_link_scope_id" {
+  description = "Azure Monitor Private Link Scope the workspace and components are in (created here or joined); null without one."
+  value       = local.private_link ? local.scope_id : null
+}
+
+output "public_network_access" {
+  description = "Public ingestion / query per resource of this module (a BYO workspace keeps its own settings)."
+  value = {
+    for k, q in local.public_query : k => { ingestion = var.public_ingestion_enabled, query = q }
+    if k != "log_analytics" || !local.byo_workspace
+  }
+}

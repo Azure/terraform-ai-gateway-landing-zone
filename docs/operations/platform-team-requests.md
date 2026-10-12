@@ -39,6 +39,7 @@ Track each request here. Update the status when the ticket is acknowledged or do
 | P8 | Private CI runners (platform/DevOps) | GitHub-hosted private networking (network settings resource + delegated subnet) or a self-hosted runner subnet with the UDR. For `ase_v3` the runner that runs `apply` must reach the Logic App storage **blob private endpoint** (run-from-package upload) and, for `deployment = "zip_deploy"`, resolve and reach `*.scm.<ase>.appserviceenvironment.net` | Phase 2b |
 | P9 | ALZ-shaped sandbox MG (platform) | A sandbox MG with the ALZ `landing_zones` + `corp` archetypes, `Enforce-GR-*` set to `Default`, used for the weekly convergence gate | Phase 4 |
 | P10 | Cost approval (FinOps) | ASE v3 fixed charge + Isolated v2 instances per environment (D3); APIM Premium units | Phase 2b |
+| P11 | Hub Azure Monitor Private Link Scope (platform) — `alz_spoke` with private monitoring only | The resource ID of the hub's AMPLS (one per DNS: the workload must not create its own) and **Monitoring Contributor** on it for the apply identity, so `stacks/platform` adds its App Insights components (`monitoring.existing_private_link_scope_id`). The five Azure Monitor zones (`privatelink.monitor.azure.com`, `.oms.opinsights.azure.com`, `.ods.opinsights.azure.com`, `.agentsvc.azure-automation.net`, `.blob.core.windows.net`) resolvable from the spoke. The central workspace must keep **accepting queries from public networks**: the usage pipeline's Logic App connector queries through Resource Manager, and a closed workspace returns its queries empty | Phase 3 |
 
 ## Keyless usage pipeline (ASE v3)
 
@@ -133,6 +134,7 @@ Identities (2): id-tf-<workload>-<env>-plan  → OIDC subject repo:<org>/<repo>:
                 id-tf-<workload>-<env>-apply → OIDC subject repo:<org>/<repo>:environment:<env>        (Contributor + RBAC Admin conditioned; state Blob Data Contributor; Graph Application.ReadWrite.OwnedBy + Application.Read.All)
 Exemptions (if applicable): API Management calls to API backends should be authenticated (reference aPIManagementServiceShouldHaveBackendCallsAuthenticated) on the workload resource group, category Mitigated (backends use the APIM managed identity); Enforce-GR-APIM Deny-Apim-Sku-Vnet for ANY V2 SKU (incl. PremiumV2 injection) scoped to APIM — no parameter override possible; Deny-Storage-Shared-Key (dev WS Logic App, time-boxed)
 Diagnostics: central LAW id for BYO; confirm Deploy-Diag-LogsCat scope
+Private monitoring (if applicable): hub AMPLS resource id + Monitoring Contributor on it for id-tf-<workload>-<env>-apply; the five Azure Monitor private DNS zones resolvable from the spoke; central LAW keeps "accept queries from public networks" (usage export via Logic App connector)
 ```
 
 ## Related repository settings

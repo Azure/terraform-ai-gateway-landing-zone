@@ -199,6 +199,58 @@ Supported keys: `apim`, `cosmosdb`, `eventhub`, `foundry`, `logic_app`. These
 only skip the Azure Monitor diagnostic settings; APIM loggers and API
 diagnostics stay enabled.
 
+#### Private Log Analytics and App Insights
+
+Log Analytics and the App Insights components (APIM, Logic App, Foundry) can
+accept telemetry only through an Azure Monitor Private Link Scope (AMPLS), and
+the Logic App and Foundry components queries only through it too:
+
+```hcl
+monitoring = {
+  private_link_scope       = true   # greenfield / isolated DNS: a scope + private endpoint here
+  # existing_private_link_scope_id = "<hub AMPLS ID>"   # ALZ hub-and-spoke: join the hub's scope instead
+  public_ingestion_enabled = false  # every resource
+  public_query_enabled     = false  # the Logic App and Foundry components (see below)
+}
+```
+
+- **One scope per DNS.** A scope's private endpoint writes the global Azure
+  Monitor names into `privatelink.monitor.azure.com` and four more zones; a
+  second scope on networks that share those zones overwrites the first one's
+  records. Greenfield (`private_link_scope = true`) needs
+  `private_dns.link_monitor_zone = true` in `network.tfvars` (the five zones);
+  in an ALZ, join the hub's scope with `existing_private_link_scope_id` (the
+  apply identity needs Monitoring Contributor on it, request P11).
+- **Ingestion.** APIM and the Logic App send App Insights telemetry from
+  their VNet through the private endpoint, so `public_ingestion_enabled =
+  false` needs APIM in a VNet. Diagnostic settings aren't affected
+  (Microsoft's private channel).
+- **Public query stays on the workspace and the APIM component.** The usage
+  pipeline's `llm-usage-ingestion` and `ai-usage-streaming-ingestion`
+  workflows read the APIM component with the Logic App managed connector,
+  whose queries go through Resource Manager, which can't use private links.
+  The component's data lives in the workspace, and a workspace that blocks
+  public query returns those queries **empty, without an error**: the
+  workflow still succeeds but exports nothing (verified live). So the
+  workspace keeps public query too, and the Logic App and Foundry components'
+  data, stored in the same workspace, stays queryable there (RBAC applies);
+  closing their query only closes their own endpoints. Fully private query
+  needs the two workflows to query through the private endpoint instead of
+  the managed connector.
+- **Portal.** Logs, workbooks, dashboards and transaction search of the closed
+  components work only from a network connected to the scope (a runner or
+  jump-box VNet, or the corporate network in an ALZ).
+- **BYO workspace.** A central workspace (`log_analytics_workspace_id`) keeps
+  its owner's network settings and scope membership, but must accept public
+  queries for the usage export (above).
+- **Access modes** (`private_link_scope_access_mode`, scope created here):
+  `Open` by default; `PrivateOnly` blocks every Azure Monitor resource outside
+  the scope for all networks sharing the DNS, so switch only once everything
+  they need is in it.
+
+`task output STACK=platform ENV=<env> NAME=monitoring_network` shows the scope
+and the public ingestion / query of each resource.
+
 ### 4.3 One stack at a time
 
 Useful the first time, or to stop between layers:
@@ -659,4 +711,5 @@ a human, or keep the names and let `recover_soft_deleted_key_vaults` recover.
 | APIM create sits for 30–60 min; `app-hosting` for 2–4 h | first-time provisioning | normal; don't cancel |
 | Private-only Logic App: `zip_deploy` fails with `403` / times out, or `<site>.scm.azurewebsites.net` resolves to a public IP | SCM is closed to the public and the runner isn't on a network that resolves `privatelink.azurewebsites.net` | run from a runner or VM on the VNet; check the zone is linked and has the `<site>` and `<site>.scm` records ([§6.2](#62-private-logic-app-workflow-standard)) |
 | Logic App runs but the workflows are empty | code publish skipped or failed | `task logic-app-code ENV=<env>` from a runner that reaches the storage PE; fall back to `deployment = "zip_deploy"` |
+| `llm-usage-ingestion` / `ai-usage-streaming-ingestion` runs succeed but write no usage records, while the gateway serves traffic | the Log Analytics workspace behind the APIM App Insights component blocks queries from public networks (often a central BYO workspace); the managed connector queries through Resource Manager and gets an empty result, not an error | let the workspace accept public queries (`publicNetworkAccessForQuery = Enabled`); this repository keeps it on for the workspace it creates |
 | `Error acquiring the state lock` in a PR plan | the plan identity can only read state | plans run with `-lock=false` (`LOCK=-lock=false`) |

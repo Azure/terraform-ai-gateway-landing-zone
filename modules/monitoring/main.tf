@@ -6,6 +6,20 @@
 locals {
   byo_workspace    = var.existing_log_analytics_workspace != null
   log_analytics_id = local.byo_workspace ? var.existing_log_analytics_workspace.id : module.log_analytics[0].resource_id
+
+  # Private link: a scope created here, or an existing one (e.g. the hub's) that the
+  # workspace and components join.
+  create_scope = var.use_azure_monitor_private_link_scope
+  join_scope   = var.existing_private_link_scope_id != null
+  private_link = local.create_scope || local.join_scope
+  scope_id     = local.create_scope ? azurerm_monitor_private_link_scope.ampls[0].id : var.existing_private_link_scope_id
+
+  # Public query per resource: off with public_query_enabled = false, except the resources in
+  # public_query_components (their queries come through Resource Manager, which can't use
+  # private links).
+  public_query = {
+    for k in concat(["log_analytics"], keys(local.app_insights)) : k => var.public_query_enabled || contains(var.public_query_components, k)
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -25,9 +39,9 @@ module "log_analytics" {
 
   log_analytics_workspace_sku               = "PerGB2018"
   log_analytics_workspace_retention_in_days = 30
-  # when AMPLS is in use, disable public ingestion; queries remain enabled.
-  log_analytics_workspace_internet_ingestion_enabled = var.use_azure_monitor_private_link_scope ? "false" : "true"
-  log_analytics_workspace_internet_query_enabled     = "true"
+  # Public network access. Diagnostic settings aren't affected (Microsoft's private channel).
+  log_analytics_workspace_internet_ingestion_enabled = var.public_ingestion_enabled ? "true" : "false"
+  log_analytics_workspace_internet_query_enabled     = local.public_query["log_analytics"] ? "true" : "false"
 }
 
 # -----------------------------------------------------------------------------
@@ -56,6 +70,9 @@ module "app_insights" {
   application_type    = "web"
   tags                = var.tags
   enable_telemetry    = var.enable_telemetry
+
+  internet_ingestion_enabled = var.public_ingestion_enabled
+  internet_query_enabled     = local.public_query[each.key]
 }
 
 # -----------------------------------------------------------------------------
@@ -102,54 +119,47 @@ resource "azurerm_portal_dashboard" "app_insights" {
 
 # =============================================================================
 # AZURE MONITOR PRIVATE LINK SCOPE (AMPLS)
-# Creates a scope, associates the LAW and 3 App Insights components, and
-# optionally creates a private endpoint with amazon DNS groups for the
-# Azure Monitor / OMS / ODS / Agent subresources.
+# Either a scope created here (with its private endpoint and the five Azure
+# Monitor DNS zones), or an existing scope that the workspace and components
+# join: in a hub-and-spoke network that shares DNS, use the hub's single scope,
+# because a second scope overwrites the hub's records in the shared zones.
 # =============================================================================
 
 resource "azurerm_monitor_private_link_scope" "ampls" {
-  count               = var.use_azure_monitor_private_link_scope ? 1 : 0
+  count               = local.create_scope ? 1 : 0
   name                = "ampls-${var.environment_name}"
   resource_group_name = var.resource_group_name
   tags                = var.tags
+
+  # Open: the VNet still reaches Azure Monitor resources outside this scope (when they accept
+  # public traffic). PrivateOnly: only resources in the scope (prevents exfiltration), for every
+  # network that shares this DNS.
+  ingestion_access_mode = var.private_link_scope_access_mode.ingestion
+  query_access_mode     = var.private_link_scope_access_mode.query
 }
 
-resource "azurerm_monitor_private_link_scoped_service" "law" {
-  count               = var.use_azure_monitor_private_link_scope && !local.byo_workspace ? 1 : 0
-  name                = "scoped-law"
-  resource_group_name = var.resource_group_name
-  scope_name          = azurerm_monitor_private_link_scope.ampls[0].name
-  linked_resource_id  = module.log_analytics[0].resource_id
-}
+# The workspace (only when this module created it: a BYO workspace belongs to its owner) and the
+# components. azapi: an existing scope can live in another subscription (the hub's).
+resource "azapi_resource" "scoped" {
+  for_each = local.private_link ? merge(
+    local.byo_workspace ? {} : { log_analytics = { name = var.log_analytics_name, id = module.log_analytics[0].resource_id } },
+    { for k, ai in module.app_insights : k => { name = ai.name, id = ai.resource_id } },
+  ) : {}
 
-resource "azurerm_monitor_private_link_scoped_service" "appi_apim" {
-  count               = var.use_azure_monitor_private_link_scope ? 1 : 0
-  name                = "scoped-appi-apim"
-  resource_group_name = var.resource_group_name
-  scope_name          = azurerm_monitor_private_link_scope.ampls[0].name
-  linked_resource_id  = module.app_insights["apim"].resource_id
-}
-
-resource "azurerm_monitor_private_link_scoped_service" "appi_logic" {
-  count               = var.use_azure_monitor_private_link_scope ? 1 : 0
-  name                = "scoped-appi-logic"
-  resource_group_name = var.resource_group_name
-  scope_name          = azurerm_monitor_private_link_scope.ampls[0].name
-  linked_resource_id  = module.app_insights["logic_app"].resource_id
-}
-
-resource "azurerm_monitor_private_link_scoped_service" "appi_foundry" {
-  count               = var.use_azure_monitor_private_link_scope && var.create_foundry_app_insights ? 1 : 0
-  name                = "scoped-appi-foundry"
-  resource_group_name = var.resource_group_name
-  scope_name          = azurerm_monitor_private_link_scope.ampls[0].name
-  linked_resource_id  = module.app_insights["foundry"].resource_id
+  type      = "Microsoft.Insights/privateLinkScopes/scopedResources@2021-09-01"
+  name      = each.value.name # unique within a scope shared with other workloads
+  parent_id = local.scope_id
+  body = {
+    # Lowercase: Azure stores and returns the ID lowercased, and azapi compares case-sensitively
+    # (any other casing is a permanent in-place diff).
+    properties = { linkedResourceId = lower(each.value.id) }
+  }
 }
 
 resource "azurerm_private_endpoint" "ampls" {
   # Gate on the bool only — `ampls_subnet_id` comes from a module output and
   # isn't known at plan time, which Terraform forbids in `count`.
-  count               = var.use_azure_monitor_private_link_scope && !var.dns_zone_group_managed_by_policy ? 1 : 0
+  count               = local.create_scope && !var.dns_zone_group_managed_by_policy ? 1 : 0
   name                = "pe-ampls-${var.environment_name}"
   location            = var.location
   resource_group_name = var.resource_group_name
@@ -163,11 +173,13 @@ resource "azurerm_private_endpoint" "ampls" {
     is_manual_connection           = false
   }
 
+  # privatelink.monitor.azure.com, .oms.opinsights.azure.com, .ods.opinsights.azure.com,
+  # .agentsvc.azure-automation.net and .blob.core.windows.net.
   dynamic "private_dns_zone_group" {
-    for_each = var.use_azure_monitor_private_link_scope && var.ampls_dns_zone_id_monitor != "" ? [1] : []
+    for_each = length(var.ampls_dns_zone_ids) > 0 ? [1] : []
     content {
       name                 = "ampls-dns-group"
-      private_dns_zone_ids = [var.ampls_dns_zone_id_monitor]
+      private_dns_zone_ids = var.ampls_dns_zone_ids
     }
   }
 }
@@ -175,7 +187,7 @@ resource "azurerm_private_endpoint" "ampls" {
 resource "azurerm_private_endpoint" "ampls_policy_dns" {
   # Gate on the bool only — `ampls_subnet_id` comes from a module output and
   # isn't known at plan time, which Terraform forbids in `count`.
-  count               = var.use_azure_monitor_private_link_scope && var.dns_zone_group_managed_by_policy ? 1 : 0
+  count               = local.create_scope && var.dns_zone_group_managed_by_policy ? 1 : 0
   name                = "pe-ampls-${var.environment_name}"
   location            = var.location
   resource_group_name = var.resource_group_name

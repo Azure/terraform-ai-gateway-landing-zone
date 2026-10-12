@@ -615,3 +615,115 @@ run "case_only_duplicate_tags_are_rejected" {
 
   expect_failures = [var.tags]
 }
+
+# --- Azure Monitor private link and public network access ---------------------
+
+run "monitoring_is_public_by_default" {
+  command = plan
+
+  assert {
+    condition     = output.monitoring_network.private_link_scope_id == null && alltrue([for r in output.monitoring_network.public_network_access : r.ingestion && r.query])
+    error_message = "No private link scope, and public ingestion and query on everything, by default."
+  }
+  assert {
+    condition     = length(local.zone_ids) == 13
+    error_message = "The oms / ods / agentsvc zones are looked up only with a private link scope."
+  }
+}
+
+run "private_monitoring_greenfield" {
+  command = plan
+
+  variables {
+    monitoring = {
+      private_link_scope       = true
+      public_ingestion_enabled = false
+      public_query_enabled     = false
+    }
+  }
+
+  assert {
+    condition     = length(local.zone_ids) == 16 && alltrue([for k in ["monitor", "monitor_oms", "monitor_ods", "monitor_agentsvc", "storage_blob"] : contains(keys(local.zone_ids), k)])
+    error_message = "Greenfield also looks up the oms, ods and agentsvc zones for the scope's private endpoint."
+  }
+  assert {
+    condition = alltrue([
+      for k, r in output.monitoring_network.public_network_access : !r.ingestion && r.query == contains(["log_analytics", "apim"], k)
+    ]) && length(output.monitoring_network.public_network_access) == 4
+    error_message = "Ingestion only through the private link everywhere; public query only on the workspace and the APIM component (the usage pipeline's Logic App connector reads it through Resource Manager, and a closed workspace returns those queries empty)."
+  }
+}
+
+run "private_monitoring_joins_the_hub_scope_in_alz_spoke" {
+  command = plan
+
+  variables {
+    network_mode = "alz_spoke"
+    network = {
+      vnet_id = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke"
+      subnet_ids = {
+        pe   = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-pe"
+        apim = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-apim"
+      }
+      private_dns_zone_ids              = {}
+      dns_zone_groups_managed_by_policy = true
+    }
+    apim           = { sku = "Premium", vnet_mode = "internal" }
+    usage_pipeline = { logic_app = { hosting = "ase_v3", sku = "I1v2" } }
+    monitoring = {
+      log_analytics_workspace_id     = "/subscriptions/00000000-0000-0000-0000-0000000000bb/resourceGroups/rg-mgmt/providers/Microsoft.OperationalInsights/workspaces/law-central"
+      existing_private_link_scope_id = "/subscriptions/00000000-0000-0000-0000-0000000000aa/resourceGroups/rg-hub-monitor/providers/Microsoft.Insights/privateLinkScopes/ampls-hub"
+      public_ingestion_enabled       = false
+      public_query_enabled           = false
+    }
+  }
+
+  assert {
+    condition     = output.monitoring_network.private_link_scope_id == "/subscriptions/00000000-0000-0000-0000-0000000000aa/resourceGroups/rg-hub-monitor/providers/Microsoft.Insights/privateLinkScopes/ampls-hub"
+    error_message = "The components join the hub's scope."
+  }
+  assert {
+    condition     = !contains(keys(output.monitoring_network.public_network_access), "log_analytics")
+    error_message = "The central (BYO) workspace keeps its owner's network settings."
+  }
+}
+
+run "public_monitoring_off_needs_a_scope" {
+  command = plan
+  variables {
+    monitoring = { public_ingestion_enabled = false }
+  }
+
+  expect_failures = [var.monitoring]
+}
+
+run "creating_and_joining_a_scope_are_exclusive" {
+  command = plan
+  variables {
+    monitoring = {
+      private_link_scope             = true
+      existing_private_link_scope_id = "/subscriptions/00000000-0000-0000-0000-0000000000aa/resourceGroups/rg-hub-monitor/providers/Microsoft.Insights/privateLinkScopes/ampls-hub"
+    }
+  }
+
+  expect_failures = [var.monitoring]
+}
+
+run "private_ingestion_needs_apim_in_a_vnet" {
+  command = plan
+  variables {
+    apim       = { vnet_mode = "none" }
+    monitoring = { private_link_scope = true, public_ingestion_enabled = false }
+  }
+
+  expect_failures = [var.monitoring]
+}
+
+run "scope_access_mode_is_validated" {
+  command = plan
+  variables {
+    monitoring = { private_link_scope = true, private_link_scope_access_mode = { ingestion = "Closed" } }
+  }
+
+  expect_failures = [var.monitoring]
+}

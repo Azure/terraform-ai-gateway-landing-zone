@@ -85,6 +85,14 @@ locals {
     logic_app = "privatelink.azurewebsites.net" # Workflow Standard Logic App private endpoint
   }
 
+  # The other zones of an Azure Monitor Private Link Scope's private endpoint (besides
+  # monitor and storage_blob above), created and linked only when the workload deploys one.
+  private_dns_monitor_zones = {
+    monitor_oms      = "privatelink.oms.opinsights.azure.com"
+    monitor_ods      = "privatelink.ods.opinsights.azure.com"
+    monitor_agentsvc = "privatelink.agentsvc.azure-automation.net"
+  }
+
   foundry_account_names = [
     for i, n in var.foundry_instance_names : n != "" ? n : "aif-${local.base}-${local.seed}-${i}"
   ]

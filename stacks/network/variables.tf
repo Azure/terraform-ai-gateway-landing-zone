@@ -70,7 +70,10 @@ variable "default_outbound_access" {
 variable "private_dns" {
   description = <<-EOT
     Greenfield private DNS zones (alz_spoke: the hub owns them, nothing is created).
-      link_monitor_zone    Link privatelink.monitor.azure.com: only when platform deploys AMPLS.
+      link_monitor_zone    The Azure Monitor Private Link zones: link privatelink.monitor.azure.com and also
+                           create and link .oms.opinsights.azure.com, .ods.opinsights.azure.com and
+                           .agentsvc.azure-automation.net. Only when platform creates a scope
+                           (monitoring.private_link_scope).
       logic_app_zone       Also create privatelink.azurewebsites.net: only when platform gives the
                            Workflow Standard Logic App a private endpoint
                            (usage_pipeline.logic_app.private_endpoint = true).

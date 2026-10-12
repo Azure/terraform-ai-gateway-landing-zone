@@ -18,6 +18,11 @@ output "private_dns_optional_zones" {
   value       = local.private_dns_optional_zones
 }
 
+output "private_dns_monitor_zones" {
+  description = "Logical key => the oms, ods and agentsvc zones an Azure Monitor Private Link Scope's private endpoint needs (with monitor and storage_blob of private_dns_zones)."
+  value       = local.private_dns_monitor_zones
+}
+
 output "foundry_account_names" {
   description = "Foundry (AI Services) account names, one per instance."
   value       = local.foundry_account_names

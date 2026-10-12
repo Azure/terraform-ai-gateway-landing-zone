@@ -6,11 +6,12 @@
 # =============================================================================
 
 locals {
-  # The Azure Monitor zone is linked only when AMPLS populates it: an empty
+  # The Azure Monitor zones are linked only when AMPLS populates them: an empty
   # linked privatelink.monitor.azure.com zone resolves App Insights ingestion
   # endpoints to nothing from inside the VNet and blackholes telemetry.
-  linked_zone_keys = [for k in keys(var.zone_names) : k if k != "monitor" || var.link_monitor_zone]
-  vnet_links       = merge({ vnet = var.vnet_id }, var.extra_vnet_link_ids)
+  monitor_zone_keys = ["monitor", "monitor_oms", "monitor_ods", "monitor_agentsvc"]
+  linked_zone_keys  = [for k in keys(var.zone_names) : k if !contains(local.monitor_zone_keys, k) || var.link_monitor_zone]
+  vnet_links        = merge({ vnet = var.vnet_id }, var.extra_vnet_link_ids)
 }
 
 module "zone" {

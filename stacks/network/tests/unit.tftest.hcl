@@ -65,6 +65,19 @@ run "greenfield_logic_app_zone_on_request" {
   }
 }
 
+run "greenfield_azure_monitor_zones_on_request" {
+  command = plan
+
+  variables {
+    private_dns = { link_monitor_zone = true }
+  }
+
+  assert {
+    condition     = length(module.private_dns[0].zone_ids) == 16 && alltrue([for k in ["monitor_oms", "monitor_ods", "monitor_agentsvc"] : contains(keys(module.private_dns[0].zone_ids), k)])
+    error_message = "private_dns.link_monitor_zone adds the oms, ods and agentsvc zones of an Azure Monitor Private Link Scope (16 zones)."
+  }
+}
+
 run "greenfield_apim_internal_and_ws_logic_app" {
   command = plan
 
