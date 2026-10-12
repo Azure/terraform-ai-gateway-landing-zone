@@ -10,7 +10,6 @@ stay valid as the stacks evolve.
 | Scenario | `network_mode` | Stacks | APIM | Usage pipeline | Identity / auth | Runs from |
 |---|---|---|---|---|---|---|
 | [quickstart](../examples/quickstart/) | greenfield | network, platform, gateway-config, llm, 1 contract | StandardV2, integration, public | Workflow Standard (shared-key exception) | single pipeline identity; subscription keys | laptop (`dev_access`) |
-| [minimal-dev](../examples/minimal-dev/) | greenfield | network, platform, gateway-config, llm | StandardV2, no VNet, no PE | Workflow Standard | single identity; keys | laptop (`dev_access`) |
 | [dev-greenfield-private](../examples/dev-greenfield-private/) | greenfield (+ `snet-cicd`) | all, incl. identity and app-hosting | StandardV2, integration + PE, public off | ASE v3, keyless, run-from-package, Deny shared key | plan + apply identities; Entra JWT | runner in `snet-cicd` |
 | [byo-hub-spoke-network](../examples/byo-hub-spoke-network/) | byo | platform, gateway-config, llm | Developer, internal | Workflow Standard | pair; keys | runner with VNet access |
 | [alz-corp](../examples/alz-corp/) | alz_spoke | network, app-hosting, platform, gateway-config, llm, contract | Premium ×3 (zones), internal | ASE v3 ×2 workers, zone redundant | vended identities; Entra JWT (explicit values) | private runner |
@@ -29,7 +28,10 @@ stay valid as the stacks evolve.
 
 ## Choosing
 
-- **Demo or first look:** `quickstart`. **Cheapest dev:** `minimal-dev`.
+- **Demo or first look, and the cheapest dev setup:** `quickstart`. To trim it
+  further, drop `features.api_center_onboarding` and `mcp_sample` from
+  `gateway-config.tfvars` and set `features.api_center = false` in
+  `platform.tfvars`.
 - **Private dev/test without a platform team:** `dev-greenfield-private` (ASE v3,
   keyless, hours to create) or `dev-greenfield-private-ws` (Workflow Standard
   with a private endpoint, faster, needs shared-key storage). The VNet isn't

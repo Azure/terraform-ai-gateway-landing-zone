@@ -76,7 +76,6 @@ task                                                     # list all available ta
 | Scenario | Network | APIM | Usage pipeline | For |
 |---|---|---|---|---|
 | [quickstart](examples/quickstart/) | greenfield | StandardV2, public + integration | Workflow Standard | demos from a laptop |
-| [minimal-dev](examples/minimal-dev/) | greenfield | StandardV2, no VNet | Workflow Standard | cheapest dev |
 | [dev-greenfield-private](examples/dev-greenfield-private/) | greenfield + CI runner subnet | StandardV2, integration + PE, public off | ASE v3, keyless | private dev/test without a platform team |
 | [byo-hub-spoke-network](examples/byo-hub-spoke-network/) | byo | Developer, internal | Workflow Standard | existing hub-spoke |
 | [alz-corp](examples/alz-corp/) | alz_spoke | Premium ×3, internal | ASE v3, keyless | ALZ Corp production |
