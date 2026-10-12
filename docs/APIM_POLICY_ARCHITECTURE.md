@@ -333,7 +333,10 @@ Each API is one entry in an API catalogue and is deployed by the generic
   `local.second_wave_raw` → `module.api_dependent["<name>"]` for APIs that must
   be created after another API or backend).
 * LLM APIs: [stacks/llm-backend-onboarding/apis.tf](../stacks/llm-backend-onboarding/apis.tf)
-  (`local.llm_apis_raw` → `module.llm_api["<name>"]`).
+  (`local.llm_apis_raw` → `module.llm_api["<name>"]`, plus the Universal LLM API
+  as `module.llm_api_universal["universal-llm-api"]`: its spec is imported only
+  after the Azure OpenAI API, because both specs share tag names and APIM creates
+  import tags service-wide, so parallel imports intermittently failed).
 
 Each API loads a full policy document from the stack's `apis/<api>/` folder
 and wires in behavior by `<include-fragment>`ing the fragments above. Only
@@ -491,6 +494,7 @@ stacks/llm-backend-onboarding
    module.llm_routing       llm_backend / llm_backend_pool + set_backend_pools / get_available_models /
                             metadata_config / resolve_model_alias
 9. module.llm_api[*]        API + API policy + operation policies   ← validates <include-fragment> + {{named-value}}
+   module.llm_api_universal Universal LLM API, after the Azure OpenAI API (shared spec tags)
                             API diagnostics                         ← validates logger IDs
                             Optional product + product policy + product-API link
 

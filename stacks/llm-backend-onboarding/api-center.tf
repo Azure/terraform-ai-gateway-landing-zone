@@ -33,5 +33,5 @@ module "api_center_registration" {
   gateway_url    = data.azurerm_api_management.this.gateway_url
   apis           = local.api_center_targets
 
-  depends_on = [module.llm_api]
+  depends_on = [module.llm_api, module.llm_api_universal]
 }

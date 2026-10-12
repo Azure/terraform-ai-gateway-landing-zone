@@ -1,6 +1,6 @@
 output "api_names" {
   description = "LLM APIs published by this stack (access contracts attach them to products)."
-  value       = [for a in module.llm_api : a.name]
+  value       = concat([for a in module.llm_api : a.name], [for a in module.llm_api_universal : a.name])
 }
 
 output "backend_ids" {

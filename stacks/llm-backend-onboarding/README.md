@@ -22,6 +22,7 @@
 | ---- | ------ | ------- |
 | <a name="module_api_center_registration"></a> [api\_center\_registration](#module\_api\_center\_registration) | ../../modules/api-center-registration | n/a |
 | <a name="module_llm_api"></a> [llm\_api](#module\_llm\_api) | ../../modules/gateway-api | n/a |
+| <a name="module_llm_api_universal"></a> [llm\_api\_universal](#module\_llm\_api\_universal) | ../../modules/gateway-api | n/a |
 | <a name="module_llm_fragments"></a> [llm\_fragments](#module\_llm\_fragments) | ../../modules/apim-policy-fragments | n/a |
 | <a name="module_llm_routing"></a> [llm\_routing](#module\_llm\_routing) | ../../modules/llm-routing | n/a |
 | <a name="module_naming"></a> [naming](#module\_naming) | ../../modules/naming | n/a |

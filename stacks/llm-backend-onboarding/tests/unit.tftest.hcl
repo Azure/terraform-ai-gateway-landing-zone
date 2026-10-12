@@ -101,7 +101,7 @@ run "backends_derived_from_foundry_deployments" {
     error_message = "A model served by two accounts gets a pool."
   }
   assert {
-    condition     = sort(keys(module.llm_api)) == tolist(["azure-openai-api", "universal-llm-api"]) && module.llm_api["universal-llm-api"].name == "universal-llm-api"
+    condition     = sort(concat(keys(module.llm_api), keys(module.llm_api_universal))) == tolist(["azure-openai-api", "universal-llm-api"]) && module.llm_api_universal["universal-llm-api"].name == "universal-llm-api"
     error_message = "Universal LLM and Azure OpenAI APIs by default."
   }
   assert {
@@ -147,7 +147,7 @@ run "own_backends_only_and_optional_apis" {
     error_message = "foundry_backends.enabled = false: no Foundry lookup; the backend key is a Key Vault named value."
   }
   assert {
-    condition     = length(module.llm_api) == 5 && contains(keys(local.llm_fragments), "path-builder")
+    condition     = length(module.llm_api) + length(module.llm_api_universal) == 5 && contains(keys(local.llm_fragments), "path-builder")
     error_message = "Optional APIs and the Unified AI fragments."
   }
 }
@@ -362,31 +362,23 @@ run "bedrock_sigv4_does_not_depend_on_the_request_url_host" {
   }
 }
 
-# Regression: the Universal LLM and Azure OpenAI specs share tag names and are imported in parallel;
-# APIM then intermittently fails with "Tag with the same name already exists". Both are imported
-# without tags, and nothing else of the spec changes.
-run "llm_specs_are_imported_without_tags" {
+# Regression: the Universal LLM and Azure OpenAI specs share tag names (Chat, Embeddings, Responses,
+# Vector Stores) and APIM creates import tags service-wide, so importing both in parallel
+# intermittently failed with "Tag with the same name already exists". The Universal LLM API is its own
+# module block and waits for the Azure OpenAI API; planning proves the dependency has no cycle.
+run "universal_llm_api_is_imported_after_the_azure_openai_api" {
   command = plan
 
   assert {
-    condition = alltrue([
-      for key, spec in local.untagged_specs :
-      length(jsondecode(spec).tags) == 0 && alltrue([
-        for path, item in jsondecode(spec).paths :
-        alltrue([for method, operation in item : !can(operation.tags) || length(operation.tags) == 0])
-      ])
-    ])
-    error_message = "The LLM specs must not carry tags (concurrent tag creation fails the APIM import)."
+    condition     = contains(keys(local.first_wave), "azure-openai-api") && !contains(keys(local.first_wave), "universal-llm-api")
+    error_message = "The Azure OpenAI API is imported in the first wave, without the Universal LLM API."
   }
   assert {
-    condition = alltrue([
-      for key, spec_file in local.tagged_spec_files : (
-        length(jsondecode(local.untagged_specs[key]).paths) == length(jsondecode(file(spec_file)).paths)
-        && sum([for path, item in jsondecode(local.untagged_specs[key]).paths : length([for method, operation in item : 1 if contains(["get", "put", "post", "delete", "options", "head", "patch", "trace"], method)])])
-        == sum([for path, item in jsondecode(file(spec_file)).paths : length([for method, operation in item : 1 if contains(["get", "put", "post", "delete", "options", "head", "patch", "trace"], method)])])
-        && jsondecode(local.untagged_specs[key]).info.title == jsondecode(file(spec_file)).info.title
-      )
-    ])
-    error_message = "Removing the tags must keep every path and operation of the spec."
+    condition     = tolist(keys(local.second_wave)) == tolist(["universal-llm-api"]) && tolist(keys(module.llm_api_universal)) == tolist(["universal-llm-api"])
+    error_message = "The Universal LLM API is the only API of the second wave (its own module block)."
+  }
+  assert {
+    condition     = sort(concat(keys(local.first_wave), keys(local.second_wave))) == sort(keys(local.llm_apis))
+    error_message = "Every LLM API is in exactly one wave."
   }
 }

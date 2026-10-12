@@ -15,28 +15,6 @@ locals {
 
   has_llm_backends = length(local.all_llm_backends) > 0
 
-  # Operation and top-level tags are removed from the two big LLM specs before they are imported.
-  # APIM creates the tags of an OpenAPI import as service-wide objects, and these two specs share
-  # tag names (Chat, Embeddings, Responses, Vector Stores) while Terraform imports both APIs in
-  # parallel: concurrent creation intermittently fails the import with "Tag with the same name
-  # already exists" (reproduced on a clean APIM: 2 of 6 parallel imports). Tags only group
-  # operations in the developer portal. The JSON files stay verbatim copies of upstream.
-  tagged_spec_files = {
-    universal    = local.universal_llm_spec_path
-    azure_openai = "${local.apis_dir}/azure-openai-api/AIFoundryOpenAI.json"
-  }
-  untagged_specs = {
-    for key, spec_file in local.tagged_spec_files : key => jsonencode(merge(jsondecode(file(spec_file)), {
-      tags = []
-      paths = {
-        for path, item in jsondecode(file(spec_file)).paths : path => {
-          # try(): a path item also holds non-operation keys (parameters, summary) that have no tags.
-          for method, operation in item : method => try(merge(operation, { tags = [] }), operation)
-        }
-      }
-    }))
-  }
-
   # With Entra auth (gateway-config) the APIs take a JWT instead of a key.
   subscription_required = !local.entra_auth_enabled
   api_key_names         = { header = "api-key", query = "api-key" }
@@ -86,7 +64,7 @@ locals {
           path                   = local.universal_llm_api_path
           subscription_required  = local.subscription_required
           subscription_key_names = local.api_key_names
-          spec                   = { format = "openapi+json", value = local.untagged_specs["universal"] }
+          spec                   = { format = "openapi+json", value = file(local.universal_llm_spec_path) }
           policy_xml             = file("${local.apis_dir}/universal-llm-api/universal-llm-api-policy-v2.xml")
         }
         operation_policies = merge(
@@ -107,7 +85,7 @@ locals {
           path                   = "openai"
           subscription_required  = local.subscription_required
           subscription_key_names = local.api_key_names
-          spec                   = { format = "openapi+json", value = local.untagged_specs["azure_openai"] }
+          spec                   = { format = "openapi+json", value = file("${local.apis_dir}/azure-openai-api/AIFoundryOpenAI.json") }
           policy_xml             = file("${local.apis_dir}/azure-openai-api/azure-open-ai-api-policy.xml")
         }
         operation_policies       = local.deployments_operation_policies
@@ -202,6 +180,16 @@ locals {
   }
   llm_apis = { for k, v in local.llm_apis_raw : k => merge(local.api_entry_defaults, v, { api = merge(local.api_defaults, v.api) }) }
 
+  # Import order. APIM creates the tags of an OpenAPI import as service-wide objects, and the Azure
+  # OpenAI and Universal LLM specs share tag names (Chat, Embeddings, Responses, Vector Stores).
+  # Imported in parallel they race: one fails with "Tag with the same name already exists"
+  # (polling import Api ... 400 ValidationError; 2 of 6 parallel imports on a clean APIM). A module
+  # can't wait for another instance of itself, so the Universal LLM API is a second module block
+  # that waits for the Azure OpenAI API (the other APIs of this stack have no tags).
+  universal_wave_keys = ["universal-llm-api"]
+  first_wave          = { for k, v in local.llm_apis : k => v if !contains(local.universal_wave_keys, k) }
+  second_wave         = { for k, v in local.llm_apis : k => v if contains(local.universal_wave_keys, k) }
+
   # APIM validates fragment / named-value references when a policy is saved.
   api_policy_depends_on = concat(
     values(module.llm_fragments.ids),
@@ -211,7 +199,7 @@ locals {
 
 module "llm_api" {
   source   = "../../modules/gateway-api"
-  for_each = local.llm_apis
+  for_each = local.first_wave
 
   api_management_id   = local.apim_id
   api_management_name = local.apim_name
@@ -224,4 +212,30 @@ module "llm_api" {
   azure_monitor_diagnostic = each.value.azure_monitor_diagnostic
   product                  = each.value.product
   policy_depends_on        = local.api_policy_depends_on
+}
+
+# The Universal LLM API: its spec is imported only after the Azure OpenAI API exists (see
+# local.second_wave).
+module "llm_api_universal" {
+  source   = "../../modules/gateway-api"
+  for_each = local.second_wave
+
+  api_management_id   = local.apim_id
+  api_management_name = local.apim_name
+  resource_group_name = local.resource_group_name
+
+  api                      = each.value.api
+  operation_policies       = each.value.operation_policies
+  azapi_operation_policies = each.value.azapi_operation_policies
+  app_insights_diagnostic  = each.value.app_insights_diagnostic
+  azure_monitor_diagnostic = each.value.azure_monitor_diagnostic
+  product                  = each.value.product
+  api_depends_on           = [module.llm_api["azure-openai-api"].id]
+  policy_depends_on        = local.api_policy_depends_on
+}
+
+# Existing deployments keep the Universal LLM API (and its policies and diagnostics).
+moved {
+  from = module.llm_api["universal-llm-api"]
+  to   = module.llm_api_universal["universal-llm-api"]
 }
