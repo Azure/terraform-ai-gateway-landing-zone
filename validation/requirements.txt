@@ -17,3 +17,8 @@ azure-mgmt-apimanagement
 # Charts in the access-contracts notebook
 matplotlib
 numpy
+
+# Acceptance tests (citadel-acceptance-tests.ipynb, shared/acceptance.py): access contract tfvars parsing,
+# and the optional Cosmos DB read of the usage records (PBI-001)
+python-hcl2
+azure-cosmos

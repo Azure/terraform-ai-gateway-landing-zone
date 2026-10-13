@@ -12,6 +12,7 @@ The recommended execution order is:
 2. **Universal LLM API — All-Models Tests** — Validate every gateway-configured model (chat / embeddings / Responses API) through `/models` ⭐ *strongly recommended*
 3. **Access Contracts** — Create per-team access contracts with Key Vault and Foundry integrations ⭐ *strongly recommended*
 4. **Model Aliases** — Validate the shared `resolve-model-alias` policy fragment across the LLM APIs (priority + weighted strategies, RBAC, discovery)
+5. **Acceptance Tests** — Run a customer acceptance catalogue (auth, policies, usage, security) against a deployed environment and export the results
 
 Each notebook is self-contained with initialization, deployment, testing, visualization, and cleanup stages, enabling both interactive exploration and repeatable CI/CD validation.
 
@@ -397,6 +398,57 @@ inference_api_version = "2024-05-01-preview"
 
 ---
 
+### 5. Citadel Acceptance Tests
+
+| | |
+|---|---|
+| **Notebook** | [`citadel-acceptance-tests.ipynb`](citadel-acceptance-tests.ipynb) |
+| **Purpose** | Run a customer acceptance catalogue (authentication, authorization, MCP, AI policies, circuit breakers, usage / chargeback, token accounting, network security) against a deployed environment and export the results for the test sheet |
+| **Run this** | After `task up` (and the contracts). Doesn't deploy anything; the opt-in cases change a subscription key or trigger the usage workflow. |
+
+#### What It Does
+
+Each test case has a documentation cell and **one code cell**. The documentation cell gives the
+pre-requisites, the customer's steps, test data and expected result, how the notebook verifies the
+case, and how it maps to this deployment.
+- **Records:** every case gets PASS, FAIL, NOT CONFIGURED, SKIPPED, MANUAL or ERROR. A failing case never stops *Run All*.
+- **Export:** the last cell exports a CSV to `validation/results/` (git-ignored).
+- **NOT CONFIGURED:** cases for features the generated product policy doesn't enable (PII, content safety, semantic cache, MCP bearer validation, alert rules) first look for a product whose policy has them; if none does, the cell prints the policy or tfvars to add.
+
+| Group | Cases | Verified through |
+|---|---|---|
+| Authentication | AUTH-001/002/003/004/005/007/009/012, AUTHZ-003 | contracts vs APIM products, Key Vault secrets and readers, `api-key` + Entra JWT calls (test client of `task entra-setup`), APIM trace, key regeneration (opt-in), a managed-identity VM (opt-in) |
+| MCP | MCP-AUTH-002/003/004, MCP-BACKEND-004 | MCP `initialize` calls with / without tokens, direct backend probes |
+| AI policies | POL-002…009 | PII / content-safety / cache detection and calls, token rate and quota limits (429 / 403 + `Retry-After`), fragment drift vs the repository and a second environment |
+| Resilience and usage | CB-001/002, PBI-001/002/003/005/007/010, TOK-001/002 | breaker rules and a failing test backend (opt-in), `ApiManagementGatewayLlmLog` / `ApiManagementGatewayLogs` / `AppMetrics` by correlation ID, usage-ingestion workflow and Cosmos (opt-in), tags |
+| Provisioning and security | PROV-001, SEC-001/002/003 | network settings of every resource, direct unauthenticated probes, diagnostic headers and a local scan of the logs for keys and tokens |
+
+**Recommended:** apply [`acceptance-contract.tfvars`](acceptance-contract.tfvars) first. It adds products
+with small limits (300 tokens/minute; 2,000 tokens/hour) so the rate-limit and quota cases trip after a
+few requests.
+
+#### Key Configuration
+
+```python
+ENV = "dev"
+DEFAULT_MODEL = None              # model for products that allow every model
+PRODUCTS = {}                     # pin a product per test kind ("jwt", "rate", "quota", "usage", ...)
+ALLOW_KEY_ROTATION = False        # AUTH-009 (regenerates a primary key)
+RUN_LIMIT_TESTS = True            # POL-005/006, TOK-002; MAX_LIMIT_REQUESTS caps the cost
+WAIT_FOR_LOGS = True              # PBI-001, POL-002, TOK-001 wait for Log Analytics ingestion
+RUN_USAGE_INGESTION = False       # PBI-001 runs the llm-usage-ingestion workflow now
+CB_TEST_MODEL = None              # CB-001: model served by a failing test backend
+MI_TEST_VM = None                 # AUTH-012: VM with a managed identity in the gateway's network
+MANDATORY_TAGS = [...]            # PBI-007
+```
+
+#### Output
+
+- A status line per case with its checks, plus evidence tables (products, readers, limit runs, network access, probes)
+- A summary table and `validation/results/<env>-<timestamp>.csv` (status, message, non-secret evidence per case)
+
+---
+
 ## Recommended Execution Order
 
 > **Strongly recommended baseline:** run notebooks **1 → 3** in order on every new Citadel Governance Hub deployment. Step **4** is an optional, scenario-specific validation that can be run independently afterwards.
@@ -425,6 +477,8 @@ inference_api_version = "2024-05-01-preview"
 ```
 
 > **Note:** Notebook 4 creates its own access contract and can be run independently after backend onboarding. It re-applies the LLM backend onboarding stack with `model_aliases` populated (the `resolve-model-alias` fragment is regenerated); full cross-API coverage additionally requires the Unified AI API (`unified-ai`) to be imported into APIM.
+>
+> Notebook 5 (acceptance tests) only reads and calls the deployment: run it on any environment, typically as the sign-off step after the baseline.
 
 ## Shared Utilities
 
@@ -434,6 +488,7 @@ All notebooks import shared helper modules from the [`shared/`](shared/) directo
 |---|---|
 | `utils.py` | CLI command runner, stack helpers (`env_dir`, `write_tfvars`, `run_stack`, `stack_outputs`, `terraform_output_get`, `get_contract_subscription_key`), formatted output helpers (`print_ok`, `print_error`, `print_info`) |
 | `apimtools.py` | `APIMClientTool` class for APIM discovery, API key retrieval, policy fragment parsing, and backend management |
+| `acceptance.py` | Acceptance-test helpers: result registry and CSV export, gateway discovery (products, policies, subscriptions, keys in memory only), authenticated calls, Log Analytics queries, network-access inspection, direct probes, log secret scan. Reuses `scripts/gateway_env.py` and `scripts/jwt_auth_tests.py` |
 
 ## Cleanup
 

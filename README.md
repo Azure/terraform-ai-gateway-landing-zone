@@ -138,7 +138,10 @@ curl -X POST "$URL/chat/completions" -H "Content-Type: application/json" -H "api
 accelerator (helpers in [validation/shared/](validation/shared/)). They exercise a **live**
 environment: LLM backend onboarding, all-models tests, access contracts and
 model aliases. They write tfvars into `environments/<env>/` and deploy through
-the stacks. See [validation/README.md](validation/README.md).
+the stacks. [citadel-acceptance-tests.ipynb](validation/citadel-acceptance-tests.ipynb)
+runs a customer acceptance catalogue (authentication, policies, usage, security)
+against a deployed environment, one cell per test case, and exports the results
+as CSV. See [validation/README.md](validation/README.md).
 
 ```bash
 pip install -r validation/requirements.txt

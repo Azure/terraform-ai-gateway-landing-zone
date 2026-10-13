@@ -30,6 +30,8 @@ override.tf.json
 # Scenario templates are committed and contain placeholders, not environment values.
 !examples/*/*.tfvars
 !examples/*/access-contracts/*.tfvars
+# Validation contract of the acceptance-test notebook (copied into an environment to run).
+!validation/acceptance-contract.tfvars
 
 # NOTE: .terraform.lock.hcl is intentionally COMMITTED for root configurations
 # (HashiCorp guidance) so provider versions are reproducible. Reusable modules
@@ -56,6 +58,7 @@ __pycache__/
 .ipynb_checkpoints/
 .venv/
 venv/
+validation/results/
 
 # =============================================================================
 # Editors and OS
