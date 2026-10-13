@@ -146,6 +146,48 @@ run "policy_properties_are_accepted" {
   }
 }
 
+run "jwt_properties_are_accepted" {
+  command = plan
+
+  variables {
+    services = [{
+      code                  = "LLM"
+      endpoint_secret_name  = "A"
+      api_key_secret_name   = "B"
+      jwt_required          = true
+      required_roles        = ["Models.Read", "Task.ReadWrite"]
+      jwt_audience          = "https://my-api.example.com"
+      jwt_issuer            = "https://my-company.auth0.com/"
+      jwt_openid_config_url = "https://my-company.auth0.com/.well-known/openid-configuration"
+    }]
+  }
+
+  override_module {
+    target  = module.contract
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" }, jwt = {} }
+  }
+
+  assert {
+    condition     = length(var.services[0].required_roles) == 2 && var.services[0].jwt_issuer == "https://my-company.auth0.com/"
+    error_message = "App roles and another identity provider (Auth0) are part of the service."
+  }
+}
+
+run "jwt_roles_need_jwt_required" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", required_roles = ["Models.Read"] }]
+  }
+
+  override_module {
+    target  = module.contract
+    outputs = { products = {}, subscriptions = {}, endpoints = {}, key_vault_secret_names = {}, foundry_connections = {}, foundry_connection_auth = { auth_type = "ProjectManagedIdentity", managed_identity_audience = "https://cognitiveservices.azure.com" }, jwt = {} }
+  }
+
+  expect_failures = [var.services]
+}
+
 run "model_names_are_validated" {
   command = plan
 

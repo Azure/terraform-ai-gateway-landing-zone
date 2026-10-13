@@ -338,12 +338,9 @@ Platform-team requests for an ALZ:
 | Republish only the usage-ingestion workflows | `logicapp-src/usage-ingestion-logicapp/` | `task logic-app-code ENV=<env>` |
 | Add a subnet / DNS zone link (greenfield) | `network.tfvars` | `task apply STACK=network …` |
 
-**Entra JWT auth.** `stacks/identity` creates the gateway app;
-`gateway-config.tfvars` `entra_auth = { enabled = true }` looks it up by name
-and fills the `tenant-id`, `client-id`, `audience`, `entra-auth` and `JWT-*`
-named values. `llm-backend-onboarding` reads `entra-auth` and drops the
-subscription-key requirement on the LLM APIs. Without Graph permissions on the
-pipeline, set `entra_auth.tenant_id` / `client_id` / `audience` explicitly.
+**Entra JWT auth.** The subscription key is always required; an access
+contract can additionally require an Entra ID (or other OpenID Connect) token
+and app roles. See [6.6 Entra ID JWT authentication](#66-entra-id-jwt-authentication).
 
 **Access contracts and keys.** Subscriptions are created through azapi (APIM
 returns no keys on GET); the key is read with an ephemeral `listSecrets` action
@@ -437,9 +434,10 @@ state. In `ProjectManagedIdentity` mode the key sits in the connection's
 (Foundry echoes the header back), so state stays clean.
 
 **The product policy must validate the JWT**, otherwise it is sent and never
-checked. Set `jwt_required = true` on the service in the contract's tfvars; the
-module then generates the policy variables the `security-handler` fragment
-honours:
+checked. Set `jwt_required = true` on the service in the contract's tfvars; for a
+contract with a `ProjectManagedIdentity` Foundry connection the module then
+generates these policy variables (instead of the gateway's `JWT-*` named values
+that other contracts use, 6.6):
 
 ```hcl
 services = [{
@@ -458,9 +456,9 @@ services = [{
 | `jwtOpenIdConfigUrl` | `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration` | the v2.0 keys validate v1 signatures |
 
 - **The tenant is the deploying identity's**, read from the provider; there is
-  nothing to enter. For a Foundry project in another tenant, bring your own
-  `policy_xml` with that tenant's ID (the literal ID, not `{{JWT-TenantId}}`, which
-  holds the real tenant only when gateway-config has `entra_auth.enabled = true`).
+  nothing to enter. For a Foundry project in another tenant, set `jwt_issuer` and
+  `jwt_openid_config_url` on the service with that tenant's ID (or bring your own
+  `policy_xml`).
 - A `check` warns on every plan when a Foundry contract uses `ProjectManagedIdentity`
   and a service has neither `jwt_required = true` nor a custom `policy_xml` that sets
   `jwtRequired`. Use `auth_type = "ApiKey"` for a key-only connection.
@@ -533,7 +531,7 @@ services = [{
   allowed_models          = ["gpt-5.4-mini", "fast"]   # models and aliases; [] = every model
   token_limit             = { tokens_per_minute = 2000, token_quota = 50000, token_quota_period = "Daily" }
   enable_response_headers = true                       # the UAIG-* debug response headers
-  jwt_required            = false                      # see 6.3
+  jwt_required            = false                      # see 6.6 (and 6.3 for Foundry)
 }]
 ```
 
@@ -542,7 +540,9 @@ services = [{
 | `allowed_models` | `[]` (every model) | `allowedModels` and the `validate-model-access` fragment: a model outside the list gets `401`. Entries are model or alias names (letters, digits, `. _ : / -`). |
 | `token_limit` | `null` (no limit) | an `llm-token-limit` per subscription. Set `tokens_per_minute` and / or `token_quota`; `token_quota_period` is `Hourly`, `Daily`, `Weekly`, `Monthly` (default) or `Yearly`. |
 | `enable_response_headers` | `true` | `enableResponseHeaders`, which makes the `set-response-headers` fragment add the `UAIG-*` headers |
-| `jwt_required` | `false` | the JWT validation variables of 6.3 |
+| `jwt_required` | `false` | `jwtRequired`: a valid JWT next to the key (6.6; a Foundry `ProjectManagedIdentity` contract validates the project identity's token, 6.3) |
+| `jwt_audience`, `jwt_issuer`, `jwt_openid_config_url` | `null` (the gateway's `JWT-*` named values) | `jwtAudience`, `jwtIssuer`, `jwtOpenIdConfigUrl`: another identity provider for this product (6.6). Need `jwt_required`. |
+| `required_roles` | `[]` (no role check) | `requiredRoles`: the token must carry one of these app roles, otherwise `403` (6.6). Needs `jwt_required`. |
 
 Every policy also calls `set-llm-requested-model` and carries the commented hint for
 raising throttling events in `on-error`. The template is
@@ -600,6 +600,87 @@ the generated one, and the properties above are then ignored. The validation not
 do this to test custom policies.
 
 ---
+
+### 6.6 Entra ID JWT authentication
+
+Two layers, as in the upstream accelerator's
+[JWT guide](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/main/guides/entraid-auth-validation.md),
+enforced by the `security-handler` fragment on the Azure OpenAI, Universal LLM
+and Unified AI APIs:
+
+- **The subscription key is always required** on every API. It ties a request
+  to an access contract (product); a token never replaces it. A request without
+  a key gets `401`.
+- **A JWT is opt-in per access contract** (`jwt_required = true` on a service):
+  the key **and** an `Authorization: Bearer <token>` header are then required.
+  Optionally `required_roles` adds **app role authorization**: the token's
+  `roles` claim must hold at least one of them, otherwise `403 insufficient_role`.
+
+Setup:
+
+1. **The gateway app** (the audience of the tokens): `stacks/identity` creates
+   it (scope `access_as_user`; app roles `Task.ReadWrite`, `Models.Read`,
+   `MCP.Read`, `Agent.Read`; v2 tokens; no secret). It needs Graph rights to
+   register an application: apply it as a person, or with bootstrap
+   `graph_permissions = true`. Without Graph rights on the pipeline,
+   [scripts/entra_id_setup.py](../scripts/entra_id_setup.py) (`task entra-setup`,
+   the counterpart of upstream's `entra-id-setup/setup.ps1`) creates the same
+   app as a person and prints the values for step 2.
+2. **The named values**: `gateway-config.tfvars` `entra_auth = { enabled = true }`
+   finds the app by name (Graph `Application.Read.All`) or takes
+   `tenant_id` / `client_id` / `audience` explicitly, and sets
+   `JWT-OpenIdConfigUrl`, `JWT-Issuer` (`https://login.microsoftonline.com/<tenant>/v2.0`)
+   and `JWT-AppRegistrationId` (the app's client ID: the `aud` of a v2 token).
+   Unlike upstream's script, nothing writes these named values outside Terraform.
+3. **The contract**: `jwt_required = true`, optionally `required_roles`:
+
+```hcl
+services = [{
+  code                 = "LLM"
+  endpoint_secret_name = "TEAMA-LLM-ENDPOINT"
+  api_key_secret_name  = "TEAMA-LLM-KEY"
+  jwt_required         = true
+  required_roles       = ["Models.Read"]   # optional; any one of them (OR)
+}]
+```
+
+4. **Client identities**: a client gets a token for
+   `api://<gateway app client ID>/.default` (client credentials, a managed
+   identity, or a user) and needs the app roles a contract requires, assigned
+   to its service principal (directly or through an Entra group).
+   `task entra-setup ENV=<env>` creates a test client with a secret in Key Vault
+   and the role `Models.Read` (`-- --client-roles ...` to change it).
+
+**Another identity provider for one contract.** `jwt_audience`, `jwt_issuer`
+and `jwt_openid_config_url` override the named values for that product only
+(a partner's Entra tenant, Auth0, Okta); unset ones fall back to the named
+values, so `jwt_audience` alone is a partial override:
+
+| Service property | Product policy variable | Falls back to |
+|---|---|---|
+| `jwt_required` | `jwtRequired` | `false`: key only |
+| `jwt_audience` | `jwtAudience` | `JWT-AppRegistrationId` |
+| `jwt_issuer` | `jwtIssuer` | `JWT-Issuer` |
+| `jwt_openid_config_url` | `jwtOpenIdConfigUrl` | `JWT-OpenIdConfigUrl` |
+| `required_roles` | `requiredRoles` | none: no role check |
+
+A contract with a Foundry connection in `ProjectManagedIdentity` mode defaults
+the first three to the project identity's token instead (see 6.3).
+
+**Test it**: `task jwt-test ENV=<env>` ([scripts/jwt_auth_tests.py](../scripts/jwt_auth_tests.py))
+runs upstream's seven test cases on every product that requires a JWT and each
+LLM API it grants: key + JWT → `200`; key only, an invalid token or a token
+only → `401`; key + JWT with a required role → `200`, without it → `403`. The
+[entra-jwt-auth](../examples/entra-jwt-auth/) example deploys contracts for
+each case.
+
+| Response | Cause |
+|---|---|
+| `401` `jwt_required` | the product requires a JWT and the request has none |
+| `401` invalid or expired token | wrong `aud` / `iss`, expired, or signed by another tenant: compare the token's claims with the named values or the contract's overrides |
+| `401` missing subscription key | no `api-key` header (a token alone is never enough) |
+| `403` `insufficient_role` | valid token without any of `required_roles`: assign the role to the client's service principal and get a new token |
+| `503` `jwt_not_configured` | the product requires a JWT but the named values are `not-configured` (`entra_auth.enabled = false`) and the contract sets no overrides |
 
 ## 7. CI/CD (GitHub Actions)
 

@@ -2,11 +2,22 @@
     <inbound>
         <base />
 %{ if jwt_required }
-        <!-- Validate the token the Foundry project's managed identity sends next to the api-key (read by the security-handler fragment) -->
+        <!-- Require a valid JWT next to the api-key (read by the security-handler fragment). Unset values fall
+             back to the gateway's JWT-* named values (gateway-config entra_auth). -->
         <set-variable name="jwtRequired" value="true" />
+%{ if jwt_audience != "" }
         <set-variable name="jwtAudience" value="${jwt_audience}" />
-        <set-variable name="jwtIssuer" value="https://sts.windows.net/${tenant_id}/" />
-        <set-variable name="jwtOpenIdConfigUrl" value="https://login.microsoftonline.com/${tenant_id}/v2.0/.well-known/openid-configuration" />
+%{ endif }
+%{ if jwt_issuer != "" }
+        <set-variable name="jwtIssuer" value="${jwt_issuer}" />
+%{ endif }
+%{ if jwt_openid != "" }
+        <set-variable name="jwtOpenIdConfigUrl" value="${jwt_openid}" />
+%{ endif }
+%{ if jwt_roles != "" }
+        <!-- App role authorization: the token's roles claim must hold at least one of these (403 otherwise) -->
+        <set-variable name="requiredRoles" value="${jwt_roles}" />
+%{ endif }
 %{ endif }
 %{ if multi_asset }
         <!-- Classify the request as llm | tool | agent. APIM doesn't expose the API type to policy, so the granted

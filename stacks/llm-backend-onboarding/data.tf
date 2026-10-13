@@ -11,16 +11,6 @@ data "azurerm_user_assigned_identity" "apim" {
   resource_group_name = local.names.resource_group
 }
 
-# gateway-config's entra-auth flag: with Entra auth the LLM APIs take a JWT
-# instead of a subscription key.
-data "azapi_resource" "entra_auth" {
-  type      = "Microsoft.ApiManagement/service/namedValues@2024-05-01"
-  name      = "entra-auth"
-  parent_id = data.azurerm_api_management.this.id
-
-  response_export_values = ["properties.value"]
-}
-
 # Shared fragments the LLM policies reference (owned by gateway-config).
 data "azapi_resource_list" "fragments" {
   type                   = "Microsoft.ApiManagement/service/policyFragments@2024-05-01"
@@ -53,8 +43,6 @@ locals {
   apim_id             = data.azurerm_api_management.this.id
   apim_name           = data.azurerm_api_management.this.name
   resource_group_name = data.azurerm_api_management.this.resource_group_name
-
-  entra_auth_enabled = try(lower(data.azapi_resource.entra_auth.output.properties.value), "false") == "true"
 
   # Logger names are a contract with platform's apim-telemetry module.
   app_insights_logger_id  = "${local.apim_id}/loggers/appinsights-logger"

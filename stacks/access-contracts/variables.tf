@@ -24,8 +24,17 @@ variable "services" {
                                token_quota, with token_quota_period (Hourly | Daily | Weekly | Monthly | Yearly);
                                null = no limit
       enable_response_headers  the UAIG-* debug response headers (default true)
-      jwt_required             also validate the Entra token the Foundry connection sends
-                               (audience = foundry_config.managed_identity_audience, tenant = the deploying identity's)
+      jwt_required             also require a valid JWT (Authorization: Bearer <token>) next to the key.
+                               By default it is validated against the gateway's identity provider
+                               (gateway-config entra_auth: tokens issued for the stacks/identity app);
+                               with foundry.enabled in ProjectManagedIdentity mode, against the Foundry
+                               project identity's token (audience = foundry_config.managed_identity_audience,
+                               tenant = the deploying identity's)
+      jwt_audience / jwt_issuer / jwt_openid_config_url
+                               override the expected aud claim, iss claim and OpenID Connect discovery URL
+                               (another tenant or provider, e.g. a partner tenant or Auth0); unset = default
+      required_roles           app roles of which the token must carry at least one (roles claim), e.g.
+                               ["Models.Read"]; missing -> 403. Needs jwt_required
     One product can grant a mix of asset types (LLM + tools (MCP) + agents (A2A)). List the granted
     tool and agent APIs by APIM API name (they must be in api_name_mapping[code]); every other API of the
     service is an LLM API, and allowed_models, token_limit and enable_response_headers apply to those only:
@@ -50,6 +59,10 @@ variable "services" {
     }))
     enable_response_headers = optional(bool, true)
     jwt_required            = optional(bool, false)
+    jwt_audience            = optional(string)
+    jwt_issuer              = optional(string)
+    jwt_openid_config_url   = optional(string)
+    required_roles          = optional(list(string), [])
 
     tool_apis = optional(list(string), [])
     tool_limit = optional(object({
@@ -109,6 +122,26 @@ variable "services" {
   validation {
     condition     = alltrue([for s in var.services : (s.tool_limit == null || length(s.tool_apis) > 0) && (s.agent_limit == null || length(s.agent_apis) > 0)])
     error_message = "services[*].tool_limit needs tool_apis, and agent_limit needs agent_apis: without them no request is classified as a tool or agent and the limit would never apply."
+  }
+  validation {
+    condition = alltrue([for s in var.services : s.jwt_required || (
+      length(s.required_roles) == 0 && s.jwt_audience == null && s.jwt_issuer == null && s.jwt_openid_config_url == null
+    )])
+    error_message = "services[*].required_roles, jwt_audience, jwt_issuer and jwt_openid_config_url need jwt_required = true: without it no token is validated and they would never apply."
+  }
+  validation {
+    condition     = alltrue([for s in var.services : alltrue([for r in s.required_roles : can(regex("^[A-Za-z0-9][A-Za-z0-9._:-]*$", r))])])
+    error_message = "services[*].required_roles: app role values are letters, digits, '.', '_', ':' and '-' (no commas or spaces), e.g. Models.Read."
+  }
+  validation {
+    condition = alltrue([for s in var.services : alltrue([
+      for v in [s.jwt_audience, s.jwt_issuer, s.jwt_openid_config_url] : v == null || (length(trimspace(v)) > 0 && !strcontains(v, "{{"))
+    ])])
+    error_message = "services[*].jwt_audience / jwt_issuer / jwt_openid_config_url must be literal, non-empty values (leave them unset to use the gateway's named values)."
+  }
+  validation {
+    condition     = alltrue([for s in var.services : alltrue([for v in [s.jwt_issuer, s.jwt_openid_config_url] : v == null || startswith(v, "https://")])])
+    error_message = "services[*].jwt_issuer and jwt_openid_config_url must be https URLs."
   }
 }
 

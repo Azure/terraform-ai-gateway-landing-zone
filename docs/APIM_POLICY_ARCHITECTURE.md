@@ -83,7 +83,7 @@ stacks/
     apis/<api>/                #   per-API specs + policy XML (apis/shared/ = MCP default policy)
     api-center.tf              #   API Center registration of the enabled APIs (optional)
   llm-backend-onboarding/      # Model-aware configuration
-    data.tf                    #   APIM, entra-auth named value, Foundry accounts + deployments
+    data.tf                    #   APIM, Foundry accounts + deployments, shared fragments
     named-values.tf            #   aws-access-key, aws-secret-key, aws-region, per-backend keys
     fragments.tf               #   LLM fragment catalogue → module "llm_fragments"
     fragments/                 #   frag-*.xml bodies of the LLM fragments
@@ -354,11 +354,11 @@ APIs whose `features.*` flag is on are in the catalogue.
 | `weather-api` (`module.api`) | [policy.xml](../stacks/gateway-config/apis/weather-api/policy.xml) | None (sample) |
 | `weather-mcp` + `ms-learn-mcp` (`module.api_dependent`, `type = "mcp"`) | [mcp-default-policy.xml](../stacks/gateway-config/apis/shared/mcp-default-policy.xml) | MCP default auth |
 
-`universal-llm-api`, `azure-openai-api` and `openai-realtime-ws-api` set
-`subscription_required` from gateway-config's `entra-auth` named value, read
-with `data "azapi_resource" "entra_auth"`: with Entra auth on they take a JWT
-instead of a subscription key. `unified-ai-api` and `ai-model-inference-api`
-always require a subscription.
+Every API requires a subscription key (`subscription_required = true`, also with
+gateway-config `entra_auth` on): the `security-handler` fragment rejects a request
+without a subscription, and a JWT is an extra check an access contract opts into
+(`jwt_required`, [DEPLOYMENT_GUIDE 6.6](DEPLOYMENT_GUIDE.md#66-entra-id-jwt-authentication)),
+never a replacement for the key.
 
 Every API instance receives:
 
@@ -403,7 +403,7 @@ if no LLM backends are configured these operation policies aren't attached.
 | Product | Policy XML | Where |
 |---|---|---|
 | `unified-ai-product` | [unified-ai-product-subscription.xml](../stacks/llm-backend-onboarding/apis/unified-ai-api/unified-ai-product-subscription.xml) | `product` attribute of the `unified-ai-api` entry in [stacks/llm-backend-onboarding/apis.tf](../stacks/llm-backend-onboarding/apis.tf) (created by [modules/gateway-api](../modules/gateway-api/README.md)) |
-| Per-use-case access-contract products | Generated from the service properties (`allowed_models`, `token_limit`, `enable_response_headers`, `jwt_required`) with [modules/access-contract/policies/product-policy.xml.tftpl](../modules/access-contract/policies/product-policy.xml.tftpl), or a complete per-service `policy_xml` | [modules/access-contract/main.tf](../modules/access-contract/main.tf), called from [stacks/access-contracts/main.tf](../stacks/access-contracts/main.tf) |
+| Per-use-case access-contract products | Generated from the service properties (`allowed_models`, `token_limit`, `enable_response_headers`, `jwt_required`, `jwt_audience` / `jwt_issuer` / `jwt_openid_config_url`, `required_roles`) with [modules/access-contract/policies/product-policy.xml.tftpl](../modules/access-contract/policies/product-policy.xml.tftpl), or a complete per-service `policy_xml` | [modules/access-contract/main.tf](../modules/access-contract/main.tf), called from [stacks/access-contracts/main.tf](../stacks/access-contracts/main.tf) |
 
 There is no built-in default product: a general-purpose product (formerly
 `default-ai-access`) or a Foundry → gateway connection is an access contract
@@ -522,7 +522,7 @@ named value referenced by a fragment) — the graph doesn't know about
 | gateway-config `features.pii_anonymization` | Creates 3 PII fragments via `azapi_resource.this` in `module.shared_fragments` | No direct policy; referenced from universal-llm + unified-ai |
 | gateway-config `features.pii_redaction` | — | Creates the `piiServiceUrl` named value (the `pii-usage-eventhub-logger` is always created by `module.apim_telemetry` in the platform; Language service auth uses the APIM managed identity) |
 | gateway-config `features.content_safety` | — | Creates `contentSafetyServiceUrl` named value + content-safety backend (both from `content_safety_service`) |
-| gateway-config `entra_auth.enabled` | — | Populates `tenant-id`, `client-id`, `audience`, `entra-auth` and the 4 JWT-* named values (else placeholders); the LLM APIs then don't require a subscription key |
+| gateway-config `entra_auth.enabled` | — | Populates `tenant-id`, `client-id`, `audience`, `entra-auth` and the 4 JWT-* named values (else placeholders) that the `security-handler` validates a contract's tokens against; every API keeps requiring a subscription key |
 | gateway-config `features.azure_ai_search` | — | Creates `azure-ai-search-index-api` + its policy + `ai_search` backends |
 | gateway-config `features.document_intelligence` | — | Creates two document intelligence APIs + policies |
 | llm `features.ai_model_inference` | — | Creates `ai-model-inference-api` + policy |
@@ -566,12 +566,12 @@ applied with `task contract`) by calling
 `var.use_case` (`{ business_unit, use_case_name, environment }`),
 `var.api_name_mapping` (service code → existing APIM API names), and
 `var.services` (list of `{ code, endpoint_secret_name, api_key_secret_name,
-allowed_models, token_limit, enable_response_headers, jwt_required, tool_apis, tool_limit, agent_apis, agent_limit, policy_xml }`).
+allowed_models, token_limit, enable_response_headers, jwt_required, jwt_audience, jwt_issuer, jwt_openid_config_url, required_roles, tool_apis, tool_limit, agent_apis, agent_limit, policy_xml }`).
 Per service `code` it creates:
 
 - An APIM product `<code>-<business_unit>-<use_case_name>-<environment>`.
 - Product→API links from `var.api_name_mapping[code]`.
-- A product policy generated from `allowed_models`, `token_limit`, `enable_response_headers` and `jwt_required` (`policies/product-policy.xml.tftpl`), or the service's complete `policy_xml` when set. A service that lists `tool_apis` / `agent_apis` gets the asset-type-aware layout (see section 6.5 of the deployment guide).
+- A product policy generated from `allowed_models`, `token_limit`, `enable_response_headers` and the JWT properties (`jwt_required`, the `jwt_*` overrides, `required_roles`: the `security-handler` inputs `jwtRequired`, `jwtAudience`, `jwtIssuer`, `jwtOpenIdConfigUrl`, `requiredRoles`) (`policies/product-policy.xml.tftpl`), or the service's complete `policy_xml` when set. A service that lists `tool_apis` / `agent_apis` gets the asset-type-aware layout (see section 6.5 of the deployment guide).
 - A subscription `<…>-SUB-01`, created with `azapi_resource` so the keys never
   enter state. The key is read through an ephemeral `azapi_resource_action`
   (`listSecrets`) and written only to write-only arguments.

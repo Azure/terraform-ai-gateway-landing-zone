@@ -39,8 +39,19 @@ variable "services" {
                                token_quota, with token_quota_period (Hourly | Daily | Weekly | Monthly | Yearly);
                                null = no limit
       enable_response_headers  the UAIG-* debug response headers (set-response-headers fragment)
-      jwt_required             also validate the Entra token the Foundry connection sends
-                               (audience = foundry_config.managed_identity_audience, tenant = tenant_id)
+      jwt_required             also require a valid JWT next to the subscription key (security-handler fragment:
+                               Authorization: Bearer <token>; no token or an invalid one -> 401). By default the
+                               token is validated against the gateway's identity provider (gateway-config
+                               entra_auth: the JWT-* named values, i.e. tokens issued for the stacks/identity
+                               app). A contract with a Foundry connection in ProjectManagedIdentity mode
+                               validates the project identity's token instead (audience =
+                               foundry_config.managed_identity_audience, tenant = tenant_id).
+      jwt_audience             override the expected audience (aud claim), e.g. another app or provider
+      jwt_issuer               override the expected issuer (iss claim)
+      jwt_openid_config_url    override the OpenID Connect discovery URL (signing keys); with an issuer
+                               of another tenant or provider (e.g. Auth0) set all three
+      required_roles           app roles of which the token must carry at least one (roles claim, OR logic),
+                               e.g. ["Models.Read"]; missing -> 403. Needs jwt_required.
     One product can grant a mix of asset types (LLM + tools (MCP) + agents (A2A)). List the granted
     tool and agent APIs by APIM API name (they must be in api_name_mapping[code]); every other API of the
     service is an LLM API, and allowed_models, token_limit and enable_response_headers apply to those only:
@@ -65,6 +76,10 @@ variable "services" {
     }))
     enable_response_headers = optional(bool, true)
     jwt_required            = optional(bool, false)
+    jwt_audience            = optional(string)
+    jwt_issuer              = optional(string)
+    jwt_openid_config_url   = optional(string)
+    required_roles          = optional(list(string), [])
 
     tool_apis = optional(list(string), [])
     tool_limit = optional(object({
@@ -125,16 +140,41 @@ variable "services" {
     condition     = alltrue([for s in var.services : (s.tool_limit == null || length(s.tool_apis) > 0) && (s.agent_limit == null || length(s.agent_apis) > 0)])
     error_message = "services[*].tool_limit needs tool_apis, and agent_limit needs agent_apis: without them no request is classified as a tool or agent and the limit would never apply."
   }
+  validation {
+    # The security-handler checks roles and the overrides only inside its jwtRequired branch.
+    condition = alltrue([for s in var.services : s.jwt_required || (
+      length(s.required_roles) == 0 && s.jwt_audience == null && s.jwt_issuer == null && s.jwt_openid_config_url == null
+    )])
+    error_message = "services[*].required_roles, jwt_audience, jwt_issuer and jwt_openid_config_url need jwt_required = true: without it no token is validated and they would never apply."
+  }
+  validation {
+    condition     = alltrue([for s in var.services : alltrue([for r in s.required_roles : can(regex("^[A-Za-z0-9][A-Za-z0-9._:-]*$", r))])])
+    error_message = "services[*].required_roles: app role values are letters, digits, '.', '_', ':' and '-' (no commas or spaces), e.g. Models.Read."
+  }
+  validation {
+    condition = alltrue([for s in var.services : alltrue([
+      for v in [s.jwt_audience, s.jwt_issuer, s.jwt_openid_config_url] : v == null || (length(trimspace(v)) > 0 && !strcontains(v, "{{"))
+    ])])
+    error_message = "services[*].jwt_audience / jwt_issuer / jwt_openid_config_url must be literal, non-empty values (leave them unset to use the gateway's named values)."
+  }
+  validation {
+    condition     = alltrue([for s in var.services : alltrue([for v in [s.jwt_issuer, s.jwt_openid_config_url] : v == null || startswith(v, "https://")])])
+    error_message = "services[*].jwt_issuer and jwt_openid_config_url must be https URLs."
+  }
 }
 
 variable "tenant_id" {
-  description = "Entra tenant ID of the Foundry project identity's tokens; the issuer of the generated JWT policy (services[*].jwt_required)."
+  description = "Entra tenant ID of the Foundry project identity's tokens: the issuer of the generated JWT policy for a contract with a ProjectManagedIdentity Foundry connection (services[*].jwt_required). Not used otherwise."
   type        = string
   default     = ""
 
   validation {
-    condition     = !anytrue([for s in var.services : s.jwt_required && s.policy_xml == ""]) || can(regex("^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$", var.tenant_id))
-    error_message = "tenant_id (a GUID) is required when a service sets jwt_required without its own policy_xml."
+    condition = (
+      var.foundry_project_id == null || var.foundry_config.auth_type != "ProjectManagedIdentity"
+      || !anytrue([for s in var.services : s.jwt_required && s.policy_xml == "" && (s.jwt_issuer == null || s.jwt_openid_config_url == null)])
+      || can(regex("^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$", var.tenant_id))
+    )
+    error_message = "tenant_id (a GUID) is required when a contract with a ProjectManagedIdentity Foundry connection sets jwt_required (without its own jwt_issuer and jwt_openid_config_url, or policy_xml)."
   }
 }
 

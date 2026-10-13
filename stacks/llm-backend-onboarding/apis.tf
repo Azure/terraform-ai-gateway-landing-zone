@@ -15,8 +15,9 @@ locals {
 
   has_llm_backends = length(local.all_llm_backends) > 0
 
-  # With Entra auth (gateway-config) the APIs take a JWT instead of a key.
-  subscription_required = !local.entra_auth_enabled
+  # The subscription key is always required: a JWT is an extra check an access contract opts into
+  # (jwt_required, validated by the security-handler fragment), never a replacement for the key.
+  subscription_required = true
   api_key_names         = { header = "api-key", query = "api-key" }
 
   llm_app_insights_diagnostic = {

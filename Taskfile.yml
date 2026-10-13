@@ -231,6 +231,16 @@ tasks:
         vars: { STACK: platform, ENV: "{{.ENV}}" }
       - bash scripts/validate.sh {{.ENV}}
 
+  entra-setup:
+    desc: "Gateway Entra app (when stacks/identity doesn't create it) + a JWT test client with a secret in Key Vault: task entra-setup ENV=dev [-- --client-roles Models.Read]"
+    cmds:
+      - python3 scripts/entra_id_setup.py {{.ENV}} {{.CLI_ARGS}}
+
+  jwt-test:
+    desc: "JWT and app-role tests (upstream's 7 cases) on every product that requires a JWT: task jwt-test ENV=dev [-- --model gpt-5.4-mini]"
+    cmds:
+      - python3 scripts/jwt_auth_tests.py {{.ENV}} {{.CLI_ARGS}}
+
   test:
     desc: "Mocked unit tests of every module and stack (no Azure access)"
     vars:

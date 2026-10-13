@@ -62,12 +62,6 @@ override_data {
   }
 }
 override_data {
-  target = data.azapi_resource.entra_auth
-  values = {
-    output = { properties = { value = "false" } }
-  }
-}
-override_data {
   target = data.azapi_resource_list.fragments
   values = {
     output = { names = ["security-handler", "raise-alert-events", "set-response-headers", "strip-backend-headers", "ai-foundry-compatibility"] }

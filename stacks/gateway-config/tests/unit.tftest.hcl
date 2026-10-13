@@ -71,8 +71,8 @@ run "defaults" {
     error_message = "PII and Content Safety use the primary Foundry endpoint."
   }
   assert {
-    condition     = length(local.shared_fragments) == 14 && length(local.pii_fragments) == 3
-    error_message = "14 shared fragments + 3 PII fragments by default."
+    condition     = length(local.shared_fragments) == 17 && length(local.pii_fragments) == 3
+    error_message = "17 shared fragments + 3 PII fragments by default."
   }
   assert {
     condition     = length(module.api) == 0 && length(module.api_dependent) == 0 && length(data.azuread_application.gateway) == 0
@@ -94,6 +94,30 @@ run "entra_auth_uses_identity_stack_app" {
   assert {
     condition     = local.plain_named_values["audience"] == "api://00000000-0000-0000-0000-0000000000e1" && local.plain_named_values["JWT-Issuer"] == "https://login.microsoftonline.com/00000000-0000-0000-0000-000000000001/v2.0"
     error_message = "Audience and issuer come from the app and tenant."
+  }
+  assert {
+    condition     = local.plain_named_values["JWT-AppRegistrationId"] == "00000000-0000-0000-0000-0000000000e1" && local.plain_named_values["JWT-OpenIdConfigUrl"] == "https://login.microsoftonline.com/00000000-0000-0000-0000-000000000001/v2.0/.well-known/openid-configuration"
+    error_message = "The security-handler's JWT named values: v2 tokens of the gateway app (aud = its client ID)."
+  }
+}
+
+# Regression: entra_auth used to set subscription_required = false on the service APIs, whose
+# policies don't validate a token, so AI Search and Document Intelligence became anonymous.
+run "entra_auth_keeps_the_subscription_key_on_service_apis" {
+  command = plan
+
+  variables {
+    entra_auth          = { enabled = true }
+    features            = { azure_ai_search = true, document_intelligence = true, pii_redaction = false, content_safety = false }
+    ai_search_instances = [{ name = "search-1", endpoint = "https://search-1.search.windows.net" }]
+  }
+
+  assert {
+    condition = alltrue([
+      for k in ["azure-ai-search-index-api", "document-intelligence-api-legacy", "document-intelligence-api"] :
+      merge(local.first_wave, local.second_wave)[k].api.subscription_required
+    ])
+    error_message = "AI Search and Document Intelligence APIs require a subscription key whatever entra_auth says."
   }
 }
 

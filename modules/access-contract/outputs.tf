@@ -29,6 +29,19 @@ output "foundry_connection_auth" {
   }
 }
 
+output "jwt" {
+  description = "Service code => JWT validation of the product: required, required_roles, and the audience / issuer / OpenID config URL it overrides (\"\" = the gateway's JWT-* named values). null for a service with its own policy_xml."
+  value = {
+    for code, s in local.services : code => s.policy_xml != "" ? null : {
+      required          = s.jwt_required
+      required_roles    = s.required_roles
+      audience          = s.jwt_required ? local.jwt[code].audience : ""
+      issuer            = s.jwt_required ? local.jwt[code].issuer : ""
+      openid_config_url = s.jwt_required ? local.jwt[code].openid : ""
+    }
+  }
+}
+
 output "foundry_connections" {
   description = "Service code => Foundry connection name (empty without a Foundry project)."
   value       = { for k, c in azapi_resource.foundry_connection : k => c.name }

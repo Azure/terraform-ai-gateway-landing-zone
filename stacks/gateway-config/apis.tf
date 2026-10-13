@@ -48,7 +48,7 @@ locals {
           description            = "Azure AI Search Index Client APIs"
           path                   = "search"
           service_url            = "https://to-be-replaced-by-policy"
-          subscription_required  = !var.entra_auth.enabled
+          subscription_required  = true # always: a JWT is validated per access contract (security-handler), never instead of the key
           subscription_key_names = local.api_key_names
           spec                   = { format = "openapi+json", value = file("${local.apis_dir}/azure-ai-search-index-api/ai-search-index-2024-07-01-api-spec.json") }
           policy_xml             = file("${local.apis_dir}/azure-ai-search-index-api/ai-search-index-api-policy.xml")
@@ -65,7 +65,7 @@ locals {
           description            = "Uses (/formrecognizer) url path. Extracts content, layout, and structured data from documents."
           path                   = "formrecognizer"
           service_url            = "https://to-be-replaced-by-policy"
-          subscription_required  = !var.entra_auth.enabled
+          subscription_required  = true
           subscription_key_names = local.subscription_key_names
           spec                   = { format = "openapi", value = file("${local.apis_dir}/document-intelligence-api/document-intelligence-2024-11-30-compressed.openapi.yaml") }
           policy_xml             = file("${local.apis_dir}/document-intelligence-api/doc-intelligence-api-policy.xml")
@@ -98,7 +98,7 @@ locals {
           description            = "Uses (/documentintelligence) url path. Extracts content, layout, and structured data from documents."
           path                   = "documentintelligence"
           service_url            = "https://to-be-replaced-by-policy"
-          subscription_required  = !var.entra_auth.enabled
+          subscription_required  = true
           subscription_key_names = local.subscription_key_names
           spec                   = { format = "openapi", value = file("${local.apis_dir}/document-intelligence-api/document-intelligence-2024-11-30-compressed.openapi.yaml") }
           policy_xml             = file("${local.apis_dir}/document-intelligence-api/doc-intelligence-api-policy.xml")

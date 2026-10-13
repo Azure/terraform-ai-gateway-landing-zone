@@ -27,3 +27,8 @@ output "foundry_connections" {
   description = "Service code => Foundry connection name."
   value       = module.contract.foundry_connections
 }
+
+output "jwt" {
+  description = "Service code => JWT validation of the product: required, required_roles, and the audience / issuer / OpenID config URL it overrides (\"\" = the gateway's JWT-* named values)."
+  value       = module.contract.jwt
+}

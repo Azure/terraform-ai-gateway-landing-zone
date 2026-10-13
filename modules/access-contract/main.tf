@@ -41,11 +41,27 @@ locals {
     quota_period_seconds = local.period_seconds[limit.call_quota_period]
   }), "/\n([ \t]*\n)+/", "\n")) } }
 
+  # JWT settings per service. Unset = the security-handler falls back to the gateway's JWT-* named
+  # values (gateway-config entra_auth). A contract with a ProjectManagedIdentity Foundry connection
+  # defaults to the project identity's token instead: audience = the connection's
+  # managed_identity_audience, v1 issuer of the tenant (managed identity tokens), v2.0 keys.
+  foundry_mi_defaults = var.foundry_project_id != null && var.foundry_config.auth_type == "ProjectManagedIdentity"
+
+  jwt = { for code, s in local.services : code => {
+    audience = s.jwt_audience != null ? s.jwt_audience : (local.foundry_mi_defaults ? var.foundry_config.managed_identity_audience : "")
+    issuer   = s.jwt_issuer != null ? s.jwt_issuer : (local.foundry_mi_defaults ? "https://sts.windows.net/${var.tenant_id}/" : "")
+    openid   = s.jwt_openid_config_url != null ? s.jwt_openid_config_url : (local.foundry_mi_defaults ? "https://login.microsoftonline.com/${var.tenant_id}/v2.0/.well-known/openid-configuration" : "")
+    roles    = join(",", s.required_roles)
+  } }
+
   product_policy_xml = {
     for code, s in local.services : code => s.policy_xml != "" ? s.policy_xml : replace(templatefile("${path.module}/policies/product-policy.xml.tftpl", {
       jwt_required = s.jwt_required
-      jwt_audience = replace(replace(replace(var.foundry_config.managed_identity_audience, "&", "&amp;"), "\"", "&quot;"), "<", "&lt;")
-      tenant_id    = var.tenant_id
+      # Escaped for an XML attribute value.
+      jwt_audience = replace(replace(replace(local.jwt[code].audience, "&", "&amp;"), "\"", "&quot;"), "<", "&lt;")
+      jwt_issuer   = replace(replace(replace(local.jwt[code].issuer, "&", "&amp;"), "\"", "&quot;"), "<", "&lt;")
+      jwt_openid   = replace(replace(replace(local.jwt[code].openid, "&", "&amp;"), "\"", "&quot;"), "<", "&lt;")
+      jwt_roles    = local.jwt[code].roles
       llm_rules    = local.policy_llm_rules[code]
       multi_asset  = length(s.tool_apis) + length(s.agent_apis) > 0
       tool_apis    = join(",", s.tool_apis)

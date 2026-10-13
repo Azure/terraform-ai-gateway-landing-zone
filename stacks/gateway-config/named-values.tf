@@ -2,9 +2,9 @@
 # a fragment or policy is saved, so these come first.
 #
 # With Entra auth off the values fall back to placeholders that still resolve
-# (APIM checks <openid-config url> at save time); the entra-auth flag gates
-# validation at runtime. llm-backend-onboarding reads entra-auth to decide
-# whether its APIs require a subscription key.
+# (APIM checks <openid-config url> at save time). The JWT-* values are what the
+# security-handler fragment validates a contract's tokens against; entra-auth is
+# kept for the legacy aad-auth fragment.
 
 locals {
   entra_on = var.entra_auth.enabled

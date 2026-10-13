@@ -92,6 +92,12 @@ resource "azuread_application" "gateway" {
       type = "Scope"
     }
   }
+
+  # azuread_application_identifier_uri owns the identifier URI: without this every plan would remove
+  # api://<client_id> again, and clients request their tokens for api://<client_id>/.default.
+  lifecycle {
+    ignore_changes = [identifier_uris]
+  }
 }
 
 # api://<client_id> — split into its own resource to avoid self-reference cycle
@@ -102,4 +108,7 @@ resource "azuread_application_identifier_uri" "gateway" {
 
 resource "azuread_service_principal" "gateway" {
   client_id = azuread_application.gateway.client_id
+  # Same owners as the app: deleting (and managing) a service principal needs its owner or an
+  # Entra admin role, so without owners whoever applied this stack couldn't destroy it.
+  owners = azuread_application.gateway.owners
 }

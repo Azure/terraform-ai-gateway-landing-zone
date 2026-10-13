@@ -213,13 +213,40 @@ run "response_headers_can_be_switched_off" {
   }
 }
 
+run "jwt_policy_uses_the_gateway_identity_provider_by_default" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true }]
+  }
+
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"jwtRequired\" value=\"true\" />") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "jwtAudience") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "jwtIssuer") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "jwtOpenIdConfigUrl") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "requiredRoles")
+    )
+    error_message = "Without a Foundry connection, jwt_required leaves audience, issuer and OpenID config to the gateway's JWT-* named values (upstream's default)."
+  }
+  assert {
+    condition = (
+      output.jwt["LLM"].required && length(output.jwt["LLM"].required_roles) == 0
+      && output.jwt["LLM"].audience == "" && output.jwt["LLM"].issuer == "" && output.jwt["LLM"].openid_config_url == ""
+    )
+    error_message = "The jwt output reports the gateway defaults as empty overrides."
+  }
+}
+
 run "jwt_policy_uses_the_connection_audience_and_the_tenant" {
   command = plan
 
   variables {
-    tenant_id      = "11111111-2222-3333-4444-555555555555"
-    foundry_config = { managed_identity_audience = "api://custom-gateway" }
-    services       = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true }]
+    tenant_id          = "11111111-2222-3333-4444-555555555555"
+    foundry_project_id = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-aigw-dev/providers/Microsoft.CognitiveServices/accounts/aif/projects/p"
+    foundry_config     = { managed_identity_audience = "api://custom-gateway" }
+    services           = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true }]
   }
 
   assert {
@@ -229,17 +256,80 @@ run "jwt_policy_uses_the_connection_audience_and_the_tenant" {
       strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "value=\"https://sts.windows.net/11111111-2222-3333-4444-555555555555/\"") &&
       strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "value=\"https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0/.well-known/openid-configuration\"")
     )
-    error_message = "jwt_required validates the audience the Foundry connection sends, for the tenant."
+    error_message = "With a ProjectManagedIdentity Foundry connection, jwt_required validates the audience the connection sends, for the tenant."
   }
+}
+
+run "jwt_overrides_roles_and_partial_override" {
+  command = plan
+
+  variables {
+    services = [
+      {
+        code                  = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true
+        jwt_audience          = "api://partner-gateway"
+        jwt_issuer            = "https://login.microsoftonline.com/99999999-0000-0000-0000-000000000000/v2.0"
+        jwt_openid_config_url = "https://login.microsoftonline.com/99999999-0000-0000-0000-000000000000/v2.0/.well-known/openid-configuration"
+        required_roles        = ["Models.Read", "Agent.Read"]
+      },
+      { code = "DOC", endpoint_secret_name = "C", api_key_secret_name = "D", jwt_required = true, jwt_audience = "api://only-the-audience" },
+    ]
+  }
+
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"jwtAudience\" value=\"api://partner-gateway\" />") &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"jwtIssuer\" value=\"https://login.microsoftonline.com/99999999-0000-0000-0000-000000000000/v2.0\" />") &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"jwtOpenIdConfigUrl\" value=\"https://login.microsoftonline.com/99999999-0000-0000-0000-000000000000/v2.0/.well-known/openid-configuration\" />") &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"requiredRoles\" value=\"Models.Read,Agent.Read\" />")
+    )
+    error_message = "Another tenant (all three overrides) and app roles (OR list) reach the product policy."
+  }
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["DOC"].xml_content, "<set-variable name=\"jwtAudience\" value=\"api://only-the-audience\" />") &&
+      !strcontains(azurerm_api_management_product_policy.service["DOC"].xml_content, "jwtIssuer") &&
+      !strcontains(azurerm_api_management_product_policy.service["DOC"].xml_content, "jwtOpenIdConfigUrl")
+    )
+    error_message = "A partial override sets only the audience; issuer and OpenID config fall back to the named values."
+  }
+}
+
+run "jwt_options_need_jwt_required" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", required_roles = ["Models.Read"] }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "jwt_roles_are_validated" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true, required_roles = ["Models.Read,Agent.Read"] }]
+  }
+
+  expect_failures = [var.services]
+}
+
+run "jwt_overrides_must_be_literal_https" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true, jwt_issuer = "{{JWT-Issuer}}" }]
+  }
+
+  expect_failures = [var.services]
 }
 
 run "jwt_audience_is_xml_escaped" {
   command = plan
 
   variables {
-    tenant_id      = "11111111-2222-3333-4444-555555555555"
-    foundry_config = { managed_identity_audience = "api://a&b\"<c" }
-    services       = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true }]
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true, jwt_audience = "api://a&b\"<c" }]
   }
 
   assert {
@@ -248,14 +338,28 @@ run "jwt_audience_is_xml_escaped" {
   }
 }
 
-run "jwt_needs_a_tenant" {
+run "jwt_with_a_foundry_connection_needs_a_tenant" {
+  command = plan
+
+  variables {
+    foundry_project_id = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-aigw-dev/providers/Microsoft.CognitiveServices/accounts/aif/projects/p"
+    services           = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true }]
+  }
+
+  expect_failures = [var.tenant_id]
+}
+
+run "jwt_without_a_foundry_connection_needs_no_tenant" {
   command = plan
 
   variables {
     services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true }]
   }
 
-  expect_failures = [var.tenant_id]
+  assert {
+    condition     = strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "jwtRequired")
+    error_message = "The gateway's named values supply the tenant."
+  }
 }
 
 run "jwt_with_a_custom_policy_needs_no_tenant" {

@@ -65,12 +65,6 @@ override_data {
   }
 }
 override_data {
-  target = data.azapi_resource.entra_auth
-  values = {
-    output = { properties = { value = "false" } }
-  }
-}
-override_data {
   target = data.azapi_resource_list.fragments
   values = {
     output = { names = ["security-handler", "raise-alert-events", "set-response-headers", "strip-backend-headers", "ai-foundry-compatibility"] }
@@ -106,23 +100,25 @@ run "backends_derived_from_foundry_deployments" {
   }
   assert {
     condition     = local.subscription_required
-    error_message = "entra-auth = false: the LLM APIs require a subscription key."
+    error_message = "The LLM APIs require a subscription key."
   }
 }
 
-run "entra_auth_drops_the_subscription_key" {
+# The key is never replaced by a JWT: the security-handler fragment rejects a request without a
+# subscription (upstream's "JWT only -> 401"), so every LLM API requires it, and an access contract
+# adds JWT validation on top (jwt_required).
+run "every_llm_api_requires_the_subscription_key" {
   command = plan
 
-  override_data {
-    target = data.azapi_resource.entra_auth
-    values = {
-      output = { properties = { value = "true" } }
-    }
+  variables {
+    features = { unified_ai_api = true, ai_model_inference = true, openai_realtime = true }
   }
 
   assert {
-    condition     = !local.subscription_required
-    error_message = "gateway-config's entra-auth = true: APIs take a JWT instead of a key."
+    condition = alltrue([
+      for k, a in local.llm_apis : a.api.type == "http" ? a.api.subscription_required : jsondecode(a.api.azapi_properties_json).subscriptionRequired
+    ])
+    error_message = "Every LLM API (HTTP and WebSocket) requires a subscription key."
   }
 }
 

@@ -37,7 +37,6 @@
 | [azurerm_api_management_named_value.aws_region](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_named_value) | resource |
 | [azurerm_api_management_named_value.backend_api_key](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_named_value) | resource |
 | [azapi_resource.api_center](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource) | data source |
-| [azapi_resource.entra_auth](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource) | data source |
 | [azapi_resource_list.deployments](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource_list) | data source |
 | [azapi_resource_list.foundry_accounts](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource_list) | data source |
 | [azapi_resource_list.fragments](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource_list) | data source |

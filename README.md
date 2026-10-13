@@ -67,6 +67,8 @@ Other commands:
 task apply STACK=platform ENV=dev                        # deploy a specific stack only
 task contract ENV=dev USE_CASE=team-a-chatbot            # deploy a specific access contract (one use case)
 task plan-all ENV=dev                                    # plan all stacks, read-only
+task entra-setup ENV=dev                                 # JWT: gateway Entra app (if missing) + a test client identity
+task jwt-test ENV=dev                                    # JWT and app-role tests on every product that requires a JWT
 task down ENV=dev                                        # tear down all stacks and contracts, reverse order
 task                                                     # list all available tasks
 ```
@@ -87,6 +89,7 @@ task                                                     # list all available ta
 | [ase-hosting](examples/ase-hosting/) | greenfield + CI runner subnet | StandardV2, integration | ASE v3 reference (zones, sizing, DNS) | every ASE setting explained |
 | [shared-ase](examples/shared-ase/) | greenfield + extra DNS links | StandardV2, integration + PE | shared ASE v3 | ASE owned by another team |
 | [multi-provider-llm](examples/multi-provider-llm/) | greenfield | StandardV2, integration | Workflow Standard | every LLM backend type: Foundry, Azure OpenAI, AWS Bedrock and Mantle, Gemini, external OpenAI-compatible |
+| [entra-jwt-auth](examples/entra-jwt-auth/) | greenfield | StandardV2, integration | Workflow Standard | API key + Entra ID JWT and app roles per contract, another tenant per contract |
 | [existing-apim-platform](examples/existing-apim-platform/) | byo (name overrides) | existing APIM | not deployed | gateway config on an APIM you run |
 | [no-foundry-ai-services](examples/no-foundry-ai-services/) | greenfield | StandardV2, integration | Workflow Standard | no Foundry; standalone Language + Content Safety |
 | [all-features](examples/all-features/) | greenfield | StandardV2, integration + PE | Workflow Standard | every optional switch, to copy from |
@@ -102,7 +105,7 @@ task                                                     # list all available ta
 | APIM SKU × network | `platform.tfvars` `apim` | none · external · internal · integration · injection — [apim-network-modes.md](docs/operations/apim-network-modes.md) |
 | Foundry accounts and models | `platform.tfvars` `foundry` | LLM backends are derived from the deployments in `llm-backend-onboarding` |
 | External LLMs, aliases | `llm-backend-onboarding.tfvars` | `llm_backends` (Key Vault-referenced credentials, a circuit breaker per backend), `model_aliases` |
-| Entra JWT auth | `identity.tfvars` + `gateway-config.tfvars` `entra_auth` | the app is looked up by name |
+| Entra JWT auth | `identity.tfvars` + `gateway-config.tfvars` `entra_auth`; contracts `jwt_required`, `required_roles` | the key is always required; a contract adds a JWT and app roles ([DEPLOYMENT_GUIDE §6.6](docs/DEPLOYMENT_GUIDE.md#66-entra-id-jwt-authentication), `task entra-setup`, `task jwt-test`) |
 | Usage pipeline | `platform.tfvars` `usage_pipeline` | `ase_v3` (keyless, run-from-package) or `workflow_standard` (shared-key exception) |
 | Access contracts | `access-contracts/<use-case>.tfvars` | keys never in state (ephemeral read, write-only secrets) |
 

@@ -1,8 +1,11 @@
 variable "entra_auth" {
   description = <<-EOT
-    Entra ID JWT validation on the gateway (security-handler fragment; APIs then
-    don't require a subscription key).
-      enabled         Validate Entra tokens.
+    Entra ID as the gateway's JWT identity provider: fills the JWT-OpenIdConfigUrl, JWT-Issuer and
+    JWT-AppRegistrationId named values the security-handler fragment validates tokens against. An
+    access contract then opts in per service (jwt_required, optionally required_roles); the
+    subscription key stays required on every API, a token is never a replacement for it.
+      enabled         Configure the named values (false: "not-configured" placeholders, and a contract
+                      that requires a JWT without its own jwt_* overrides gets 503).
       tenant_id / client_id / audience
                       null = taken from the gateway app of stacks/identity, found by
                       its deterministic name (needs Graph Application.Read.All).
