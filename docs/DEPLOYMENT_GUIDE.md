@@ -335,6 +335,7 @@ Platform-team requests for an ALZ:
 | Change a shared fragment or service API | `stacks/gateway-config/fragments/` or `apis/` | `task apply STACK=gateway-config …` |
 | Change an LLM API, routing or model-aware fragment | `stacks/llm-backend-onboarding/apis/` or `fragments/` | `task apply STACK=llm-backend-onboarding …` |
 | Scale APIM, Foundry capacity, Logic App workers | `platform.tfvars` | `task apply STACK=platform …` |
+| Spread APIM / the Logic App over availability zones | `platform.tfvars` `apim.zone_redundant`, `usage_pipeline.logic_app.zone_redundant` (or `usage_pipeline.ase.zone_redundant`) | at creation: see [6.7 Availability zones](#67-availability-zones) |
 | Republish only the usage-ingestion workflows | `logicapp-src/usage-ingestion-logicapp/` | `task logic-app-code ENV=<env>` |
 | Add a subnet / DNS zone link (greenfield) | `network.tfvars` | `task apply STACK=network …` |
 
@@ -681,6 +682,41 @@ each case.
 | `401` missing subscription key | no `api-key` header (a token alone is never enough) |
 | `403` `insufficient_role` | valid token without any of `required_roles`: assign the role to the client's service principal and get a new token |
 | `503` `jwt_not_configured` | the product requires a JWT but the named values are `not-configured` (`entra_auth.enabled = false`) and the contract sets no overrides |
+
+### 6.7 Availability zones
+
+Adding instances doesn't by itself spread them over availability zones. The
+region must support zones, and for most resources the choice is made when the
+resource is **created**: Azure can't add or remove it later.
+
+| Resource | Setting (`platform.tfvars` unless noted) | Notes |
+|---|---|---|
+| APIM StandardV2 / PremiumV2 | `apim.zone_redundant = true` | Set at creation (ARM `zoneRedundant`, created through azapi). Use `capacity >= 2` so a zone loss keeps capacity. Changing it on an existing instance stops the plan: it needs a new instance. |
+| APIM Premium (classic) | `apim.capacity >= 2` | Automatic: zones 1-2 for 2 units, 1-3 for 3 or more. Changing the zones of an existing instance changes its public (and internal) IP addresses. |
+| APIM Developer | — | No zones. |
+| Logic App, Workflow Standard | `usage_pipeline.logic_app.zone_redundant = true` + `worker_count >= 2` | Zone-redundant WS plan. Needs WS availability-zone quota in the region ("WS1 AZ VMs" for WS1; some subscriptions have 0). |
+| Logic App, ASE v3 | `app-hosting.tfvars` `ase.zone_redundant = true` and `usage_pipeline.ase.zone_redundant = true` + `worker_count >= 2` | The ASE and the plan, both at creation. See [examples/ase-hosting](../examples/ase-hosting/). |
+| Logic App storage | follows the plan | A **new** account is ZRS. An existing LRS account keeps its SKU (ARM rejects the SKU change) and every plan warns with the conversion command: `az storage account migration start --account-name <account> -g <rg> --sku Standard_ZRS --yes` (takes days, can't be stopped). |
+
+**Turning zones on for an existing Logic App plan.** Azure can't change a plan's
+zone redundancy, so the platform plan stops with this error and these commands
+(the usage ingestion pauses between them):
+
+```bash
+# 1. destroy the plan, the Logic App on it and their role assignments
+task apply STACK=platform ENV=<env> PLAN_ARGS="-destroy -target=module.logic_app.module.service_plan.azapi_resource.this"
+# 2. recreate them, zone redundant
+task apply STACK=platform ENV=<env>
+```
+
+**Check a deployment:**
+
+```bash
+az apim show -n <apim> -g <rg> --query "{sku:sku.name, units:sku.capacity, zones:zones}"   # classic Premium
+az rest --method get --url "https://management.azure.com<apim id>?api-version=2025-03-01-preview" --query properties.zoneRedundant   # v2
+az appservice plan show -n <plan> -g <rg> --query "{workers:sku.capacity, zoneRedundant:properties.zoneRedundant}"
+az storage account show -n <logic storage> -g <rg> --query sku.name
+```
 
 ## 7. CI/CD (GitHub Actions)
 

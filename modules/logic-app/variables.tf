@@ -49,14 +49,14 @@ variable "ase_sku_size" {
   default     = "I1v2"
 }
 
-variable "ase_worker_count" {
-  description = "Number of Isolated v2 instances for the Logic App plan inside the ASE v3."
+variable "worker_count" {
+  description = "Plan instances. workflow_standard: always-ready WS instances (elastic scale-out up to 20 on top). ase_v3: Isolated v2 instances, the autoscale minimum. 2 or more with zone_redundant."
   type        = number
   default     = 1
 }
 
-variable "ase_zone_redundant" {
-  description = "Deploy the ASE v3 as zone redundant (region must support availability zones; increases minimum billed instances)."
+variable "zone_redundant" {
+  description = "Zone-redundant plan (both hosting models; ase_v3 needs a zone-redundant ASE) and, for a new storage account, ZRS storage. Azure sets a plan's zone redundancy at creation only. Region must support availability zones; Workflow Standard needs 'WS1 AZ VMs'-type quota."
   type        = bool
   default     = false
 }

@@ -22,6 +22,7 @@ module "apim" {
   vnet_id                       = local.network.vnet_id
   apim_v2_use_private_endpoint  = local.apim_cfg.private_endpoint
   apim_v2_public_network_access = local.apim_cfg.public_network_access
+  zone_redundant                = local.apim_cfg.zone_redundant
 
   managed_identity_id = module.identity["apim"].resource_id
 

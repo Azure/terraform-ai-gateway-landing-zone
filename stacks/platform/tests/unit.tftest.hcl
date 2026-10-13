@@ -253,6 +253,70 @@ run "rejects_unknown_redis_sku" {
   expect_failures = [var.redis]
 }
 
+# --- availability zones ----------------------------------------------------------
+
+run "apim_v2_zone_redundant" {
+  command = plan
+  variables {
+    apim = { sku = "StandardV2", capacity = 2, zone_redundant = true }
+  }
+  assert {
+    condition     = local.apim_cfg.zone_redundant
+    error_message = "apim.zone_redundant reaches the APIM module."
+  }
+}
+
+run "apim_developer_has_no_zones" {
+  command = plan
+  variables {
+    apim = { sku = "Developer", vnet_mode = "none", zone_redundant = true }
+  }
+  expect_failures = [var.apim]
+}
+
+run "apim_premium_zone_redundant_needs_two_units" {
+  command = plan
+  variables {
+    apim = { sku = "Premium", capacity = 1, zone_redundant = true }
+  }
+  expect_failures = [var.apim]
+}
+
+run "workflow_standard_zone_redundant" {
+  command = plan
+  variables {
+    usage_pipeline = { logic_app = { hosting = "workflow_standard", worker_count = 2, zone_redundant = true } }
+  }
+  assert {
+    condition     = local.usage_cfg.logic_app.zone_redundant && local.usage_cfg.logic_app.worker_count == 2
+    error_message = "logic_app.zone_redundant and worker_count reach the Logic App module."
+  }
+}
+
+run "zone_redundant_logic_app_needs_two_instances" {
+  command = plan
+  variables {
+    usage_pipeline = { logic_app = { hosting = "workflow_standard", zone_redundant = true } }
+  }
+  expect_failures = [var.usage_pipeline]
+}
+
+run "ase_logic_app_zones_follow_the_ase" {
+  command = plan
+  variables {
+    usage_pipeline = { logic_app = { hosting = "ase_v3", worker_count = 2, zone_redundant = true } }
+  }
+  expect_failures = [var.usage_pipeline]
+}
+
+run "zone_redundant_ase_needs_two_instances" {
+  command = plan
+  variables {
+    usage_pipeline = { logic_app = { hosting = "ase_v3", worker_count = 1 }, ase = { zone_redundant = true } }
+  }
+  expect_failures = [var.usage_pipeline]
+}
+
 run "byo_workspace_id_must_be_a_resource_id" {
   command = plan
   variables {

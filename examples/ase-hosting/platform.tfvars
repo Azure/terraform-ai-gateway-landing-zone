@@ -3,6 +3,10 @@ apim = {
   vnet_mode       = "integration"
   publisher_name  = "Contoso"
   publisher_email = "ai-gateway@contoso.com"
+  # Zones for the gateway too: set when the instance is created (Azure can't add it later);
+  # 2 units so a zone loss keeps capacity.
+  capacity       = 2
+  zone_redundant = true
 }
 
 foundry = {

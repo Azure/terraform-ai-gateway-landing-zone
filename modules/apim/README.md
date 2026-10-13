@@ -48,10 +48,13 @@ Unit tests: [tests/unit.tftest.hcl](tests/unit.tftest.hcl) (mocked providers, `t
 
 | Name | Type |
 | ---- | ---- |
+| [azapi_resource.service_zone_redundant](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
 | [azurerm_api_management_redis_cache.default](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_redis_cache) | resource |
 | [azurerm_private_dns_a_record.internal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_a_record) | resource |
 | [azurerm_private_dns_zone.internal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_zone) | resource |
 | [azurerm_private_dns_zone_virtual_network_link.internal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_zone_virtual_network_link) | resource |
+| [azurerm_private_endpoint.zone_redundant](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
+| [azurerm_private_endpoint.zone_redundant_policy_dns](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_endpoint) | resource |
 | [terraform_data.service_rules](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [azapi_resource.service_state](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource) | data source |
 
@@ -83,6 +86,7 @@ Unit tests: [tests/unit.tftest.hcl](tests/unit.tftest.hcl) (mocked providers, `t
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_public_ip_address_id"></a> [public\_ip\_address\_id](#input\_public\_ip\_address\_id) | Classic external/internal injection only: Standard-SKU public IP resource ID for the service. null = Azure-managed. | `string` | `null` | no |
 | <a name="input_redis_cache_connection_string"></a> [redis\_cache\_connection\_string](#input\_redis\_cache\_connection\_string) | Optional Azure Managed Redis connection string. When set, creates an APIM service/caches resource. | `string` | `""` | no |
+| <a name="input_zone_redundant"></a> [zone\_redundant](#input\_zone\_redundant) | StandardV2 / PremiumV2: create the service zone redundant (ARM zoneRedundant; set at creation only, Azure can't change it later). Classic Premium uses apim\_zones instead. | `bool` | `false` | no |
 
 ## Outputs
 

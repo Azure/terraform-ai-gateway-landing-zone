@@ -38,7 +38,7 @@ Declared identically in every stack's `variables.common.tf`.
 |---|---|
 | `environment_name`, `resource_group_name`, `*_name` overrides | `workload` + `environment` (+ `naming.name_overrides`); resource groups come from bootstrap |
 | `network.*` | `network.tfvars` (greenfield / alz_spoke) or `platform.tfvars` `network` (alz_spoke / byo) |
-| `apim`, `usage_pipeline`, `monitoring` | `platform.tfvars` (same shapes; `usage_pipeline.ase` keeps `app_service_environment_id` and `zone_redundant`) |
+| `apim`, `usage_pipeline`, `monitoring` | `platform.tfvars` (same shapes; `usage_pipeline.ase` keeps `app_service_environment_id` and `zone_redundant`; new: `apim.zone_redundant`, `usage_pipeline.logic_app.zone_redundant`, see [Deployment Guide 6.7](DEPLOYMENT_GUIDE.md#67-availability-zones)) |
 | `ai_foundry_instances`, `ai_foundry_models`, `ai_foundry_external_access`, `foundry_*` | `platform.tfvars` `foundry` |
 | `key_vault_sku`, `soft_delete_retention_days`, `purge_protection_enabled`, `kv_*`, `network_acl_default_action` | `platform.tfvars` `key_vault`; `kv_deployer_ip_rules` / `package_upload_ip_rules` → `dev_access.allowed_cidrs` |
 | `redis_*`, `api_center_sku`, `apic_location`, `apim_log_*` | `platform.tfvars` `redis`, `api_center`, `apim_logging` |

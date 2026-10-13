@@ -86,7 +86,7 @@ task                                                     # list all available ta
 | [apim-premiumv2-injection](examples/apim-premiumv2-injection/) | greenfield | PremiumV2, injection | ASE v3 | v2 private VIP |
 | [dev-greenfield-private-ws](examples/dev-greenfield-private-ws/) | greenfield + CI runner subnet | StandardV2, integration + PE, public off | Workflow Standard, private endpoint | private dev/test, faster than ASE |
 | [apim-external-vnet](examples/apim-external-vnet/) | greenfield | Developer, external | Workflow Standard | classic public VIP in a VNet |
-| [ase-hosting](examples/ase-hosting/) | greenfield + CI runner subnet | StandardV2, integration | ASE v3 reference (zones, sizing, DNS) | every ASE setting explained |
+| [ase-hosting](examples/ase-hosting/) | greenfield + CI runner subnet | StandardV2 ×2, integration, zone redundant | ASE v3 reference (zones, sizing, DNS) | every ASE setting explained |
 | [shared-ase](examples/shared-ase/) | greenfield + extra DNS links | StandardV2, integration + PE | shared ASE v3 | ASE owned by another team |
 | [multi-provider-llm](examples/multi-provider-llm/) | greenfield | StandardV2, integration | Workflow Standard | every LLM backend type: Foundry, Azure OpenAI, AWS Bedrock and Mantle, Gemini, external OpenAI-compatible |
 | [entra-jwt-auth](examples/entra-jwt-auth/) | greenfield | StandardV2, integration | Workflow Standard | API key + Entra ID JWT and app roles per contract, another tenant per contract |
@@ -107,6 +107,7 @@ task                                                     # list all available ta
 | External LLMs, aliases | `llm-backend-onboarding.tfvars` | `llm_backends` (Key Vault-referenced credentials, a circuit breaker per backend), `model_aliases` |
 | Entra JWT auth | `identity.tfvars` + `gateway-config.tfvars` `entra_auth`; contracts `jwt_required`, `required_roles` | the key is always required; a contract adds a JWT and app roles ([DEPLOYMENT_GUIDE §6.6](docs/DEPLOYMENT_GUIDE.md#66-entra-id-jwt-authentication), `task entra-setup`, `task jwt-test`) |
 | Usage pipeline | `platform.tfvars` `usage_pipeline` | `ase_v3` (keyless, run-from-package) or `workflow_standard` (shared-key exception) |
+| Availability zones | `platform.tfvars` `apim.zone_redundant`, `usage_pipeline.logic_app.zone_redundant` / `usage_pipeline.ase.zone_redundant` | chosen at creation; more instances alone don't add zones ([DEPLOYMENT_GUIDE §6.7](docs/DEPLOYMENT_GUIDE.md#67-availability-zones)) |
 | Access contracts | `access-contracts/<use-case>.tfvars` | keys never in state (ephemeral read, write-only secrets) |
 
 Every stack's inputs and outputs are documented in its README

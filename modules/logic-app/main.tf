@@ -23,7 +23,7 @@ module "storage" {
   enable_telemetry = var.enable_telemetry
 
   account_kind                      = "StorageV2"
-  account_sku_name                  = "Standard_LRS"
+  account_sku_name                  = local.storage_sku
   access_tier                       = "Hot"
   allow_nested_items_to_be_public   = false
   min_tls_version                   = "TLS1_2"
@@ -135,9 +135,9 @@ module "service_plan" {
   os_type                      = "Windows"
   sku_name                     = local.use_ase ? var.ase_sku_size : var.sku_size
   app_service_environment_id   = local.use_ase ? var.app_service_environment_id : null
-  worker_count                 = local.use_ase ? var.ase_worker_count : 1
+  worker_count                 = var.worker_count
   maximum_elastic_worker_count = local.use_ase ? null : 20 # hostingPlan.properties.maximumElasticWorkerCount
-  zone_balancing_enabled       = local.use_ase && var.ase_zone_redundant
+  zone_balancing_enabled       = var.zone_redundant
 }
 
 resource "azurerm_monitor_autoscale_setting" "service_plan" {
@@ -152,9 +152,9 @@ resource "azurerm_monitor_autoscale_setting" "service_plan" {
     name = "cpu"
 
     capacity {
-      default = var.ase_worker_count
-      minimum = var.ase_worker_count
-      maximum = max(var.ase_worker_count, var.ase_max_worker_count)
+      default = var.worker_count
+      minimum = var.worker_count
+      maximum = max(var.worker_count, var.ase_max_worker_count)
     }
 
     rule {

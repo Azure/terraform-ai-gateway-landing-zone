@@ -32,6 +32,37 @@ locals {
   private_vip          = contains(["internal", "injection"], var.vnet_mode)
   # Inbound private endpoint: v2 SKUs without injection.
   use_private_endpoint = local.is_apim_v2 && var.apim_v2_use_private_endpoint && contains(["none", "integration"], var.vnet_mode)
+
+  # Zone-redundant v2 instances are created with azapi: ARM takes properties.zoneRedundant (API
+  # 2025-03-01-preview) at creation only, and azurerm_api_management can't send it (it sends zones,
+  # which ARM rejects on v2 SKUs: AvailabilityZonesNotSupportedInSku).
+  v2_zone_redundant = local.is_apim_v2 && var.zone_redundant
+
+  # Azure rejects creating a service with public access disabled
+  # (ActivateServiceWithPrivateEndpointAccessNotAllowed) and requires an
+  # approved private endpoint first: the first apply creates it public, the next
+  # apply (service + PE exist) applies the requested setting. Classic SKUs
+  # always keep public access.
+  public_network_access = !local.is_apim_v2 || !local.apim_exists || var.apim_v2_public_network_access
+
+  # Legacy protocols and weak ciphers off: the customProperties azurerm writes for `security = {}`.
+  hardened_custom_properties = merge(
+    { "Microsoft.WindowsAzure.ApiManagement.Gateway.Protocols.Server.Http2" = "False" },
+    { for p in ["Ssl30", "Tls10", "Tls11"] : "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Protocols.${p}" => "false" },
+    { for p in ["Ssl30", "Tls10", "Tls11"] : "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Backend.Protocols.${p}" => "false" },
+    { for c in [
+      "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA", "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA", "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+      "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA", "TLS_RSA_WITH_AES_128_CBC_SHA", "TLS_RSA_WITH_AES_128_CBC_SHA256",
+      "TLS_RSA_WITH_AES_128_GCM_SHA256", "TLS_RSA_WITH_AES_256_CBC_SHA", "TLS_RSA_WITH_AES_256_CBC_SHA256",
+      "TLS_RSA_WITH_AES_256_GCM_SHA384", "TripleDes168",
+    ] : "Microsoft.WindowsAzure.ApiManagement.Gateway.Security.Ciphers.${c}" => "false" },
+  )
+}
+
+# Before zone_redundant, module.service had no count.
+moved {
+  from = module.service
+  to   = module.service[0]
 }
 
 # APIM service (Azure Verified Module). Child objects belong to other stacks
@@ -40,6 +71,7 @@ locals {
 module "service" {
   source  = "Azure/avm-res-apimanagement-service/azurerm"
   version = "0.9.0"
+  count   = local.v2_zone_redundant ? 0 : 1
 
   name                = var.apim_name
   location            = var.location
@@ -55,12 +87,7 @@ module "service" {
   # availability zones (Premium + skuCount>1; []/null otherwise).
   zones = length(var.apim_zones) > 0 ? var.apim_zones : null
 
-  # Azure rejects creating a service with public access disabled
-  # (ActivateServiceWithPrivateEndpointAccessNotAllowed) and requires an
-  # approved private endpoint first: the first apply creates it public, the next
-  # apply (service + PE exist) applies the requested setting. Classic SKUs
-  # always keep public access.
-  public_network_access_enabled = !local.is_apim_v2 || !local.apim_exists || var.apim_v2_public_network_access
+  public_network_access_enabled = local.public_network_access
 
   # UserAssigned only.
   managed_identities = { user_assigned_resource_ids = [var.managed_identity_id] }
@@ -84,6 +111,96 @@ module "service" {
       tags                            = var.tags
     }
   } : {}
+}
+
+# Zone-redundant StandardV2 / PremiumV2 service: the same settings as the module above, plus
+# zoneRedundant. Its private endpoint follows (the module creates its own).
+resource "azapi_resource" "service_zone_redundant" {
+  count = local.v2_zone_redundant ? 1 : 0
+
+  type      = "Microsoft.ApiManagement/service@2025-03-01-preview"
+  name      = var.apim_name
+  location  = var.location
+  parent_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
+  tags      = var.tags
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [var.managed_identity_id]
+  }
+
+  body = {
+    sku = { name = var.sku_name, capacity = var.sku_capacity }
+    properties = merge({
+      publisherEmail      = var.publisher_email
+      publisherName       = var.publisher_name
+      zoneRedundant       = true
+      virtualNetworkType  = local.virtual_network_type
+      publicNetworkAccess = local.public_network_access ? "Enabled" : "Disabled"
+      customProperties    = local.hardened_custom_properties
+      }, local.uses_subnet && var.apim_subnet_id != "" ? {
+      virtualNetworkConfiguration = { subnetResourceId = var.apim_subnet_id }
+    } : {})
+  }
+
+  response_export_values = {
+    gateway_url          = "properties.gatewayUrl"
+    portal_url           = "properties.developerPortalUrl"
+    management_api_url   = "properties.managementApiUrl"
+    private_ip_addresses = "properties.privateIPAddresses"
+  }
+
+  timeouts {
+    create = "3h"
+    update = "3h"
+  }
+}
+
+resource "azurerm_private_endpoint" "zone_redundant" {
+  count = local.v2_zone_redundant && local.use_private_endpoint && !var.dns_zone_group_managed_by_policy ? 1 : 0
+
+  name                = "pe-${var.apim_name}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.pe_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-${var.apim_name}"
+    private_connection_resource_id = azapi_resource.service_zone_redundant[0].id
+    subresource_names              = ["Gateway"]
+    is_manual_connection           = false
+  }
+
+  dynamic "private_dns_zone_group" {
+    for_each = var.dns_zone_id_apim != "" ? [1] : []
+    content {
+      name                 = "apim-dns-group"
+      private_dns_zone_ids = [var.dns_zone_id_apim]
+    }
+  }
+}
+
+# With ALZ Deploy-Private-DNS-Zones the policy owns the zone group.
+resource "azurerm_private_endpoint" "zone_redundant_policy_dns" {
+  count = local.v2_zone_redundant && local.use_private_endpoint && var.dns_zone_group_managed_by_policy ? 1 : 0
+
+  name                = "pe-${var.apim_name}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.pe_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-${var.apim_name}"
+    private_connection_resource_id = azapi_resource.service_zone_redundant[0].id
+    subresource_names              = ["Gateway"]
+    is_manual_connection           = false
+  }
+
+  lifecycle {
+    ignore_changes = [private_dns_zone_group]
+  }
 }
 
 # Plan-time rules for the SKU x network matrix (review 7.5.4.1) and scale.
@@ -124,29 +241,48 @@ resource "terraform_data" "service_rules" {
       condition     = length(var.apim_zones) == 0 || (var.sku_name == "Premium" && var.sku_capacity >= length(var.apim_zones))
       error_message = "Availability zones need the Premium SKU and at least one unit per zone (capacity >= number of zones)."
     }
+    precondition {
+      condition     = !var.zone_redundant || local.is_apim_v2 || (var.sku_name == "Premium" && length(var.apim_zones) > 0)
+      error_message = "zone_redundant: the Developer SKU has no availability zones; classic Premium spreads its units over zones only with 2 or more units (apim.capacity >= 2)."
+    }
+    # ARM sets zoneRedundant of a v2 service at creation only.
+    precondition {
+      condition     = !local.is_apim_v2 || !local.apim_exists || local.existing_zone_redundant == local.v2_zone_redundant
+      error_message = "apim.zone_redundant = ${local.v2_zone_redundant} but the existing ${var.apim_name} was created ${local.existing_zone_redundant ? "zone redundant" : "without zone redundancy"}, and Azure can't change that on StandardV2 / PremiumV2. Keep the setting, or create a new instance (another environment or naming.name_overrides.apim) and move the stacks to it: replacing ${var.apim_name} in place would drop every API, product and subscription the other stacks created."
+    }
   }
 }
 
 locals {
-  apim = {
-    id                   = module.service.resource_id
-    name                 = module.service.name
-    gateway_url          = module.service.apim_gateway_url
-    portal_url           = module.service.portal_url
-    management_api_url   = module.service.apim_management_url
-    private_ip_addresses = module.service.private_ip_addresses
+  apim = local.v2_zone_redundant ? {
+    id                   = azapi_resource.service_zone_redundant[0].id
+    name                 = azapi_resource.service_zone_redundant[0].name
+    gateway_url          = azapi_resource.service_zone_redundant[0].output.gateway_url
+    portal_url           = try(azapi_resource.service_zone_redundant[0].output.portal_url, null)
+    management_api_url   = azapi_resource.service_zone_redundant[0].output.management_api_url
+    private_ip_addresses = coalesce(try(azapi_resource.service_zone_redundant[0].output.private_ip_addresses, null), [])
+    } : {
+    id                   = module.service[0].resource_id
+    name                 = module.service[0].name
+    gateway_url          = module.service[0].apim_gateway_url
+    portal_url           = module.service[0].portal_url
+    management_api_url   = module.service[0].apim_management_url
+    private_ip_addresses = module.service[0].private_ip_addresses
   }
 }
 
-# Whether the service already exists (drives the public-access flip above).
+# Whether the service already exists (drives the public-access flip above), and whether it was
+# created zone redundant (v2 SKUs; the API version that returns zoneRedundant).
 data "azapi_resource" "service_state" {
-  type             = "Microsoft.ApiManagement/service@2024-05-01"
-  resource_id      = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}/providers/Microsoft.ApiManagement/service/${var.apim_name}"
-  ignore_not_found = true
+  type                   = "Microsoft.ApiManagement/service@2025-03-01-preview"
+  resource_id            = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}/providers/Microsoft.ApiManagement/service/${var.apim_name}"
+  ignore_not_found       = true
+  response_export_values = { zone_redundant = "properties.zoneRedundant" }
 }
 
 locals {
-  apim_exists = data.azapi_resource.service_state.exists
+  apim_exists             = data.azapi_resource.service_state.exists
+  existing_zone_redundant = local.apim_exists && try(data.azapi_resource.service_state.output.zone_redundant == true, false)
 }
 
 # -----------------------------------------------------------------------------

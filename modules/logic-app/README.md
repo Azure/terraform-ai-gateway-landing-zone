@@ -71,8 +71,11 @@ Called by [stacks/platform](../../stacks/platform/usage-pipeline.tf); the caller
 | [azurerm_storage_blob.package](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_blob) | resource |
 | [null_resource.publish_workflows](https://registry.terraform.io/providers/hashicorp/null/latest/docs/resources/resource) | resource |
 | [terraform_data.package_version](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
+| [terraform_data.zone_rules](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [time_sleep.package_writer_rbac](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 | [archive_file.workflow_code](https://registry.terraform.io/providers/hashicorp/archive/latest/docs/data-sources/file) | data source |
+| [azapi_resource.plan_state](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource) | data source |
+| [azapi_resource.storage_state](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource) | data source |
 | [azurerm_client_config.current](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/client_config) | data source |
 | [azurerm_storage_account.logic_app](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/storage_account) | data source |
 
@@ -99,8 +102,6 @@ Called by [stacks/platform](../../stacks/platform/usage-pipeline.tf); the caller
 | <a name="input_app_service_environment_id"></a> [app\_service\_environment\_id](#input\_app\_service\_environment\_id) | ase\_v3 hosting: resource ID of the App Service Environment v3 (modules/app-hosting or a shared ASE). | `string` | `null` | no |
 | <a name="input_ase_max_worker_count"></a> [ase\_max\_worker\_count](#input\_ase\_max\_worker\_count) | ase\_v3 hosting: upper bound for the CPU autoscale of the Isolated v2 plan. | `number` | `3` | no |
 | <a name="input_ase_sku_size"></a> [ase\_sku\_size](#input\_ase\_sku\_size) | Isolated v2 App Service plan SKU for the Logic App when logic\_app\_hosting\_model = "AppServiceEnvironmentV3". | `string` | `"I1v2"` | no |
-| <a name="input_ase_worker_count"></a> [ase\_worker\_count](#input\_ase\_worker\_count) | Number of Isolated v2 instances for the Logic App plan inside the ASE v3. | `number` | `1` | no |
-| <a name="input_ase_zone_redundant"></a> [ase\_zone\_redundant](#input\_ase\_zone\_redundant) | Deploy the ASE v3 as zone redundant (region must support availability zones; increases minimum billed instances). | `bool` | `false` | no |
 | <a name="input_code_source_path"></a> [code\_source\_path](#input\_code\_source\_path) | Absolute path to the Logic App Standard project folder. Leave blank to skip when enable\_code\_deploy=false. | `string` | `"src/usage-ingestion-logicapp"` | no |
 | <a name="input_content_share_name"></a> [content\_share\_name](#input\_content\_share\_name) | Logic App content share (WEBSITE\_CONTENTSHARE). Leave blank to auto-derive. | `string` | `""` | no |
 | <a name="input_cosmos_db_account_id"></a> [cosmos\_db\_account\_id](#input\_cosmos\_db\_account\_id) | Cosmos DB account ID for SQL role assignment on Logic App system-assigned principal. | `string` | `""` | no |
@@ -134,6 +135,8 @@ Called by [stacks/platform](../../stacks/platform/usage-pipeline.tf); the caller
 | <a name="input_storage_endpoint_suffix"></a> [storage\_endpoint\_suffix](#input\_storage\_endpoint\_suffix) | Storage endpoint suffix of the cloud (core.windows.net for Azure public). | `string` | `"core.windows.net"` | no |
 | <a name="input_subscription_id"></a> [subscription\_id](#input\_subscription\_id) | Azure Subscription ID for the deployment | `string` | `""` | no |
 | <a name="input_use_private_endpoint"></a> [use\_private\_endpoint](#input\_use\_private\_endpoint) | Create a private endpoint (subresource `sites`) for the Workflow Standard Logic App: one endpoint serves both the website and SCM/Kudu. Not for ase\_v3: an ILB ASE is already private and doesn't support private endpoints. Needs pe\_subnet\_id and, unless Azure Policy owns DNS, dns\_zone\_id\_sites. | `bool` | `false` | no |
+| <a name="input_worker_count"></a> [worker\_count](#input\_worker\_count) | Plan instances. workflow\_standard: always-ready WS instances (elastic scale-out up to 20 on top). ase\_v3: Isolated v2 instances, the autoscale minimum. 2 or more with zone\_redundant. | `number` | `1` | no |
+| <a name="input_zone_redundant"></a> [zone\_redundant](#input\_zone\_redundant) | Zone-redundant plan (both hosting models; ase\_v3 needs a zone-redundant ASE) and, for a new storage account, ZRS storage. Azure sets a plan's zone redundancy at creation only. Region must support availability zones; Workflow Standard needs 'WS1 AZ VMs'-type quota. | `bool` | `false` | no |
 
 ## Outputs
 

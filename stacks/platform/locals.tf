@@ -13,18 +13,21 @@ locals {
     public_ip_address_id  = var.apim.public_ip_address_id
     private_endpoint      = var.apim.private_endpoint
     public_network_access = var.apim.public_network_access
+    zone_redundant        = var.apim.zone_redundant
   }
 
   usage_cfg = {
     eventhub = var.usage_pipeline.eventhub
     cosmos   = var.usage_pipeline.cosmos
     logic_app = {
-      hosting               = var.usage_pipeline.logic_app.hosting
-      hosting_model         = var.usage_pipeline.logic_app.hosting == "ase_v3" ? "AppServiceEnvironmentV3" : "WorkflowStandard"
-      ws_sku                = var.usage_pipeline.logic_app.hosting == "workflow_standard" ? coalesce(var.usage_pipeline.logic_app.sku, "WS1") : "WS1"
-      ase_sku               = var.usage_pipeline.logic_app.hosting == "ase_v3" ? coalesce(var.usage_pipeline.logic_app.sku, "I1v2") : "I1v2"
-      worker_count          = var.usage_pipeline.logic_app.worker_count
-      max_worker_count      = var.usage_pipeline.logic_app.max_worker_count
+      hosting          = var.usage_pipeline.logic_app.hosting
+      hosting_model    = var.usage_pipeline.logic_app.hosting == "ase_v3" ? "AppServiceEnvironmentV3" : "WorkflowStandard"
+      ws_sku           = var.usage_pipeline.logic_app.hosting == "workflow_standard" ? coalesce(var.usage_pipeline.logic_app.sku, "WS1") : "WS1"
+      ase_sku          = var.usage_pipeline.logic_app.hosting == "ase_v3" ? coalesce(var.usage_pipeline.logic_app.sku, "I1v2") : "I1v2"
+      worker_count     = var.usage_pipeline.logic_app.worker_count
+      max_worker_count = var.usage_pipeline.logic_app.max_worker_count
+      # ase_v3: the plan follows the ASE (usage_pipeline.ase.zone_redundant).
+      zone_redundant        = var.usage_pipeline.logic_app.hosting == "ase_v3" ? var.usage_pipeline.ase.zone_redundant : var.usage_pipeline.logic_app.zone_redundant
       deployment            = var.usage_pipeline.logic_app.deployment
       content_share_name    = var.usage_pipeline.logic_app.content_share_name
       private_endpoint      = var.usage_pipeline.logic_app.private_endpoint

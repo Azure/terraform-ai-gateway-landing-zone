@@ -20,6 +20,12 @@ variable "apim" {
       public_network_access Public inbound access (v2 SKUs). false needs the private endpoint;
                             a new service is created public and switched on the next apply.
       public_ip_address_id  Classic external/internal only: Standard-SKU public IP to use.
+      zone_redundant        Spread the gateway over availability zones (region must support them).
+                            StandardV2 / PremiumV2: set at creation only (Azure can't change it on an
+                            existing instance); 2+ units recommended so a zone loss keeps capacity.
+                            Premium (classic): automatic with capacity >= 2 (zones 1-2 for 2 units,
+                            1-3 for 3+), whatever this flag says; true requires capacity >= 2.
+                            Developer: no zones.
   EOT
   type = object({
     sku                   = optional(string, "StandardV2")
@@ -30,6 +36,7 @@ variable "apim" {
     private_endpoint      = optional(bool, true)
     public_network_access = optional(bool, true)
     public_ip_address_id  = optional(string)
+    zone_redundant        = optional(bool, false)
   })
   default  = {}
   nullable = false
@@ -58,6 +65,10 @@ variable "apim" {
   validation {
     condition     = var.apim.sku != "Developer" || var.apim.capacity == 1
     error_message = "The Developer SKU can't scale out: apim.capacity must be 1."
+  }
+  validation {
+    condition     = !var.apim.zone_redundant || contains(["StandardV2", "PremiumV2"], var.apim.sku) || (var.apim.sku == "Premium" && var.apim.capacity >= 2)
+    error_message = "apim.zone_redundant: the Developer SKU has no availability zones; classic Premium needs apim.capacity >= 2 (its units are spread over the zones)."
   }
 }
 
@@ -294,6 +305,14 @@ variable "usage_pipeline" {
       logic_app.sku      null = WS1 (workflow_standard) or I1v2 (ase_v3).
       logic_app.worker_count / max_worker_count
                          ase_v3: autoscale range of the Isolated v2 plan (CPU based).
+                         workflow_standard: worker_count = always-ready WS instances (elastic
+                         scale-out up to 20 on top); max_worker_count unused.
+      logic_app.zone_redundant
+                         workflow_standard: zone-redundant WS plan (needs worker_count >= 2 and
+                         WS AZ quota in the region) and, for a new storage account, ZRS storage.
+                         Set at creation: Azure can't change a plan's zone redundancy later
+                         (the plan stops with the two commands that recreate it). ase_v3: use
+                         ase.zone_redundant instead.
       logic_app.deployment
                          ase_v3: run_from_package (default; zip in the keyless storage account,
                          read by the usage UAMI) or zip_deploy (az push to SCM from a runner in
@@ -310,6 +329,8 @@ variable "usage_pipeline" {
       ase.app_service_environment_id
                          ase_v3: a shared / BYO ASE; null = the ASE of stacks/app-hosting,
                          found by name.
+      ase.zone_redundant ase_v3: the ASE is zone redundant (app-hosting ase.zone_redundant): the
+                         plan is zone balanced (worker_count >= 2) and a new storage account ZRS.
   EOT
   type = object({
     eventhub = optional(object({
@@ -333,6 +354,7 @@ variable "usage_pipeline" {
       content_share_name = optional(string, "")
       code_deploy        = optional(bool, false)
       code_source_path   = optional(string, "")
+      zone_redundant     = optional(bool, false)
 
       private_endpoint      = optional(bool, false)
       public_network_access = optional(bool, true)
@@ -373,6 +395,16 @@ variable "usage_pipeline" {
   validation {
     condition     = var.usage_pipeline.logic_app.max_worker_count >= var.usage_pipeline.logic_app.worker_count
     error_message = "usage_pipeline.logic_app.max_worker_count must be >= worker_count."
+  }
+  validation {
+    condition     = !var.usage_pipeline.logic_app.zone_redundant || var.usage_pipeline.logic_app.hosting == "workflow_standard"
+    error_message = "usage_pipeline.logic_app.zone_redundant applies to hosting = workflow_standard; for ase_v3 set usage_pipeline.ase.zone_redundant = true (matching app-hosting ase.zone_redundant)."
+  }
+  validation {
+    condition = var.usage_pipeline.logic_app.worker_count >= 2 || !(
+      var.usage_pipeline.logic_app.hosting == "ase_v3" ? var.usage_pipeline.ase.zone_redundant : var.usage_pipeline.logic_app.zone_redundant
+    )
+    error_message = "A zone-redundant Logic App plan needs usage_pipeline.logic_app.worker_count >= 2 to span availability zones."
   }
   validation {
     condition     = alltrue([for v in [var.usage_pipeline.eventhub.public_network_access, var.usage_pipeline.cosmos.public_network_access] : contains(["Enabled", "Disabled"], v)])

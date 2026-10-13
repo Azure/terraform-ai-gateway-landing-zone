@@ -38,9 +38,9 @@ module "logic_app" {
   hosting_model              = local.usage_cfg.logic_app.hosting_model
   app_service_environment_id = local.app_service_environment_id
   ase_sku_size               = local.usage_cfg.logic_app.ase_sku
-  ase_worker_count           = local.usage_cfg.logic_app.worker_count
+  worker_count               = local.usage_cfg.logic_app.worker_count
   ase_max_worker_count       = local.usage_cfg.logic_app.max_worker_count
-  ase_zone_redundant         = local.usage_cfg.ase.zone_redundant
+  zone_redundant             = local.usage_cfg.logic_app.zone_redundant
   deployment_method          = local.usage_cfg.logic_app.deployment
   package_upload_ip_rules    = local.dev_cidrs
 

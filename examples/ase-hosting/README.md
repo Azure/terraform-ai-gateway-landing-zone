@@ -23,7 +23,8 @@ Where each setting lives:
 | | `…logic_app.worker_count` / `max_worker_count` | `2` / `6` | the plan autoscales on CPU between them (+1 above 70 %, -1 below 30 %) |
 | | `…logic_app.deployment` | `run_from_package` | the workflow zip is a blob that the app loads through its managed identity; `zip_deploy` pushes it to the SCM endpoint instead |
 | | `…logic_app.code_deploy` | `true` | `false` creates the app without publishing the workflows |
-| | `usage_pipeline.ase.zone_redundant` | `true` | zone-balances the plan |
+| | `usage_pipeline.ase.zone_redundant` | `true` | zone-balances the plan; a new storage account is created ZRS |
+| | `apim.zone_redundant` / `apim.capacity` | `true` / `2` | the StandardV2 gateway is created zone redundant (set at creation only) with a unit per zone |
 | | `usage_pipeline.ase.app_service_environment_id` | unset | a shared ASE owned by someone else (see [shared-ase](../shared-ase/)) |
 | | `deny_storage_shared_key` | `true` | assigns the "Storage accounts should prevent shared key access" policy on the workload resource group |
 

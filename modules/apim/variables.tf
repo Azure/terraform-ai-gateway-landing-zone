@@ -78,6 +78,13 @@ variable "apim_zones" {
   default     = []
 }
 
+variable "zone_redundant" {
+  description = "StandardV2 / PremiumV2: create the service zone redundant (ARM zoneRedundant; set at creation only, Azure can't change it later). Classic Premium uses apim_zones instead."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "enable_redis_cache" {
   description = "Attach Azure Managed Redis as the APIM external cache (requires redis_cache_connection_string)."
   type        = bool
