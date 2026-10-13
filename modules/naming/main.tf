@@ -42,7 +42,7 @@ locals {
     # Platform
     apim               = "apim-${local.base}-${local.seed}"
     key_vault          = "kv-${substr(local.base, 0, 14)}-${local.seed}"
-    cosmos             = "cosno-${local.base}-${local.seed}"
+    cosmos             = "cosmo-${local.base}-${local.seed}"
     eventhub_namespace = "evhns-${local.base}-${local.seed}"
     log_analytics      = "log-${local.base}"
     uami_apim          = "id-${local.base}-apim"

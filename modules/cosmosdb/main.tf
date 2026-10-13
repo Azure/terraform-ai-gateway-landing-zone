@@ -48,6 +48,7 @@ module "cosmos" {
     storage_redundancy  = "Local"
   }
 
+  # warning: AVM module uses local_authentication_disabled instead of local_authentication_enabled
   local_authentication_disabled = !var.local_authentication_enabled
 
   sql_databases = {

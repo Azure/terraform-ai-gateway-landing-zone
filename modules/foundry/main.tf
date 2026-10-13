@@ -83,6 +83,7 @@ module "account" {
   # Model deployments of this account, created one
   # at a time: the account rejects concurrent deployment PUTs (409).
   deployment_serialization_enabled = true
+  
   cognitive_deployments = {
     for m in var.foundry_models : m.name => {
       name            = m.name
@@ -96,6 +97,8 @@ module "account" {
         type     = m.sku
         capacity = m.capacity
       }
+      
+      # Warning: The `multiplier` attribute in the AVM module is deprecated and will be removed in a future version.
       retry = {
         error_message_regex = ["RequestConflict", "Another operation is being performed on the parent resource"]
         interval_seconds    = 15
