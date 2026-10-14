@@ -69,7 +69,9 @@ module "logic_app" {
   cosmos_db_container_pii       = module.cosmosdb.pii_container_name
   cosmos_db_container_llm_usage = module.cosmosdb.llm_usage_container_name
 
-  app_insights_connection_string = module.monitoring.app_insights_connection_string
+  # The Logic App's own runtime telemetry goes to its component (appi-logic-*); the usage
+  # workflow still queries the APIM component's token metrics (AppInsights_* settings below).
+  app_insights_connection_string = module.monitoring.logic_app_insights_connection_string
   apim_app_insights_name         = module.monitoring.app_insights_name
   apim_app_insights_rg           = local.resource_group_name
 

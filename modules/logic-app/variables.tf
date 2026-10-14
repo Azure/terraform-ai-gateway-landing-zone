@@ -70,7 +70,7 @@ variable "cosmos_db_endpoint" {
   type        = string
 }
 variable "app_insights_connection_string" {
-  description = "Application Insights connection string for the Logic App."
+  description = "Application Insights connection string for the Logic App's own runtime telemetry (its component, not the one the usage workflow queries)."
   type        = string
   sensitive   = true
 }

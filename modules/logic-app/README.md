@@ -83,7 +83,7 @@ Called by [stacks/platform](../../stacks/platform/usage-pipeline.tf); the caller
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_app_insights_connection_string"></a> [app\_insights\_connection\_string](#input\_app\_insights\_connection\_string) | Application Insights connection string for the Logic App. | `string` | n/a | yes |
+| <a name="input_app_insights_connection_string"></a> [app\_insights\_connection\_string](#input\_app\_insights\_connection\_string) | Application Insights connection string for the Logic App's own runtime telemetry (its component, not the one the usage workflow queries). | `string` | n/a | yes |
 | <a name="input_cosmos_db_endpoint"></a> [cosmos\_db\_endpoint](#input\_cosmos\_db\_endpoint) | Cosmos DB account endpoint the workflows write to. | `string` | n/a | yes |
 | <a name="input_environment_name"></a> [environment\_name](#input\_environment\_name) | Environment name used for resource naming (e.g., citadel-dev, citadel-prod) | `string` | n/a | yes |
 | <a name="input_eventhub_endpoint_host"></a> [eventhub\_endpoint\_host](#input\_eventhub\_endpoint\_host) | EventHub namespace FQDN (e.g. evhns-xxx.servicebus.windows.net) | `string` | n/a | yes |
