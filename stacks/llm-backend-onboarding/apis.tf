@@ -234,9 +234,3 @@ module "llm_api_universal" {
   api_depends_on           = [module.llm_api["azure-openai-api"].id]
   policy_depends_on        = local.api_policy_depends_on
 }
-
-# Existing deployments keep the Universal LLM API (and its policies and diagnostics).
-moved {
-  from = module.llm_api["universal-llm-api"]
-  to   = module.llm_api_universal["universal-llm-api"]
-}

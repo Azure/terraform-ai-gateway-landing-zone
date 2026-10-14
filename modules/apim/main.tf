@@ -59,12 +59,6 @@ locals {
   )
 }
 
-# Before zone_redundant, module.service had no count.
-moved {
-  from = module.service
-  to   = module.service[0]
-}
-
 # APIM service (Azure Verified Module). Child objects belong to other stacks
 # (review 7.8): named values, fragments, backends and APIs to gateway-config
 # and llm-backend-onboarding, products and subscriptions to access-contracts.
@@ -130,18 +124,22 @@ resource "azapi_resource" "service_zone_redundant" {
   }
 
   body = {
-    sku = { name = var.sku_name, capacity = var.sku_capacity }
-    properties = merge({
-      publisherEmail      = var.publisher_email
-      publisherName       = var.publisher_name
-      zoneRedundant       = true
-      virtualNetworkType  = local.virtual_network_type
-      publicNetworkAccess = local.public_network_access ? "Enabled" : "Disabled"
-      customProperties    = local.hardened_custom_properties
-      }, local.uses_subnet && var.apim_subnet_id != "" ? {
-      virtualNetworkConfiguration = { subnetResourceId = var.apim_subnet_id }
-    } : {})
+    sku = {
+      name     = var.sku_name,
+      capacity = var.sku_capacity
+    }
+    properties = {
+      publisherEmail              = var.publisher_email
+      publisherName               = var.publisher_name
+      zoneRedundant               = true
+      virtualNetworkType          = local.virtual_network_type
+      virtualNetworkConfiguration = local.uses_subnet && var.apim_subnet_id != "" ? { subnetResourceId = var.apim_subnet_id } : null
+      publicNetworkAccess         = local.public_network_access ? "Enabled" : "Disabled"
+      customProperties            = local.hardened_custom_properties
+    }
   }
+  # Leaves null properties out of the request (virtualNetworkConfiguration without a subnet).
+  ignore_null_property = true
 
   response_export_values = {
     gateway_url          = "properties.gatewayUrl"

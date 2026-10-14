@@ -132,6 +132,22 @@ run "v2_zone_redundant_is_created_with_azapi" {
   }
 }
 
+run "v2_zone_redundant_without_vnet_sends_no_vnet_configuration" {
+  command = plan
+  variables {
+    zone_redundant = true
+    vnet_mode      = "none"
+  }
+  assert {
+    condition = (
+      azapi_resource.service_zone_redundant[0].body.properties.virtualNetworkType == "None" &&
+      azapi_resource.service_zone_redundant[0].body.properties.virtualNetworkConfiguration == null &&
+      azapi_resource.service_zone_redundant[0].ignore_null_property
+    )
+    error_message = "Without a subnet the zone-redundant service sends no virtualNetworkConfiguration (null, left out of the request)."
+  }
+}
+
 run "v2_without_zone_redundancy_keeps_the_avm_module" {
   command = plan
   assert {
