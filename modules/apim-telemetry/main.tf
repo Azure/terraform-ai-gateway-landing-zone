@@ -5,10 +5,7 @@
 # =============================================================================
 
 locals {
-  # APIM logger `endpointAddress` expects hostname (optionally with :port), not a
-  # URL. Terraform's
-  # azurerm_api_management_logger.eventhub.endpoint_uri is forwarded verbatim,
-  # so we strip the scheme + any trailing slash/port suffix here.
+  # APIM logger `endpointAddress` expects the hostname (optionally with :port), not a URL.
   eventhub_hostname = replace(replace(var.eventhub_endpoint_uri, "https://", ""), "/", "")
 }
 
@@ -16,26 +13,51 @@ locals {
 # APIM LOGGER: Application Insights
 # -----------------------------------------------------------------------------
 
-resource "azurerm_api_management_logger" "app_insights" {
-  name                = "appinsights-logger"
-  api_management_name = var.api_management_name
-  resource_group_name = var.resource_group_name
-  resource_id         = var.app_insights_id
+locals {
+  # Connection string (correlates region + resource), else the instrumentation key. With
+  # app_insights_managed_identity the logger also authenticates with the APIM identity (Microsoft
+  # Entra ingestion), so the connection string can't send telemetry on its own. With
+  # credentials_in_key_vault both are {{references}} to Key Vault-backed named values.
+  app_insights_credentials = merge(
+    local.uses_connection_string ? { connectionString = local.connection_string_ref } : { instrumentationKey = var.app_insights_instrumentation_key },
+    var.app_insights_managed_identity ? { identityClientId = local.identity_client_id_ref } : {},
+  )
+}
 
-  application_insights {
-    # Connection string (correlates region + resource), else the instrumentation key.
-    # app_insights_managed_identity: the logger also authenticates with the APIM identity
-    # (Microsoft Entra ingestion), so the connection string APIM stores in its generated
-    # Logger-Credentials named value can't send telemetry on its own.
-    connection_string   = var.app_insights_connection_string != "" ? var.app_insights_connection_string : null
-    instrumentation_key = var.app_insights_connection_string == "" ? var.app_insights_instrumentation_key : null
-    identity_client_id  = var.app_insights_managed_identity ? var.managed_identity_client_id : null
+# azapi: azurerm only accepts a literal UUID as the identity client ID. An idempotent PUT (like
+# the azuremonitor logger below) rather than azapi_resource: when the connection string is a
+# {{reference}}, APIM reads the logger back with identityClientId = that same reference (it
+# authenticates with the configured identity), which a resource would report as drift on every
+# plan. The PUT re-runs whenever the body changes.
+resource "azapi_resource_action" "app_insights_logger" {
+  type        = "Microsoft.ApiManagement/service/loggers@2024-05-01"
+  resource_id = "${var.api_management_id}/loggers/appinsights-logger"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      loggerType  = "applicationInsights"
+      description = "Application Insights logger"
+      resourceId  = var.app_insights_id
+      credentials = local.app_insights_credentials
+    }
   }
+
+  # The {{references}} must resolve when the logger is saved.
+  depends_on = [azurerm_api_management_named_value.logger_credential]
 
   lifecycle {
     precondition {
       condition     = !var.app_insights_managed_identity || var.app_insights_connection_string != ""
       error_message = "app_insights_managed_identity needs app_insights_connection_string: managed identity ingestion isn't possible with an instrumentation key alone."
+    }
+    precondition {
+      condition     = !local.credentials_in_key_vault || local.uses_connection_string
+      error_message = "credentials_in_key_vault needs app_insights_connection_string: an instrumentation key can't be a Key Vault reference."
+    }
+    precondition {
+      condition     = !local.credentials_in_key_vault || var.credentials_key_vault_id != null
+      error_message = "credentials_in_key_vault needs credentials_key_vault_id."
     }
   }
 }
@@ -68,32 +90,40 @@ resource "azapi_resource_action" "azure_monitor_logger" {
 }
 
 # -----------------------------------------------------------------------------
-# APIM LOGGER: Event Hub (for usage streaming)
+# APIM LOGGERS: Event Hub (usage and PII events), managed identity (no SAS).
+# azapi: azurerm only accepts a literal UUID as the identity client ID, and the
+# Key Vault option (credentials_in_key_vault) passes a {{named value}} reference.
+# The names are a contract: the fragments' log-to-eventhub logger-id.
 # -----------------------------------------------------------------------------
 
-resource "azurerm_api_management_logger" "eventhub" {
-  name                = "usage-eventhub-logger"
-  api_management_name = var.api_management_name
-  resource_group_name = var.resource_group_name
-
-  eventhub {
-    name                             = var.eventhub_usage_hub_name
-    endpoint_uri                     = local.eventhub_hostname
-    user_assigned_identity_client_id = var.managed_identity_client_id
-  }
+locals {
+  eventhub_loggers = merge(
+    { "usage-eventhub-logger" = { hub = var.eventhub_usage_hub_name, description = "AI usage events" } },
+    var.enable_pii_redaction ? { "pii-usage-eventhub-logger" = { hub = var.eventhub_pii_hub_name, description = "PII processing events" } } : {},
+  )
 }
 
-resource "azurerm_api_management_logger" "pii_eventhub" {
-  count               = var.enable_pii_redaction ? 1 : 0
-  name                = "pii-usage-eventhub-logger"
-  api_management_name = var.api_management_name
-  resource_group_name = var.resource_group_name
+resource "azapi_resource" "eventhub_logger" {
+  for_each = local.eventhub_loggers
 
-  eventhub {
-    name                             = var.eventhub_pii_hub_name
-    endpoint_uri                     = local.eventhub_hostname
-    user_assigned_identity_client_id = var.managed_identity_client_id
+  type      = "Microsoft.ApiManagement/service/loggers@2024-05-01"
+  name      = each.key
+  parent_id = var.api_management_id
+
+  body = {
+    properties = {
+      loggerType  = "azureEventHub"
+      description = each.value.description
+      credentials = {
+        name             = each.value.hub
+        endpointAddress  = local.eventhub_hostname
+        identityClientId = local.identity_client_id_ref
+      }
+    }
   }
+
+  # The {{reference}} must resolve when the logger is saved.
+  depends_on = [azurerm_api_management_named_value.logger_credential]
 }
 
 # -----------------------------------------------------------------------------
@@ -104,7 +134,7 @@ resource "azurerm_api_management_diagnostic" "global" {
   identifier               = "applicationinsights"
   resource_group_name      = var.resource_group_name
   api_management_name      = var.api_management_name
-  api_management_logger_id = azurerm_api_management_logger.app_insights.id
+  api_management_logger_id = azapi_resource_action.app_insights_logger.resource_id
 
   sampling_percentage   = 100
   always_log_errors     = true

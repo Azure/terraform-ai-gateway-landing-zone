@@ -21,7 +21,11 @@ connector's queries empty (the usage export then silently exports nothing).
 The APIM and Logic App components also accept only managed identity ingestion
 (`monitoring.app_insights_entra_ingestion`, the default): the APIM logger and
 the Logic App runtime send as their identities (Monitoring Metrics Publisher),
-so the instrumentation key alone can't send telemetry.
+so the instrumentation key alone can't send telemetry. The loggers' credentials
+are Key Vault secrets read through Key Vault-backed named values
+(`apim_logging.credentials_in_key_vault`, the default), so APIM holds no secret
+named values of its own ("API Management secret named values should be stored in
+Azure Key Vault").
 A hub-and-spoke that shares DNS takes one scope (the hub's): a second one
 would overwrite the hub's records.
 

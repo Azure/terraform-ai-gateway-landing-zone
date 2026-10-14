@@ -27,6 +27,19 @@ variable "app_insights_managed_identity" {
   nullable    = false
 }
 
+variable "credentials_in_key_vault" {
+  description = "Logger credentials (identity client ID, App Insights connection string) in Key Vault (credentials_key_vault_id): written as secrets apim-logger-*, read by APIM through Key Vault-backed named values (managed_identity_client_id needs Key Vault Secrets User, and APIM must reach the vault). false = APIM stores them in the secret named values it generates (Logger-Credentials--*)."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "credentials_key_vault_id" {
+  description = "Key Vault for the logger credentials (credentials_in_key_vault = true)."
+  type        = string
+  default     = null
+}
+
 variable "app_insights_instrumentation_key" {
   description = "Instrumentation key of the APIM Application Insights component (legacy logger credential)."
   type        = string

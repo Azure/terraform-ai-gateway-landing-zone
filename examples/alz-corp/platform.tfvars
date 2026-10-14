@@ -59,6 +59,11 @@ monitoring = {
   app_insights_entra_ingestion = true
 }
 
+# Logger credentials as Key Vault secrets read through Key Vault-backed named values (the default):
+# APIM keeps no secret named values of its own, as "API Management secret named values should be
+# stored in Azure Key Vault" requires. APIM (internal VNet) reaches the vault's private endpoint.
+apim_logging = { credentials_in_key_vault = true }
+
 deny_storage_shared_key = false # ALZ assigns Deny-Storage-Shared-Key at the MG
 
 secret_writer_principal_ids = { pipeline = "<vended-apply-principal-id>" }

@@ -288,13 +288,34 @@ variable "api_center" {
 }
 
 variable "apim_logging" {
-  description = "Service-level APIM diagnostics (Application Insights): verbosity (verbose | information | error) and body bytes logged."
+  description = <<-EOT
+    Service-level APIM diagnostics and loggers.
+      verbosity                 App Insights diagnostic verbosity: verbose | information | error.
+      body_bytes                Request / response body bytes logged to App Insights.
+      credentials_in_key_vault  true (default): the loggers' credentials (the APIM identity's client ID,
+                                the App Insights connection string) are Key Vault secrets (apim-logger-*,
+                                platform vault) that APIM reads through Key Vault-backed named values,
+                                so no secret named value lives in APIM (policy "API Management secret
+                                named values should be stored in Azure Key Vault"). APIM must reach the
+                                vault: a VNet mode other than none, or a vault open to public access.
+                                false: APIM keeps them in the secret named values it generates
+                                (Logger-Credentials--*). Switching an existing environment leaves those
+                                behind: see the Deployment Guide for the cleanup command.
+  EOT
   type = object({
-    verbosity  = optional(string, "information")
-    body_bytes = optional(number, 8192)
+    verbosity                = optional(string, "information")
+    body_bytes               = optional(number, 8192)
+    credentials_in_key_vault = optional(bool, true)
   })
   default  = {}
   nullable = false
+
+  validation {
+    condition = !var.apim_logging.credentials_in_key_vault || coalesce(var.apim.vnet_mode, contains(["StandardV2", "PremiumV2"], var.apim.sku) ? "integration" : "external") != "none" || (
+      var.key_vault.public_network_access_enabled && var.key_vault.network_acl_default_action == "Allow"
+    )
+    error_message = "apim_logging.credentials_in_key_vault: APIM without a VNet (apim.vnet_mode = none) can't reach the private platform Key Vault with its user-assigned identity. Set credentials_in_key_vault = false, or put APIM in a VNet."
+  }
 }
 
 variable "usage_pipeline" {

@@ -140,7 +140,8 @@ run "apim_none_skips_the_apim_subnet" {
   command = plan
 
   variables {
-    apim = { vnet_mode = "none" }
+    apim         = { vnet_mode = "none" }
+    apim_logging = { credentials_in_key_vault = false }
   }
 
   assert {
@@ -188,7 +189,8 @@ run "alz_spoke_workflow_standard_needs_logic_app_subnet" {
       vnet_id    = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke"
       subnet_ids = { pe = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-pe" }
     }
-    apim = { vnet_mode = "none" }
+    apim         = { vnet_mode = "none" }
+    apim_logging = { credentials_in_key_vault = false }
   }
 
   expect_failures = [var.network]
@@ -262,6 +264,36 @@ run "rejects_unknown_redis_sku" {
 
 # --- availability zones ----------------------------------------------------------
 
+run "logger_credentials_in_key_vault_by_default" {
+  command = plan
+  assert {
+    condition = (
+      toset(keys(module.apim_telemetry.logger_credential_named_values)) == toset(["logger-identity-client-id", "logger-appinsights-connection-string"]) &&
+      module.apim_telemetry.logger_identity_client_id == "{{logger-identity-client-id}}"
+    )
+    error_message = "By default the logger credentials are Key Vault-backed named values, and the loggers reference them."
+  }
+}
+
+run "logger_credentials_in_apim" {
+  command = plan
+  variables {
+    apim_logging = { credentials_in_key_vault = false }
+  }
+  assert {
+    condition     = length(module.apim_telemetry.logger_credential_named_values) == 0
+    error_message = "credentials_in_key_vault = false: no Key Vault secrets or named values."
+  }
+}
+
+run "logger_credentials_in_key_vault_need_apim_in_a_vnet" {
+  command = plan
+  variables {
+    apim = { vnet_mode = "none" }
+  }
+  expect_failures = [var.apim_logging]
+}
+
 run "app_insights_instrumentation_key_ingestion" {
   command = plan
   variables {
@@ -287,7 +319,8 @@ run "apim_v2_zone_redundant" {
 run "apim_developer_has_no_zones" {
   command = plan
   variables {
-    apim = { sku = "Developer", vnet_mode = "none", zone_redundant = true }
+    apim         = { sku = "Developer", vnet_mode = "none", zone_redundant = true }
+    apim_logging = { credentials_in_key_vault = false }
   }
   expect_failures = [var.apim]
 }
@@ -794,8 +827,9 @@ run "creating_and_joining_a_scope_are_exclusive" {
 run "private_ingestion_needs_apim_in_a_vnet" {
   command = plan
   variables {
-    apim       = { vnet_mode = "none" }
-    monitoring = { private_link_scope = true, public_ingestion_enabled = false }
+    apim         = { vnet_mode = "none" }
+    apim_logging = { credentials_in_key_vault = false }
+    monitoring   = { private_link_scope = true, public_ingestion_enabled = false }
   }
 
   expect_failures = [var.monitoring]

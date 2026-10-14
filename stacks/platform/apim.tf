@@ -55,6 +55,8 @@ module "apim_telemetry" {
   app_insights_connection_string   = module.monitoring.app_insights_connection_string
   app_insights_instrumentation_key = module.monitoring.app_insights_instrumentation_key
   app_insights_managed_identity    = var.monitoring.app_insights_entra_ingestion
+  credentials_in_key_vault         = var.apim_logging.credentials_in_key_vault
+  credentials_key_vault_id         = var.apim_logging.credentials_in_key_vault ? module.key_vault.key_vault_id_for_secrets : null
   log_analytics_id                 = module.monitoring.log_analytics_id
 
   eventhub_endpoint_uri      = module.eventhub.endpoint_uri

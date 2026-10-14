@@ -72,7 +72,7 @@ rights below, so the pipeline never holds subscription-wide rights.
 | `identity` | apply identity | none | Graph `Application.ReadWrite.OwnedBy` (a person: permission to register apps) |
 | `network` | apply identity | Contributor on the workload resource group; `alz_spoke`: Network Contributor on the vended VNet | none |
 | `app-hosting` | apply identity | Contributor on the workload resource group | none |
-| `platform` | apply identity | Contributor, RBAC Administrator (conditioned: no privileged roles) and Resource Policy Contributor on the workload resource group; a shared ASE: `Microsoft.Web/hostingEnvironments/join/action` on it | none |
+| `platform` | apply identity | Contributor, RBAC Administrator (conditioned: no privileged roles) and Resource Policy Contributor on the workload resource group; a shared ASE: `Microsoft.Web/hostingEnvironments/join/action` on it. It becomes *Key Vault Administrator* on the vault it creates, and writes the APIM logger credentials there (§6.8) | none |
 | `gateway-config` | apply identity | Contributor on the workload resource group | Graph `Application.Read.All`, only with `entra_auth` enabled and no explicit `client_id` |
 | `llm-backend-onboarding` | apply identity | Contributor on the workload resource group | none |
 | `access-contracts` | apply identity | Contributor on the workload resource group; *Key Vault Secrets Officer* on the platform Key Vault (granted by `platform` through `secret_writer_principal_ids`) | none |
@@ -288,9 +288,13 @@ backend_hcl`, delete the override and run `terraform init -migrate-state
 
 ### 4.5 Reaching private data planes
 
-Some steps talk to private endpoints: the state account (when private), Key
-Vault secrets in access contracts, and the workflow package on the keyless
-storage account (every plan reads it). Options:
+Some steps talk to private endpoints:
+- the state account (when private);
+- Key Vault secrets: the access contracts' and the platform's APIM logger credentials
+  (`apim_logging.credentials_in_key_vault`, §6.8);
+- the workflow package on the keyless storage account (every plan reads it).
+
+Options:
 
 | Option | How | When |
 |---|---|---|
@@ -336,6 +340,7 @@ Platform-team requests for an ALZ:
 | Change an LLM API, routing or model-aware fragment | `stacks/llm-backend-onboarding/apis/` or `fragments/` | `task apply STACK=llm-backend-onboarding …` |
 | Scale APIM, Foundry capacity, Logic App workers | `platform.tfvars` | `task apply STACK=platform …` |
 | Spread APIM / the Logic App over availability zones | `platform.tfvars` `apim.zone_redundant`, `usage_pipeline.logic_app.zone_redundant` (or `usage_pipeline.ase.zone_redundant`) | at creation: see [6.7 Availability zones](#67-availability-zones) |
+| Keep the APIM logger credentials out of APIM's own secrets | `platform.tfvars` `apim_logging.credentials_in_key_vault` (default `true`) | `task apply STACK=platform …`; see [6.8](#68-apim-logger-credentials-in-key-vault) |
 | Republish only the usage-ingestion workflows | `logicapp-src/usage-ingestion-logicapp/` | `task logic-app-code ENV=<env>` |
 | Add a subnet / DNS zone link (greenfield) | `network.tfvars` | `task apply STACK=network …` |
 
@@ -716,6 +721,50 @@ az apim show -n <apim> -g <rg> --query "{sku:sku.name, units:sku.capacity, zones
 az rest --method get --url "https://management.azure.com<apim id>?api-version=2025-03-01-preview" --query properties.zoneRedundant   # v2
 az appservice plan show -n <plan> -g <rg> --query "{workers:sku.capacity, zoneRedundant:properties.zoneRedundant}"
 az storage account show -n <logic storage> -g <rg> --query sku.name
+```
+
+### 6.8 APIM logger credentials in Key Vault
+
+APIM stores every credential given to a logger in a secret named value it generates
+(`Logger-Credentials--<id>`). Two kinds are affected:
+- the App Insights logger's connection string;
+- the client ID of the managed identity that the App Insights and Event Hub loggers authenticate
+  with.
+
+The built-in policy **"API Management secret named values should be stored in Azure Key
+Vault"** (Audit / Deny) flags those named values.
+
+With `apim_logging.credentials_in_key_vault = true` (the default), APIM generates no named values:
+
+| Item | Where |
+|---|---|
+| Key Vault secrets `apim-logger-identity-client-id`, `apim-logger-appinsights-connection-string` | the platform Key Vault, written by the platform apply. They expire after 90 days (ALZ guardrail); the expiry is moved forward every 60 days on apply, and reads keep working after it |
+| Named values `logger-identity-client-id`, `logger-appinsights-connection-string` | Key Vault references (versionless), resolved by the APIM identity (*Key Vault Secrets User*) |
+| Loggers `appinsights-logger`, `usage-eventhub-logger`, `pii-usage-eventhub-logger` | credentials are `{{logger-…}}` references |
+
+Requirements:
+- APIM must reach the vault: any VNet mode except `none`, or a vault open to public access. A
+  validation enforces this.
+- The platform apply writes the secrets, so it needs the vault's data plane (§4.5). The CI plan
+  identity reads them during refresh (`secret_reader_principal_ids`).
+
+Notes:
+- The connection string isn't a usable secret once `monitoring.app_insights_entra_ingestion`
+  (the default) turns off local authentication. It is stored in Key Vault only so that APIM
+  generates no named value for it.
+- APIM reads the App Insights logger back with `identityClientId` equal to the connection-string
+  reference. Ingestion still uses the managed identity: verified with local authentication
+  disabled. The logger is therefore written with an idempotent PUT, not diffed.
+
+**Switching an existing APIM from `false` to `true`.** APIM doesn't delete the named values it
+generated. Delete them once after the apply; APIM refuses to delete one that is still in use:
+
+```bash
+S=$(az apim show -n <apim> -g <rg> --query id -o tsv)
+for n in $(az rest --method get --url "https://management.azure.com$S/namedValues?api-version=2024-05-01" \
+    --query "value[?starts_with(properties.displayName, 'Logger-Credentials--')].name" -o tsv); do
+  az rest --method delete --url "https://management.azure.com$S/namedValues/$n?api-version=2024-05-01"
+done
 ```
 
 ## 7. CI/CD (GitHub Actions)

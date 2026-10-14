@@ -30,7 +30,9 @@ api_center = {
   ]
 }
 
-apim_logging = { verbosity = "verbose", body_bytes = 8192 }
+# credentials_in_key_vault (default): the loggers' credentials are Key Vault secrets read through
+# Key Vault-backed named values, so APIM keeps no secret named values of its own.
+apim_logging = { verbosity = "verbose", body_bytes = 8192, credentials_in_key_vault = true }
 
 foundry = {
   instances = [{ location = "swedencentral" }, { location = "eastus2" }]
