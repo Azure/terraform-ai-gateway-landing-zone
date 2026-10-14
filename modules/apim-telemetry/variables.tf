@@ -20,6 +20,13 @@ variable "app_insights_id" {
   type        = string
 }
 
+variable "app_insights_managed_identity" {
+  description = "The App Insights logger authenticates with the APIM managed identity (managed_identity_client_id, which needs Monitoring Metrics Publisher on the component) instead of the instrumentation key. Requires app_insights_connection_string. Needed when the component disables local authentication."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "app_insights_instrumentation_key" {
   description = "Instrumentation key of the APIM Application Insights component (legacy logger credential)."
   type        = string

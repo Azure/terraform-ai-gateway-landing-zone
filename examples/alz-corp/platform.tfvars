@@ -53,6 +53,10 @@ monitoring = {
   existing_private_link_scope_id = "/subscriptions/<hub-sub>/resourceGroups/<rg-hub-monitor>/providers/Microsoft.Insights/privateLinkScopes/<ampls-hub>"
   public_ingestion_enabled       = false
   public_query_enabled           = false
+  # Managed identity ingestion only (the default): the APIM and Logic App components have local
+  # authentication off, as the built-in policy "Application Insights components should block
+  # non-Azure Active Directory based ingestion" (MCSB IM-1) requires.
+  app_insights_entra_ingestion = true
 }
 
 deny_storage_shared_key = false # ALZ assigns Deny-Storage-Shared-Key at the MG

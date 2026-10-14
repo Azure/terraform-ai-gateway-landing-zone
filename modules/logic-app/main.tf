@@ -199,7 +199,7 @@ resource "azurerm_monitor_autoscale_setting" "service_plan" {
 
 locals {
   # App settings shared by both hosting models.
-  common_app_settings = {
+  common_app_settings = merge({
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = var.app_insights_connection_string
     "FUNCTIONS_WORKER_RUNTIME"              = "node"
     "WEBSITE_NODE_DEFAULT_VERSION"          = "~20"
@@ -241,7 +241,10 @@ locals {
     "COSMOSDB_ENDPOINT"  = var.cosmos_db_endpoint
     "COSMOSDB_DATABASE"  = var.cosmos_db_database_name
     "COSMOSDB_CONTAINER" = var.cosmos_db_container_usage
-  }
+    }, var.app_insights_managed_identity ? {
+    # Microsoft Entra ingestion for the runtime telemetry (Functions host), as the usage UAMI.
+    "APPLICATIONINSIGHTS_AUTHENTICATION_STRING" = "Authorization=AAD;ClientId=${var.managed_identity_client_id}"
+  } : {})
 
   # ASE v3: settings azurerm_logic_app_standard would otherwise inject, plus
   # identity-based runtime storage (UAMI only — system-assigned isn't supported).

@@ -51,10 +51,11 @@ Called by [stacks/platform](../../stacks/platform/apim.tf); the caller passes th
 | <a name="input_log_verbosity"></a> [log\_verbosity](#input\_log\_verbosity) | APIM diagnostic log verbosity: verbose, information, error | `string` | n/a | yes |
 | <a name="input_managed_identity_client_id"></a> [managed\_identity\_client\_id](#input\_managed\_identity\_client\_id) | Client ID of the user-assigned managed identity the service runs as. | `string` | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Name of the resource group the module deploys into. | `string` | n/a | yes |
-| <a name="input_app_insights_connection_string"></a> [app\_insights\_connection\_string](#input\_app\_insights\_connection\_string) | Application Insights connection string — used in the AppInsights logger (Bicep parity). | `string` | `""` | no |
+| <a name="input_app_insights_connection_string"></a> [app\_insights\_connection\_string](#input\_app\_insights\_connection\_string) | Application Insights connection string — used in the AppInsights logger. | `string` | `""` | no |
+| <a name="input_app_insights_managed_identity"></a> [app\_insights\_managed\_identity](#input\_app\_insights\_managed\_identity) | The App Insights logger authenticates with the APIM managed identity (managed\_identity\_client\_id, which needs Monitoring Metrics Publisher on the component) instead of the instrumentation key. Requires app\_insights\_connection\_string. Needed when the component disables local authentication. | `bool` | `false` | no |
 | <a name="input_enable_diagnostics"></a> [enable\_diagnostics](#input\_enable\_diagnostics) | Configure the workload Azure Monitor diagnostic setting by ARM PUT. false = Azure Policy owns it. APIM loggers and API diagnostics are unaffected. | `bool` | `true` | no |
-| <a name="input_eventhub_pii_hub_name"></a> [eventhub\_pii\_hub\_name](#input\_eventhub\_pii\_hub\_name) | Name of the PII usage event hub (matches Bicep output eventHubPIIName). | `string` | `"pii-usage"` | no |
-| <a name="input_eventhub_usage_hub_name"></a> [eventhub\_usage\_hub\_name](#input\_eventhub\_usage\_hub\_name) | Name of the APIM usage event hub inside the namespace (matches Bicep output eventHub.name). | `string` | `"ai-usage"` | no |
+| <a name="input_eventhub_pii_hub_name"></a> [eventhub\_pii\_hub\_name](#input\_eventhub\_pii\_hub\_name) | Name of the PII usage event hub. | `string` | `"pii-usage"` | no |
+| <a name="input_eventhub_usage_hub_name"></a> [eventhub\_usage\_hub\_name](#input\_eventhub\_usage\_hub\_name) | Name of the APIM usage event hub inside the namespace. | `string` | `"ai-usage"` | no |
 
 ## Outputs
 

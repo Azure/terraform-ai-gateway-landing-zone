@@ -36,6 +36,11 @@ output "logic_app_insights_connection_string" {
   sensitive   = true
 }
 
+output "logic_app_insights_id" {
+  description = "Resource ID of the Logic App Application Insights component."
+  value       = module.app_insights["logic_app"].resource_id
+}
+
 output "foundry_app_insights_id" {
   description = "Resource ID of the Foundry Application Insights component (null without Foundry)."
   value       = try(module.app_insights["foundry"].resource_id, null)

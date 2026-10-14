@@ -26,6 +26,8 @@ monitoring = {
   private_link_scope       = true
   public_ingestion_enabled = false
   public_query_enabled     = false
+  # Managed identity ingestion only (the default): no instrumentation-key ingestion.
+  app_insights_entra_ingestion = true
 }
 
 deny_storage_shared_key = true

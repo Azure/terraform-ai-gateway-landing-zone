@@ -74,6 +74,13 @@ variable "app_insights_connection_string" {
   type        = string
   sensitive   = true
 }
+
+variable "app_insights_managed_identity" {
+  description = "The runtime sends its telemetry with Microsoft Entra authentication as the user-assigned identity (managed_identity_client_id, which needs Monitoring Metrics Publisher on the component). Needed when the component disables local authentication."
+  type        = bool
+  default     = false
+  nullable    = false
+}
 variable "managed_identity_id" {
   description = "Resource ID of the user-assigned managed identity the service runs as."
   type        = string

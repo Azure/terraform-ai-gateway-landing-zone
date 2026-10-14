@@ -13,6 +13,8 @@ Monitoring is private too: an Azure Monitor Private Link Scope with a private
 endpoint (the five Azure Monitor zones, `private_dns.link_monitor_zone`).
 Log Analytics and every App Insights component accept telemetry only through
 it; the Logic App and Foundry components accept queries only through it. The
+APIM and Logic App components also accept only managed identity ingestion
+(`monitoring.app_insights_entra_ingestion`, the default). The
 workspace and the APIM component keep public query: the usage pipeline's
 Logic App connector reads the APIM component through Resource Manager, which
 can't use private links, and its data lives in the workspace. So the other

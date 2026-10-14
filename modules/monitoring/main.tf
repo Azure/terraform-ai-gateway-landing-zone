@@ -73,6 +73,10 @@ module "app_insights" {
 
   internet_ingestion_enabled = var.public_ingestion_enabled
   internet_query_enabled     = local.public_query[each.key]
+
+  # Entra-only ingestion: senders authenticate with a managed identity (Monitoring Metrics
+  # Publisher); the instrumentation key alone can no longer send telemetry.
+  local_authentication_disabled = contains(var.local_authentication_disabled_components, each.key)
 }
 
 # -----------------------------------------------------------------------------

@@ -95,6 +95,13 @@ run "defaults_and_greenfield_lookups" {
   command = plan
 
   assert {
+    condition = (
+      toset(keys(azurerm_role_assignment.app_insights_publisher)) == toset(["apim", "logic_app"]) &&
+      alltrue([for r in azurerm_role_assignment.app_insights_publisher : r.role_definition_name == "Monitoring Metrics Publisher"])
+    )
+    error_message = "Entra ingestion by default: the APIM and usage identities publish to their App Insights components."
+  }
+  assert {
     condition     = alltrue([for names in output.diagnostic_setting_names : length(names) == 1])
     error_message = "Every service retains its workload diagnostics by default."
   }
@@ -254,6 +261,17 @@ run "rejects_unknown_redis_sku" {
 }
 
 # --- availability zones ----------------------------------------------------------
+
+run "app_insights_instrumentation_key_ingestion" {
+  command = plan
+  variables {
+    monitoring = { app_insights_entra_ingestion = false }
+  }
+  assert {
+    condition     = length(azurerm_role_assignment.app_insights_publisher) == 0
+    error_message = "Without Entra ingestion no publisher role is assigned."
+  }
+}
 
 run "apim_v2_zone_redundant" {
   command = plan

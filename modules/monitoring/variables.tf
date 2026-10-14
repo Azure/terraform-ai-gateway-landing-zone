@@ -37,6 +37,18 @@ variable "create_foundry_app_insights" {
   default     = true
 }
 
+variable "local_authentication_disabled_components" {
+  description = "App Insights components (apim, logic_app, foundry) that accept only Microsoft Entra (managed identity) ingestion: local authentication with the instrumentation key is disabled. Their senders need Monitoring Metrics Publisher."
+  type        = set(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition     = alltrue([for c in var.local_authentication_disabled_components : contains(["apim", "logic_app", "foundry"], c)])
+    error_message = "local_authentication_disabled_components accepts apim, logic_app and foundry."
+  }
+}
+
 variable "subscription_id" {
   description = "Subscription ID used when rendering the App Insights dashboard templates."
   type        = string

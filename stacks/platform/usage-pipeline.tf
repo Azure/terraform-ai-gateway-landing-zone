@@ -72,6 +72,7 @@ module "logic_app" {
   # The Logic App's own runtime telemetry goes to its component (appi-logic-*); the usage
   # workflow still queries the APIM component's token metrics (AppInsights_* settings below).
   app_insights_connection_string = module.monitoring.logic_app_insights_connection_string
+  app_insights_managed_identity  = var.monitoring.app_insights_entra_ingestion
   apim_app_insights_name         = module.monitoring.app_insights_name
   apim_app_insights_rg           = local.resource_group_name
 

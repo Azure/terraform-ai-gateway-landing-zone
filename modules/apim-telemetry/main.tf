@@ -23,10 +23,20 @@ resource "azurerm_api_management_logger" "app_insights" {
   resource_id         = var.app_insights_id
 
   application_insights {
-    # prefer connection_string (correlates region+resource) when
-    # available; fall back to instrumentation_key.
+    # Connection string (correlates region + resource), else the instrumentation key.
+    # app_insights_managed_identity: the logger also authenticates with the APIM identity
+    # (Microsoft Entra ingestion), so the connection string APIM stores in its generated
+    # Logger-Credentials named value can't send telemetry on its own.
     connection_string   = var.app_insights_connection_string != "" ? var.app_insights_connection_string : null
     instrumentation_key = var.app_insights_connection_string == "" ? var.app_insights_instrumentation_key : null
+    identity_client_id  = var.app_insights_managed_identity ? var.managed_identity_client_id : null
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !var.app_insights_managed_identity || var.app_insights_connection_string != ""
+      error_message = "app_insights_managed_identity needs app_insights_connection_string: managed identity ingestion isn't possible with an instrumentation key alone."
+    }
   }
 }
 

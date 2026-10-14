@@ -57,6 +57,9 @@ monitoring = {
   public_ingestion_enabled       = false # telemetry only through the private endpoint
   public_query_enabled           = false # except the workspace and the APIM component (the usage pipeline's Logic App connector reads it through Resource Manager)
   app_insights_dashboards        = true
+  # Default: the APIM and Logic App components accept only managed identity ingestion (local
+  # authentication off); the instrumentation key alone can't send telemetry.
+  app_insights_entra_ingestion = true
 }
 
 deny_storage_shared_key = false # Workflow Standard needs shared-key storage

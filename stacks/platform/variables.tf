@@ -439,6 +439,16 @@ variable "monitoring" {
                                        returns them empty. The other components' data, stored in the same
                                        workspace, stays queryable there (RBAC applies).
       app_insights_dashboards          Create the Application Insights dashboards.
+      app_insights_entra_ingestion     true (default): the APIM and Logic App App Insights components accept
+                                       only Microsoft Entra ingestion (local authentication disabled). The
+                                       APIM logger and the Logic App runtime send as their managed
+                                       identities, which get Monitoring Metrics Publisher on their component,
+                                       so the connection string APIM keeps in its generated
+                                       Logger-Credentials named value can't be used to send telemetry.
+                                       Telemetry can pause for a few minutes on the apply that turns it on
+                                       (role propagation). false: instrumentation-key ingestion. The Foundry
+                                       component keeps local authentication (Foundry tracing uses its
+                                       connection string).
       policy_managed_diagnostics       Services whose Azure Monitor settings belong to Policy:
                                        apim, cosmosdb, eventhub, foundry, logic_app. No workload
                                        settings are created/overwritten for these services. foundry
@@ -455,10 +465,11 @@ variable "monitoring" {
       ingestion = optional(string, "Open")
       query     = optional(string, "Open")
     }), {})
-    public_ingestion_enabled   = optional(bool, true)
-    public_query_enabled       = optional(bool, true)
-    app_insights_dashboards    = optional(bool, true)
-    policy_managed_diagnostics = optional(set(string), [])
+    public_ingestion_enabled     = optional(bool, true)
+    public_query_enabled         = optional(bool, true)
+    app_insights_dashboards      = optional(bool, true)
+    app_insights_entra_ingestion = optional(bool, true)
+    policy_managed_diagnostics   = optional(set(string), [])
   })
   default  = {}
   nullable = false

@@ -18,6 +18,10 @@ pipeline's Logic App connector reads through Resource Manager. The central
 workspace keeps the platform team's settings, but must accept public queries:
 the APIM component's data lives there, and a closed workspace returns the
 connector's queries empty (the usage export then silently exports nothing).
+The APIM and Logic App components also accept only managed identity ingestion
+(`monitoring.app_insights_entra_ingestion`, the default): the APIM logger and
+the Logic App runtime send as their identities (Monitoring Metrics Publisher),
+so the instrumentation key alone can't send telemetry.
 A hub-and-spoke that shares DNS takes one scope (the hub's): a second one
 would overwrite the hub's records.
 

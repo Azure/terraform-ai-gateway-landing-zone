@@ -43,4 +43,20 @@ module "monitoring" {
   # can't use private links. The component's data lives in the workspace, and a workspace that
   # blocks public query returns those queries empty (no error), so both keep public query.
   public_query_components = ["log_analytics", "apim"]
+
+  local_authentication_disabled_components = var.monitoring.app_insights_entra_ingestion ? ["apim", "logic_app"] : []
+}
+
+# Microsoft Entra ingestion: the identities that send to the components. "Metrics" in the role
+# name notwithstanding, it publishes every telemetry type.
+resource "azurerm_role_assignment" "app_insights_publisher" {
+  for_each = var.monitoring.app_insights_entra_ingestion ? {
+    apim      = { scope = module.monitoring.app_insights_id, principal_id = module.identity["apim"].principal_id }
+    logic_app = { scope = module.monitoring.logic_app_insights_id, principal_id = module.identity["usage"].principal_id }
+  } : {}
+
+  scope                = each.value.scope
+  role_definition_name = "Monitoring Metrics Publisher"
+  principal_id         = each.value.principal_id
+  principal_type       = "ServicePrincipal"
 }
