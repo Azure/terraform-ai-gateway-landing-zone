@@ -57,6 +57,18 @@ mock_provider "modtm" {
   override_during = plan
 }
 
+# Mock providers don't support ephemeral resources (modules/redis reads the access key with one):
+# replace the module in every run.
+override_module {
+  target = module.redis
+  outputs = {
+    redis_id                    = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-aigw-dev/providers/Microsoft.Cache/redisEnterprise/redis-aigw-dev"
+    host_name                   = "redis-aigw-dev.swedencentral.redis.azure.net"
+    port                        = 10000
+    connection_string_secret_id = "https://kv-aigw-dev.vault.azure.net/secrets/apim-redis-cache-connection-string"
+  }
+}
+
 variables {
   workload        = "aigw"
   environment     = "dev"
@@ -263,6 +275,40 @@ run "rejects_unknown_redis_sku" {
 }
 
 # --- availability zones ----------------------------------------------------------
+
+# --- semantic cache ----------------------------------------------------------------
+
+run "semantic_cache_wires_redis_identity_and_role" {
+  command = plan
+  variables {
+    features = { semantic_cache = true }
+  }
+  assert {
+    condition = (
+      length(azurerm_role_assignment.apim_system_openai_user) == 1 &&
+      azurerm_role_assignment.apim_system_openai_user["0"].role_definition_name == "Cognitive Services OpenAI User"
+    )
+    error_message = "Semantic cache: APIM gets a system-assigned identity with Cognitive Services OpenAI User on each Foundry account."
+  }
+}
+
+run "semantic_cache_off_adds_nothing" {
+  command = plan
+  assert {
+    condition     = length(azurerm_role_assignment.apim_system_openai_user) == 0 && module.apim.system_assigned_principal_id == null
+    error_message = "Without the semantic cache: no system-assigned identity, no role."
+  }
+}
+
+run "semantic_cache_needs_apim_in_a_vnet" {
+  command = plan
+  variables {
+    apim         = { vnet_mode = "none" }
+    apim_logging = { credentials_in_key_vault = false }
+    features     = { semantic_cache = true }
+  }
+  expect_failures = [var.features]
+}
 
 run "logger_credentials_in_key_vault_by_default" {
   command = plan

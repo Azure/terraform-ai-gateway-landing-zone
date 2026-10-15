@@ -144,9 +144,10 @@ run "default_policy_restricts_nothing" {
       strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "name=\"enableResponseHeaders\" value=\"@(true)\"") &&
       !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "allowedModels") &&
       !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "llm-token-limit") &&
-      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "jwtRequired")
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "jwtRequired") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "semanticCache")
     )
-    error_message = "With no properties: every model, no token limit, no JWT, response headers on."
+    error_message = "With no properties: every model, no token limit, no JWT, no semantic cache, response headers on."
   }
   assert {
     condition     = !can(regex("\n[ \t]*\n", azurerm_api_management_product_policy.service["LLM"].xml_content))
@@ -197,6 +198,23 @@ run "token_limit_parts_are_optional" {
   assert {
     condition     = strcontains(azurerm_api_management_product_policy.service["DOC"].xml_content, "token-quota=\"1000\" token-quota-period=\"Monthly\" estimate-prompt-tokens") && !strcontains(azurerm_api_management_product_policy.service["DOC"].xml_content, "tokens-per-minute")
     error_message = "A quota alone defaults to a monthly period."
+  }
+}
+
+run "semantic_cache_opt_in" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", semantic_cache = true }]
+  }
+
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"semanticCacheEnabled\" value=\"true\" />") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "llm-semantic-cache") &&
+      !can(regex("\n[ \t]*\n", azurerm_api_management_product_policy.service["LLM"].xml_content))
+    )
+    error_message = "semantic_cache only turns the cache on: the lookup and store run in the LLM API policies (the store must be in the lookup's scope)."
   }
 }
 

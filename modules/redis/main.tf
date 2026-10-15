@@ -58,14 +58,37 @@ resource "azapi_resource" "redis_db" {
   response_export_values = ["properties.port"]
 }
 
-# used for the APIM service/caches
-# connection string.
-resource "azapi_resource_action" "redis_keys" {
+# -----------------------------------------------------------------------------
+# CONNECTION STRING -> KEY VAULT (the APIM external cache reads it from there)
+# APIM can't use Entra auth for Azure Managed Redis, so it needs the access key.
+# The key is read with an ephemeral listKeys and written only to the write-only
+# value of a Key Vault secret: it's never in Terraform state. The no-op suffix
+# keeps the action's resource ID unknown until the database exists, so the read
+# runs at apply time on a first deployment.
+# -----------------------------------------------------------------------------
+
+ephemeral "azapi_resource_action" "redis_keys" {
   type                   = "Microsoft.Cache/redisEnterprise/databases@2025-07-01"
-  resource_id            = azapi_resource.redis_db.id
+  resource_id            = "${azapi_resource.redis_db.id}${substr(jsonencode(azapi_resource.redis_db.output), 0, 0)}"
   action                 = "listKeys"
   method                 = "POST"
   response_export_values = ["primaryKey"]
+}
+
+# Rewrites the secret (re-reading the key) and pushes its expiry forward: an expiry within
+# 90 days satisfies ALZ Enforce-GR-KeyVault, and reads keep working after it. After
+# regenerating the Redis keys, re-apply with -replace on this resource to refresh at once.
+resource "time_rotating" "connection_string" {
+  rotation_days = 60
+}
+
+resource "azurerm_key_vault_secret" "connection_string" {
+  key_vault_id     = var.key_vault_id
+  name             = var.connection_string_secret_name
+  value_wo         = "${azapi_resource.redis.output.properties.hostName}:${azapi_resource.redis_db.output.properties.port},password=${ephemeral.azapi_resource_action.redis_keys.output.primaryKey},ssl=true"
+  value_wo_version = time_rotating.connection_string.unix
+  content_type     = "redis-connection-string"
+  expiration_date  = timeadd(time_rotating.connection_string.rfc3339, "${90 * 24}h")
 }
 
 data "azurerm_client_config" "current" {}

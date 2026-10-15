@@ -65,3 +65,14 @@ variable "dns_zone_group_managed_by_policy" {
   type        = bool
   default     = false
 }
+
+variable "key_vault_id" {
+  description = "Key Vault for the connection-string secret the APIM external cache reads (writer needs Key Vault Secrets Officer, and the data plane reachable)."
+  type        = string
+}
+
+variable "connection_string_secret_name" {
+  description = "Name of the Key Vault secret with the connection string."
+  type        = string
+  default     = "apim-redis-cache-connection-string"
+}

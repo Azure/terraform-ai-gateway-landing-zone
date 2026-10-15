@@ -27,3 +27,8 @@ output "internal_dns_zone_names" {
   description = "Private DNS zones created for the private VIP hostnames (empty when the hub provides them)."
   value       = keys(azurerm_private_dns_zone.internal)
 }
+
+output "system_assigned_principal_id" {
+  description = "Principal ID of the service's system-assigned identity (null without system_assigned_identity)."
+  value       = var.system_assigned_identity ? local.apim.system_principal_id : null
+}

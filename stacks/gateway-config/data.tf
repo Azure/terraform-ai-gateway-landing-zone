@@ -16,7 +16,8 @@ data "azurerm_user_assigned_identity" "apim" {
 data "azurerm_cognitive_account" "primary" {
   count = (
     (var.features.pii_redaction && var.pii_service.source == "foundry") ||
-    (var.features.content_safety && var.content_safety_service.source == "foundry")
+    (var.features.content_safety && var.content_safety_service.source == "foundry") ||
+    (var.semantic_cache.enabled && var.semantic_cache.embeddings_url == null)
   ) ? 1 : 0
   name                = module.naming.foundry_account_names[0]
   resource_group_name = local.names.resource_group
@@ -59,6 +60,11 @@ locals {
   azure_monitor_logger_id = "${local.apim_id}/loggers/azuremonitor"
 
   foundry_endpoint = try(data.azurerm_cognitive_account.primary[0].endpoint, "")
+
+  # Semantic cache embeddings endpoint: an explicit URL, else the deployment on the primary account.
+  embeddings_url = var.semantic_cache.embeddings_url != null ? var.semantic_cache.embeddings_url : (
+    local.foundry_endpoint != "" ? "${trimsuffix(local.foundry_endpoint, "/")}/openai/deployments/${var.semantic_cache.embeddings_deployment}/embeddings" : ""
+  )
 
   pii_endpoint = {
     foundry   = local.foundry_endpoint

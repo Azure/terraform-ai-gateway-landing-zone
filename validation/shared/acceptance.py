@@ -296,7 +296,10 @@ def features(xml):
         "content_safety": bool(cs),
         "shield_prompt": cs_attrs.get("shield-prompt", "").lower() == "true",
         "content_safety_completions": cs_attrs.get("enforce-on-completions", "").lower() == "true",
-        "semantic_cache": bool(re.search(r"<(llm|azure-openai)-semantic-cache-lookup\b", xml)),
+        # A custom lookup policy, or the access contract opt-in (services[*].semantic_cache) that turns on
+        # the semantic-cache-lookup fragment of the LLM APIs.
+        "semantic_cache": bool(re.search(r"<(llm|azure-openai)-semantic-cache-lookup\b", xml))
+        or variables.get("semanticCacheEnabled", "").lower() == "true",
         "jwt_validation": bool(re.search(r"<validate-(jwt|azure-ad-token)\b|fragment-id=\"security-handler\"", xml)),
     }
 
@@ -345,18 +348,16 @@ required_roles = []   # or app roles, e.g. ["Models.Read"]
 <!-- optional alert: <set-variable name="alertOnContentSafety" value="true" /> (raise-alert-events) -->
 """,
     "semantic_cache": """
-<!-- access contract service: policy_xml (needs platform features.semantic_cache = true: Redis as the
-     APIM external cache, and an embeddings deployment published as an APIM backend) -->
-<inbound>
-    <llm-semantic-cache-lookup score-threshold="0.05" embeddings-backend-id="<embeddings-backend>"
-                               embeddings-backend-auth="system-assigned" ignore-system-messages="true" max-message-count="10">
-        <vary-by>@(context.Subscription.Id)</vary-by>
-    </llm-semantic-cache-lookup>
-</inbound>
-<outbound>
-    <llm-semantic-cache-store duration="300" />
-    <set-header name="x-semantic-cache" exists-action="override"><value>miss-or-store</value></set-header>
-</outbound>
+# platform.tfvars: Redis as the APIM external cache, and an embeddings deployment
+features = { semantic_cache = true }
+foundry  = { models = [ ..., { name = "text-embedding-3-small", version = "1", capacity = 50 } ] }
+
+# gateway-config.tfvars: embeddings backend + the semantic-cache-lookup / -store fragments
+semantic_cache = { enabled = true }
+
+# access contract (.tfvars), per service: opt in
+semantic_cache = true
+# see docs/DEPLOYMENT_GUIDE.md 6.9
 """,
     "mcp_auth": """
 <!-- policy of the MCP API (gateway-config apis: policy_xml), inbound -->

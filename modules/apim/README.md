@@ -49,6 +49,7 @@ Unit tests: [tests/unit.tftest.hcl](tests/unit.tftest.hcl) (mocked providers, `t
 | Name | Type |
 | ---- | ---- |
 | [azapi_resource.service_zone_redundant](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
+| [azurerm_api_management_named_value.redis_cache_connection_string](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_named_value) | resource |
 | [azurerm_api_management_redis_cache.default](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_redis_cache) | resource |
 | [azurerm_private_dns_a_record.internal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_a_record) | resource |
 | [azurerm_private_dns_zone.internal](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/private_dns_zone) | resource |
@@ -82,10 +83,13 @@ Unit tests: [tests/unit.tftest.hcl](tests/unit.tftest.hcl) (mocked providers, `t
 | <a name="input_apim_zones"></a> [apim\_zones](#input\_apim\_zones) | Availability zones for APIM (Premium only, skuCount>1). Computed at root; pass explicitly here. | `list(string)` | `[]` | no |
 | <a name="input_create_internal_dns"></a> [create\_internal\_dns](#input\_create\_internal\_dns) | For vnet\_mode internal (classic: gateway, portal, developer, management, scm) or injection (Premium v2: gateway), create per-hostname private DNS zones and link them to the VNet. | `bool` | `true` | no |
 | <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone. | `bool` | `false` | no |
-| <a name="input_enable_redis_cache"></a> [enable\_redis\_cache](#input\_enable\_redis\_cache) | Attach Azure Managed Redis as the APIM external cache (requires redis\_cache\_connection\_string). | `bool` | `false` | no |
+| <a name="input_enable_redis_cache"></a> [enable\_redis\_cache](#input\_enable\_redis\_cache) | Attach Azure Managed Redis as the APIM external cache (requires redis\_cache\_connection\_string\_secret\_id). | `bool` | `false` | no |
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
+| <a name="input_managed_identity_client_id"></a> [managed\_identity\_client\_id](#input\_managed\_identity\_client\_id) | Client ID of the user-assigned identity (managed\_identity\_id): reads the Key Vault-backed named values. | `string` | `null` | no |
 | <a name="input_public_ip_address_id"></a> [public\_ip\_address\_id](#input\_public\_ip\_address\_id) | Classic external/internal injection only: Standard-SKU public IP resource ID for the service. null = Azure-managed. | `string` | `null` | no |
-| <a name="input_redis_cache_connection_string"></a> [redis\_cache\_connection\_string](#input\_redis\_cache\_connection\_string) | Optional Azure Managed Redis connection string. When set, creates an APIM service/caches resource. | `string` | `""` | no |
+| <a name="input_redis_cache_connection_string_secret_id"></a> [redis\_cache\_connection\_string\_secret\_id](#input\_redis\_cache\_connection\_string\_secret\_id) | Versionless ID of the Key Vault secret holding the Azure Managed Redis connection string (modules/redis). Used when enable\_redis\_cache. | `string` | `null` | no |
+| <a name="input_redis_cache_id"></a> [redis\_cache\_id](#input\_redis\_cache\_id) | Resource ID of the Azure Managed Redis cluster (shown on the APIM external cache). | `string` | `null` | no |
+| <a name="input_system_assigned_identity"></a> [system\_assigned\_identity](#input\_system\_assigned\_identity) | Also give the service a system-assigned identity. Needed by the semantic cache: llm-semantic-cache-lookup calls the embeddings backend only as the system-assigned identity. | `bool` | `false` | no |
 | <a name="input_zone_redundant"></a> [zone\_redundant](#input\_zone\_redundant) | StandardV2 / PremiumV2: create the service zone redundant (ARM zoneRedundant; set at creation only, Azure can't change it later). Classic Premium uses apim\_zones instead. | `bool` | `false` | no |
 
 ## Outputs
@@ -99,4 +103,5 @@ Unit tests: [tests/unit.tftest.hcl](tests/unit.tftest.hcl) (mocked providers, `t
 | <a name="output_management_api_url"></a> [management\_api\_url](#output\_management\_api\_url) | Management API URL of the API Management service. |
 | <a name="output_portal_url"></a> [portal\_url](#output\_portal\_url) | Developer portal URL (classic SKUs). |
 | <a name="output_private_ip_addresses"></a> [private\_ip\_addresses](#output\_private\_ip\_addresses) | Private IP addresses of the APIM gateway (VNet-injected SKUs). |
+| <a name="output_system_assigned_principal_id"></a> [system\_assigned\_principal\_id](#output\_system\_assigned\_principal\_id) | Principal ID of the service's system-assigned identity (null without system\_assigned\_identity). |
 <!-- END_TF_DOCS -->

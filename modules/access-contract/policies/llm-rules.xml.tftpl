@@ -13,3 +13,7 @@
 <!-- Enable advanced response headers offered by set-response-headers fragment -->
 <set-variable name="enableResponseHeaders" value="@(true)" />
 %{ endif }
+%{ if semantic_cache }
+<!-- Semantic cache: the LLM APIs look up / store chat completions (semantic-cache-* fragments) -->
+<set-variable name="semanticCacheEnabled" value="true" />
+%{ endif }

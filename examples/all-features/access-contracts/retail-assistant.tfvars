@@ -23,6 +23,7 @@ services = [
     token_limit             = { tokens_per_minute = 50000, token_quota = 5000000, token_quota_period = "Daily" }
     enable_response_headers = true
     jwt_required            = true # also validate the token the Foundry project identity sends (audience: foundry_config)
+    semantic_cache          = true # similar chat prompts are answered from Redis (gateway-config semantic_cache)
   },
   {
     code                 = "SRCH"

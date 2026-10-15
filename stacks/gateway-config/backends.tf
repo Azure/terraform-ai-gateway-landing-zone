@@ -44,9 +44,12 @@ resource "azurerm_api_management_backend" "ai_search" {
   }
 }
 
-# Foundry embeddings deployment for the semantic cache.
+# Embeddings deployment for the semantic cache (llm-semantic-cache-lookup embeddings-backend-id).
+# No credentials: the lookup calls it as APIM's system-assigned identity (embeddings-backend-auth
+# = system-assigned, the only option), which stacks/platform grants Cognitive Services OpenAI User.
+# The URL is the full embeddings endpoint without a query string; the lookup adds api-version.
 resource "azapi_resource" "embeddings_backend" {
-  count     = var.features.embeddings_backend && var.embeddings_backend_url != "" ? 1 : 0
+  count     = var.semantic_cache.enabled ? 1 : 0
   type      = "Microsoft.ApiManagement/service/backends@2024-06-01-preview"
   name      = "embeddings-backend"
   parent_id = local.apim_id
@@ -55,19 +58,20 @@ resource "azapi_resource" "embeddings_backend" {
 
   body = {
     properties = {
-      description = "Foundry embeddings backend for semantic cache"
-      url         = var.embeddings_backend_url
+      description = "Embeddings deployment for the semantic cache"
+      url         = local.embeddings_url
       protocol    = "http"
       tls = {
         validateCertificateChain = true
         validateCertificateName  = true
       }
-      credentials = {
-        managedIdentity = {
-          clientId = data.azurerm_user_assigned_identity.apim.client_id
-          resource = "https://cognitiveservices.azure.com"
-        }
-      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.embeddings_url != ""
+      error_message = "semantic_cache.enabled: no embeddings endpoint. Deploy Foundry in stacks/platform (the primary account is used), or set semantic_cache.embeddings_url."
     }
   }
 }

@@ -253,3 +253,57 @@ run "unknown_source_is_rejected" {
 
   expect_failures = [var.content_safety_service]
 }
+
+# --- semantic cache ----------------------------------------------------------------
+
+run "semantic_cache_off_by_default" {
+  command = plan
+  assert {
+    condition = (
+      length(azapi_resource.embeddings_backend) == 0 &&
+      strcontains(local.semantic_cache_fragments["semantic-cache-lookup"].xml, "Semantic cache disabled") &&
+      strcontains(local.semantic_cache_fragments["semantic-cache-store"].xml, "Semantic cache disabled")
+    )
+    error_message = "Off: no embeddings backend; both fragments exist (the LLM APIs include them) and do nothing."
+  }
+}
+
+run "semantic_cache_on_uses_the_primary_foundry_account" {
+  command = plan
+  variables {
+    semantic_cache = { enabled = true, score_threshold = 0.1, ttl_seconds = 600 }
+  }
+  assert {
+    condition     = local.embeddings_url == "https://aif-aigw-dev.cognitiveservices.azure.com/openai/deployments/text-embedding-3-small/embeddings"
+    error_message = "The embeddings backend targets the deployment on the primary Foundry account, without a query string."
+  }
+  assert {
+    condition = (
+      strcontains(local.semantic_cache_fragments["semantic-cache-lookup"].xml, "score-threshold=\"0.1\"") &&
+      strcontains(local.semantic_cache_fragments["semantic-cache-lookup"].xml, "embeddings-backend-auth=\"system-assigned\"") &&
+      strcontains(local.semantic_cache_fragments["semantic-cache-lookup"].xml, "semanticCacheEnabled") &&
+      strcontains(local.semantic_cache_fragments["semantic-cache-store"].xml, "<llm-semantic-cache-store duration=\"600\" />") &&
+      strcontains(local.semantic_cache_fragments["semantic-cache-store"].xml, "UAIG-Semantic-Cache")
+    )
+    error_message = "The lookup carries the threshold and system-assigned auth and is gated by the product; the store has the TTL."
+  }
+}
+
+run "semantic_cache_explicit_embeddings_url" {
+  command = plan
+  variables {
+    semantic_cache = { enabled = true, embeddings_url = "https://other.openai.azure.com/openai/deployments/emb/embeddings" }
+  }
+  assert {
+    condition     = local.embeddings_url == "https://other.openai.azure.com/openai/deployments/emb/embeddings"
+    error_message = "An explicit embeddings_url wins."
+  }
+}
+
+run "semantic_cache_rejects_a_query_string" {
+  command = plan
+  variables {
+    semantic_cache = { enabled = true, embeddings_url = "https://other.openai.azure.com/openai/deployments/emb/embeddings?api-version=2024-02-01" }
+  }
+  expect_failures = [var.semantic_cache]
+}

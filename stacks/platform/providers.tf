@@ -36,3 +36,11 @@ provider "azurerm" {
 provider "azapi" {
   subscription_id = var.subscription_id
 }
+
+# The same azapi configuration under an alias, used only by modules/redis: it reads the Redis
+# access key with an ephemeral resource, which terraform test's mock providers don't support.
+# The unit tests mock the default azapi and override modules/redis, so this one is never called.
+provider "azapi" {
+  alias           = "keys"
+  subscription_id = var.subscription_id
+}

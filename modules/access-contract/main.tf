@@ -28,6 +28,7 @@ locals {
   policy_llm_rules = { for code, s in local.services : code => trimspace(replace(templatefile("${path.module}/policies/llm-rules.xml.tftpl", {
     allowed_models          = join(",", s.allowed_models)
     enable_response_headers = s.enable_response_headers
+    semantic_cache          = s.semantic_cache
     token_limit_attributes = s.token_limit == null ? "" : join(" ", compact([
       s.token_limit.tokens_per_minute == null ? "" : "tokens-per-minute=\"${s.token_limit.tokens_per_minute}\"",
       s.token_limit.token_quota == null ? "" : "token-quota=\"${s.token_limit.token_quota}\" token-quota-period=\"${s.token_limit.token_quota_period}\"",

@@ -1,0 +1,31 @@
+<fragment>
+    <!--
+        Fragment: Semantic Cache Lookup (gateway-config semantic_cache)
+        Purpose:  Returns a cached completion for a prompt similar to an earlier one, from Azure
+                  Managed Redis (the APIM external cache), without calling the model.
+        Include:  in the inbound section of the LLM API policies, after security-handler and
+                  validate-model-access: a cached answer is served only to an authenticated caller
+                  allowed to use the model.
+        Runs when (all):
+        - semanticCacheEnabled = "true" (set by the access contract's product policy:
+          services[*].semantic_cache);
+        - the request is a chat completion (path ends with chat/completions);
+        - the request isn't streamed ("stream": true isn't cached).
+        Partitioned by subscription and requested model, so callers never get each other's
+        answers, and one model's answer is never served for another model.
+        Embeddings: backend "embeddings-backend", called as APIM's system-assigned identity.
+        Output:   semanticCacheLookup = "miss", or "hit": a hit returns the cached response from the
+                  lookup and skips the rest of inbound (the backend call, set-llm-usage), so the
+                  "miss" line never runs. Outbound still runs (semantic-cache-store).
+    -->
+    <choose>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("semanticCacheEnabled", "false") == "true" && context.Request.Url.Path.EndsWith("chat/completions", StringComparison.OrdinalIgnoreCase) && context.Request.Body?.As<JObject>(preserveContent: true)?["stream"]?.Value<bool>() != true)">
+            <set-variable name="semanticCacheLookup" value="hit" />
+            <llm-semantic-cache-lookup score-threshold="${score_threshold}" embeddings-backend-id="embeddings-backend" embeddings-backend-auth="system-assigned" ignore-system-messages="${ignore_system_messages}" max-message-count="${max_message_count}">
+                <vary-by>@(context.Subscription?.Id ?? "anonymous")</vary-by>
+                <vary-by>@(context.Variables.GetValueOrDefault<string>("requestedModel", ""))</vary-by>
+            </llm-semantic-cache-lookup>
+            <set-variable name="semanticCacheLookup" value="miss" />
+        </when>
+    </choose>
+</fragment>

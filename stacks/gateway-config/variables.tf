@@ -30,7 +30,6 @@ variable "features" {
     content_safety        = optional(bool, true)
     azure_ai_search       = optional(bool, false)
     document_intelligence = optional(bool, false)
-    embeddings_backend    = optional(bool, false)
     mcp_sample            = optional(bool, false)
     api_center_onboarding = optional(bool, false)
   })
@@ -110,11 +109,50 @@ variable "ai_search_instances" {
   nullable = false
 }
 
-variable "embeddings_backend_url" {
-  description = "Foundry embeddings deployment endpoint for the semantic cache (features.embeddings_backend)."
-  type        = string
-  default     = ""
-  nullable    = false
+variable "semantic_cache" {
+  description = <<-EOT
+    Semantic cache for the LLM APIs (llm-semantic-cache-lookup / -store in Azure Managed Redis).
+    Needs stacks/platform features.semantic_cache (Redis as the APIM external cache, APIM's
+    system-assigned identity) and an embeddings deployment. Access contracts opt in per service
+    (services[*].semantic_cache); other products never use the cache.
+      enabled                 Create the embeddings backend (embeddings-backend) and the active
+                              semantic-cache-lookup / semantic-cache-store fragments. false: the
+                              fragments do nothing (the LLM API policies always include them).
+      embeddings_deployment   Embeddings deployment name on the primary Foundry account.
+      embeddings_url          Full embeddings endpoint instead (no query string), e.g.
+                              https://<account>.openai.azure.com/openai/deployments/<name>/embeddings.
+                              APIM's system-assigned identity needs Cognitive Services OpenAI User on it.
+      score_threshold         0.0-1.0; lower = a closer match is needed. Above 0.2 risks mismatches.
+      ttl_seconds             How long a response is cached. Gateway-wide: the store must sit in the
+                              LLM API policies with the lookup, and APIM accepts only a literal here.
+      ignore_system_messages  Leave system messages out of the similarity.
+      max_message_count       Skip caching for conversations longer than this many messages.
+    Only non-streaming chat completions are cached, partitioned by subscription and model.
+  EOT
+  type = object({
+    enabled                = optional(bool, false)
+    embeddings_deployment  = optional(string, "text-embedding-3-small")
+    embeddings_url         = optional(string)
+    score_threshold        = optional(number, 0.05)
+    ttl_seconds            = optional(number, 300)
+    ignore_system_messages = optional(bool, true)
+    max_message_count      = optional(number, 10)
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = var.semantic_cache.score_threshold >= 0 && var.semantic_cache.score_threshold <= 1
+    error_message = "semantic_cache.score_threshold must be between 0.0 and 1.0."
+  }
+  validation {
+    condition     = var.semantic_cache.ttl_seconds >= 1 && var.semantic_cache.max_message_count >= 1 && floor(var.semantic_cache.ttl_seconds) == var.semantic_cache.ttl_seconds && floor(var.semantic_cache.max_message_count) == var.semantic_cache.max_message_count
+    error_message = "semantic_cache.ttl_seconds and max_message_count must be whole numbers, at least 1."
+  }
+  validation {
+    condition     = var.semantic_cache.embeddings_url == null || can(regex("^https://[^?]+$", coalesce(var.semantic_cache.embeddings_url, "-")))
+    error_message = "semantic_cache.embeddings_url must be an https URL without a query string."
+  }
 }
 
 variable "ms_learn_mcp_backend_url" {

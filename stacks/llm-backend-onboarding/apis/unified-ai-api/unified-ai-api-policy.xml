@@ -71,6 +71,10 @@
         <!-- Step 5: Model access control per product [SHARED with Azure OpenAI / Universal LLM] -->
         <include-fragment fragment-id="validate-model-access" />
 
+        <!-- Semantic cache lookup (products whose access contract enables it): after authentication and
+             model access, so a cached answer only goes to an allowed caller. A hit returns here. -->
+        <include-fragment fragment-id="semantic-cache-lookup" />
+
         <!-- RBAC: Set allowed backend pools (comma-separated pool IDs, empty = all pools allowed) -->
         <set-variable name="allowedBackendPools" value="" />
         <!-- Set default backend pool (empty = return error for unmapped models) -->
@@ -223,6 +227,8 @@
     </backend>
     <outbound>
         <base />
+        <!-- Semantic cache store after a lookup miss. -->
+        <include-fragment fragment-id="semantic-cache-store" />
         <!-- Cache response_id → owner mapping for successful POST /responses [SHARED]. -->
         <include-fragment fragment-id="responses-id-cache-store" />
         <include-fragment fragment-id="set-response-headers" />

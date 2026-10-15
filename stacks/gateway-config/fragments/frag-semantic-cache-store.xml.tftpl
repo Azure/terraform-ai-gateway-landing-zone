@@ -1,0 +1,28 @@
+<fragment>
+    <!--
+        Fragment: Semantic Cache Store (gateway-config semantic_cache)
+        Purpose:  Stores a successful (200) chat completion in Azure Managed Redis for the
+                  semantic-cache-lookup fragment, and reports the lookup result in the
+                  UAIG-Semantic-Cache response header (hit | miss) with the other UAIG-* debug
+                  headers (enableResponseHeaders, access contract enable_response_headers).
+        Include:  at the start of the outbound section of the LLM API policies.
+        Stores when semanticCacheLookup = "miss" (a hit never reaches the backend, so there's
+        nothing new to store).
+        Scope:    the API policy, like the lookup: a store in another scope (e.g. the product) is
+                  skipped ("Corresponding ... lookup policy was not applied").
+        TTL:      ${ttl_seconds} seconds (gateway-config semantic_cache.ttl_seconds). A literal: APIM
+                  rejects an expression for duration (uint when saved, int at runtime).
+    -->
+    <choose>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("semanticCacheLookup", "") == "miss")">
+            <llm-semantic-cache-store duration="${ttl_seconds}" />
+        </when>
+    </choose>
+    <choose>
+        <when condition="@(context.Variables.GetValueOrDefault<bool>("enableResponseHeaders", false) && context.Variables.ContainsKey("semanticCacheLookup"))">
+            <set-header name="UAIG-Semantic-Cache" exists-action="override">
+                <value>@(context.Variables.GetValueOrDefault<string>("semanticCacheLookup"))</value>
+            </set-header>
+        </when>
+    </choose>
+</fragment>

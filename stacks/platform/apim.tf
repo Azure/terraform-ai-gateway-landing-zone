@@ -36,8 +36,13 @@ module "apim" {
     local.apim_cfg.capacity == 2 ? ["1", "2"] : ["1", "2", "3"]
   ) : []
 
-  enable_redis_cache            = var.features.semantic_cache
-  redis_cache_connection_string = var.features.semantic_cache ? module.redis[0].connection_string : ""
+  # Semantic cache: Redis as the external cache (connection string from Key Vault through a
+  # Key Vault-backed named value), and the system-assigned identity the cache lookup uses.
+  enable_redis_cache                      = var.features.semantic_cache
+  redis_cache_connection_string_secret_id = var.features.semantic_cache ? module.redis[0].connection_string_secret_id : null
+  redis_cache_id                          = var.features.semantic_cache ? module.redis[0].redis_id : null
+  system_assigned_identity                = var.features.semantic_cache
+  managed_identity_client_id              = module.identity["apim"].client_id
 }
 
 # Loggers (appinsights-logger, azuremonitor, usage-eventhub-logger,

@@ -24,6 +24,8 @@ variable "services" {
                                token_quota, with token_quota_period (Hourly | Daily | Weekly | Monthly | Yearly);
                                null = no limit
       enable_response_headers  the UAIG-* debug response headers (default true)
+      semantic_cache           serve similar chat completion prompts from the semantic cache (needs
+                               gateway-config semantic_cache.enabled; default false)
       jwt_required             also require a valid JWT (Authorization: Bearer <token>) next to the key.
                                By default it is validated against the gateway's identity provider
                                (gateway-config entra_auth: tokens issued for the stacks/identity app);
@@ -58,6 +60,7 @@ variable "services" {
       token_quota_period = optional(string, "Monthly")
     }))
     enable_response_headers = optional(bool, true)
+    semantic_cache          = optional(bool, false)
     jwt_required            = optional(bool, false)
     jwt_audience            = optional(string)
     jwt_issuer              = optional(string)

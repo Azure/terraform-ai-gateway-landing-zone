@@ -204,3 +204,42 @@ run "existing_zone_redundant_v2_service_plans_cleanly" {
     }
   }
 }
+
+# --- semantic cache: system-assigned identity, Redis connection string from Key Vault ---
+
+run "zone_redundant_service_gets_system_assigned_identity" {
+  command = plan
+  variables {
+    zone_redundant           = true
+    system_assigned_identity = true
+  }
+  assert {
+    condition     = azapi_resource.service_zone_redundant[0].identity[0].type == "SystemAssigned, UserAssigned"
+    error_message = "system_assigned_identity adds SystemAssigned next to the user-assigned identity."
+  }
+}
+
+run "redis_cache_reads_its_connection_string_from_key_vault" {
+  command = plan
+  variables {
+    enable_redis_cache                      = true
+    redis_cache_connection_string_secret_id = "https://kv-test.vault.azure.net/secrets/apim-redis-cache-connection-string"
+    managed_identity_client_id              = "00000000-0000-0000-0000-000000000009"
+  }
+  assert {
+    condition = (
+      azurerm_api_management_named_value.redis_cache_connection_string[0].secret &&
+      azurerm_api_management_named_value.redis_cache_connection_string[0].value_from_key_vault[0].secret_id == var.redis_cache_connection_string_secret_id &&
+      azurerm_api_management_redis_cache.default[0].connection_string == "{{redis-cache-connection-string}}"
+    )
+    error_message = "The external cache references a Key Vault-backed named value, not a connection string."
+  }
+}
+
+run "redis_cache_needs_the_key_vault_secret" {
+  command = plan
+  variables {
+    enable_redis_cache = true
+  }
+  expect_failures = [azurerm_api_management_named_value.redis_cache_connection_string]
+}

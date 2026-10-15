@@ -84,7 +84,9 @@ module "service" {
   public_network_access_enabled = local.public_network_access
 
   # UserAssigned only.
-  managed_identities = { user_assigned_resource_ids = [var.managed_identity_id] }
+  # UserAssigned for everything; SystemAssigned too when the semantic cache needs it
+  # (llm-semantic-cache-lookup only calls the embeddings backend as the system-assigned identity).
+  managed_identities = { system_assigned = var.system_assigned_identity, user_assigned_resource_ids = [var.managed_identity_id] }
 
   virtual_network_type      = local.virtual_network_type
   virtual_network_subnet_id = local.uses_subnet && var.apim_subnet_id != "" ? var.apim_subnet_id : null
@@ -118,9 +120,20 @@ resource "azapi_resource" "service_zone_redundant" {
   parent_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
   tags      = var.tags
 
-  identity {
-    type         = "UserAssigned"
-    identity_ids = [var.managed_identity_id]
+  # Two blocks with literal types: azapi validates the identity type statically.
+  dynamic "identity" {
+    for_each = var.system_assigned_identity ? [1] : []
+    content {
+      type         = "SystemAssigned, UserAssigned"
+      identity_ids = [var.managed_identity_id]
+    }
+  }
+  dynamic "identity" {
+    for_each = var.system_assigned_identity ? [] : [1]
+    content {
+      type         = "UserAssigned"
+      identity_ids = [var.managed_identity_id]
+    }
   }
 
   body = {
@@ -259,6 +272,7 @@ locals {
     portal_url           = try(azapi_resource.service_zone_redundant[0].output.portal_url, null)
     management_api_url   = azapi_resource.service_zone_redundant[0].output.management_api_url
     private_ip_addresses = coalesce(try(azapi_resource.service_zone_redundant[0].output.private_ip_addresses, null), [])
+    system_principal_id  = try(azapi_resource.service_zone_redundant[0].identity[0].principal_id, null)
     } : {
     id                   = module.service[0].resource_id
     name                 = module.service[0].name
@@ -266,6 +280,7 @@ locals {
     portal_url           = module.service[0].portal_url
     management_api_url   = module.service[0].apim_management_url
     private_ip_addresses = module.service[0].private_ip_addresses
+    system_principal_id  = module.service[0].workspace_identity.principal_id
   }
 }
 
@@ -285,16 +300,40 @@ locals {
 
 # -----------------------------------------------------------------------------
 # APIM REDIS CACHE (`service/caches` resource)
-# Links Azure Managed Redis to APIM for semantic caching. Created only when
-# Redis is enabled. The count uses the plan-time flag, not the connection string:
-# the string is only known after Redis is created, so gating on it made a fresh
-# deployment with enable_redis_cache = true fail at plan ("Invalid count argument").
+# Links Azure Managed Redis to APIM (the external cache of the semantic cache). APIM
+# can't use Entra auth for Azure Managed Redis, so the cache needs the connection
+# string with the access key. It lives in Key Vault (written by modules/redis, never
+# in state) and APIM reads it through a Key Vault-backed named value: otherwise APIM
+# keeps it in a secret named value it generates ("cache-Default-connection-…").
+# The count uses the plan-time flag: the secret ID is unknown on a first deployment.
 # -----------------------------------------------------------------------------
+
+resource "azurerm_api_management_named_value" "redis_cache_connection_string" {
+  count               = var.enable_redis_cache ? 1 : 0
+  name                = "redis-cache-connection-string"
+  display_name        = "redis-cache-connection-string"
+  api_management_name = local.apim.name
+  resource_group_name = var.resource_group_name
+  secret              = true
+
+  value_from_key_vault {
+    secret_id          = var.redis_cache_connection_string_secret_id
+    identity_client_id = var.managed_identity_client_id
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.redis_cache_connection_string_secret_id != null && var.managed_identity_client_id != null
+      error_message = "enable_redis_cache needs redis_cache_connection_string_secret_id (the Key Vault secret modules/redis writes) and managed_identity_client_id."
+    }
+  }
+}
 
 resource "azurerm_api_management_redis_cache" "default" {
   count             = var.enable_redis_cache ? 1 : 0
   name              = "Default"
   api_management_id = local.apim.id
-  connection_string = var.redis_cache_connection_string
+  connection_string = "{{${azurerm_api_management_named_value.redis_cache_connection_string[0].name}}}"
+  redis_cache_id    = var.redis_cache_id
   description       = "Azure Managed Redis for APIM semantic cache"
 }

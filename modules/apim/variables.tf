@@ -65,11 +65,29 @@ variable "create_internal_dns" {
   default     = true
 }
 
-variable "redis_cache_connection_string" {
-  description = "Optional Azure Managed Redis connection string. When set, creates an APIM service/caches resource."
+variable "redis_cache_connection_string_secret_id" {
+  description = "Versionless ID of the Key Vault secret holding the Azure Managed Redis connection string (modules/redis). Used when enable_redis_cache."
   type        = string
-  sensitive   = true
-  default     = ""
+  default     = null
+}
+
+variable "redis_cache_id" {
+  description = "Resource ID of the Azure Managed Redis cluster (shown on the APIM external cache)."
+  type        = string
+  default     = null
+}
+
+variable "managed_identity_client_id" {
+  description = "Client ID of the user-assigned identity (managed_identity_id): reads the Key Vault-backed named values."
+  type        = string
+  default     = null
+}
+
+variable "system_assigned_identity" {
+  description = "Also give the service a system-assigned identity. Needed by the semantic cache: llm-semantic-cache-lookup calls the embeddings backend only as the system-assigned identity."
+  type        = bool
+  default     = false
+  nullable    = false
 }
 
 variable "apim_zones" {
@@ -86,7 +104,7 @@ variable "zone_redundant" {
 }
 
 variable "enable_redis_cache" {
-  description = "Attach Azure Managed Redis as the APIM external cache (requires redis_cache_connection_string)."
+  description = "Attach Azure Managed Redis as the APIM external cache (requires redis_cache_connection_string_secret_id)."
   type        = bool
   default     = false
 }

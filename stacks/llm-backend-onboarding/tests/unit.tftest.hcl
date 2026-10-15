@@ -67,7 +67,7 @@ override_data {
 override_data {
   target = data.azapi_resource_list.fragments
   values = {
-    output = { names = ["security-handler", "raise-alert-events", "set-response-headers", "strip-backend-headers", "ai-foundry-compatibility"] }
+    output = { names = ["security-handler", "raise-alert-events", "set-response-headers", "strip-backend-headers", "ai-foundry-compatibility", "semantic-cache-lookup", "semantic-cache-store"] }
   }
 }
 

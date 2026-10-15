@@ -115,13 +115,29 @@ variable "network" {
 }
 
 variable "features" {
-  description = "Optional platform capabilities: api_center deploys Azure API Center; semantic_cache deploys Azure Managed Redis as the APIM external cache."
+  description = <<-EOT
+    Optional platform capabilities.
+      api_center      Azure API Center.
+      semantic_cache  Azure Managed Redis (RediSearch) as the APIM external cache, its connection string
+                      in Key Vault (read through a Key Vault-backed named value), and a system-assigned
+                      identity on APIM with Cognitive Services OpenAI User on the Foundry accounts (the
+                      cache lookup calls the embeddings deployment only as that identity). Deploy an
+                      embeddings model (foundry.models) and enable gateway-config semantic_cache; access
+                      contracts opt in per service.
+  EOT
   type = object({
     api_center     = optional(bool, true)
     semantic_cache = optional(bool, false)
   })
   default  = {}
   nullable = false
+
+  validation {
+    condition = !var.features.semantic_cache || coalesce(var.apim.vnet_mode, contains(["StandardV2", "PremiumV2"], var.apim.sku) ? "integration" : "external") != "none" || (
+      var.redis.public_network_access == "Enabled" && var.key_vault.public_network_access_enabled && var.key_vault.network_acl_default_action == "Allow"
+    )
+    error_message = "features.semantic_cache: APIM without a VNet (apim.vnet_mode = none) can't reach the private Redis and Key Vault. Put APIM in a VNet."
+  }
 }
 
 variable "foundry" {
@@ -229,8 +245,8 @@ variable "key_vault" {
 variable "redis" {
   description = "Azure Managed Redis for the semantic cache (features.semantic_cache)."
   type = object({
-    sku_name              = optional(string, "Balanced_B10")
-    capacity              = optional(number, 2)
+    sku_name              = optional(string, "Balanced_B5")
+    capacity              = optional(number, 1)
     public_network_access = optional(string, "Disabled")
     minimum_tls_version   = optional(string, "1.2")
   })

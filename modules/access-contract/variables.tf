@@ -39,6 +39,9 @@ variable "services" {
                                token_quota, with token_quota_period (Hourly | Daily | Weekly | Monthly | Yearly);
                                null = no limit
       enable_response_headers  the UAIG-* debug response headers (set-response-headers fragment)
+      semantic_cache           serve similar chat completion prompts from the semantic cache (Azure Managed
+                               Redis; needs gateway-config semantic_cache.enabled, which also sets the TTL).
+                               Partitioned per subscription and model; streamed requests aren't cached.
       jwt_required             also require a valid JWT next to the subscription key (security-handler fragment:
                                Authorization: Bearer <token>; no token or an invalid one -> 401). By default the
                                token is validated against the gateway's identity provider (gateway-config
@@ -75,6 +78,7 @@ variable "services" {
       token_quota_period = optional(string, "Monthly")
     }))
     enable_response_headers = optional(bool, true)
+    semantic_cache          = optional(bool, false)
     jwt_required            = optional(bool, false)
     jwt_audience            = optional(string)
     jwt_issuer              = optional(string)

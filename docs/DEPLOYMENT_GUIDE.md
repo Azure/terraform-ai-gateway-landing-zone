@@ -341,6 +341,7 @@ Platform-team requests for an ALZ:
 | Scale APIM, Foundry capacity, Logic App workers | `platform.tfvars` | `task apply STACK=platform …` |
 | Spread APIM / the Logic App over availability zones | `platform.tfvars` `apim.zone_redundant`, `usage_pipeline.logic_app.zone_redundant` (or `usage_pipeline.ase.zone_redundant`) | at creation: see [6.7 Availability zones](#67-availability-zones) |
 | Keep the APIM logger credentials out of APIM's own secrets | `platform.tfvars` `apim_logging.credentials_in_key_vault` (default `true`) | `task apply STACK=platform …`; see [6.8](#68-apim-logger-credentials-in-key-vault) |
+| Answer similar chat prompts from a cache | `platform.tfvars` `features.semantic_cache` + an embeddings model, `gateway-config.tfvars` `semantic_cache`, contract `services[*].semantic_cache` | see [6.9 Semantic cache](#69-semantic-cache) |
 | Republish only the usage-ingestion workflows | `logicapp-src/usage-ingestion-logicapp/` | `task logic-app-code ENV=<env>` |
 | Add a subnet / DNS zone link (greenfield) | `network.tfvars` | `task apply STACK=network …` |
 
@@ -766,6 +767,87 @@ for n in $(az rest --method get --url "https://management.azure.com$S/namedValue
   az rest --method delete --url "https://management.azure.com$S/namedValues/$n?api-version=2024-05-01"
 done
 ```
+
+### 6.9 Semantic cache
+
+The LLM APIs can answer a chat completion from Azure Managed Redis when the prompt is close
+enough to an earlier one (`llm-semantic-cache-lookup` / `llm-semantic-cache-store`). APIM turns
+the prompt into a vector through an embeddings deployment and searches the earlier prompts in
+Redis (RediSearch). A hit returns the stored completion without calling the model.
+
+| Stack | Setting | Creates |
+|---|---|---|
+| platform | `features.semantic_cache = true`, an embeddings model in `foundry.models` (e.g. `text-embedding-3-small`) | Azure Managed Redis (RediSearch) with a private endpoint; the APIM external cache `Default`; APIM's system-assigned identity with *Cognitive Services OpenAI User* on each Foundry account |
+| gateway-config | `semantic_cache = { enabled = true }` | backend `embeddings-backend` (the deployment on the primary Foundry account, or `embeddings_url`); the active `semantic-cache-lookup` / `semantic-cache-store` fragments |
+| llm-backend-onboarding | nothing | the universal, Azure OpenAI and unified LLM APIs always include both fragments |
+| access contract | `services[*].semantic_cache = true` | the product sets `semanticCacheEnabled`; other products never use the cache |
+
+```hcl
+# gateway-config.tfvars
+semantic_cache = {
+  enabled               = true
+  embeddings_deployment = "text-embedding-3-small" # on the primary Foundry account
+  score_threshold       = 0.05                     # lower = a closer match is needed
+  ttl_seconds           = 300                      # how long an answer is kept
+}
+```
+
+What is cached:
+- only non-streaming chat completions (the path ends with `chat/completions`);
+- only 200 responses, for `ttl_seconds`. The TTL is gateway-wide: the store must be in the same
+  scope as the lookup (the LLM API policies), and APIM accepts only a literal `duration`;
+- partitioned by subscription and requested model: a contract never gets another contract's
+  answer, and an answer is never served for another model;
+- system messages are left out of the similarity (`ignore_system_messages`), and conversations
+  longer than `max_message_count` messages aren't cached.
+
+The lookup runs after `security-handler` and `validate-model-access`, so a cached answer only goes
+to an authenticated caller that may use the model. A hit returns from the lookup and skips the
+rest of the inbound section:
+- there is no backend call and no `llm-usage` record (`set-llm-usage` comes later);
+- the tokens don't count towards the contract's `token_limit`;
+- the gateway request log still records the call.
+
+With the contract's response headers on (`enable_response_headers`), `UAIG-Semantic-Cache: hit`
+or `miss` shows the result.
+
+**Credentials.**
+- Embeddings: the lookup always calls the embeddings backend as APIM's **system-assigned**
+  identity (the policy has no user-assigned option). The platform stack enables it with the
+  cache and grants it the role. With `embeddings_url` on another account, grant that role there.
+- Redis: APIM can't use Entra ID for Azure Managed Redis, so the cache uses the access key. The
+  platform apply reads the key with an ephemeral `listKeys` (it is never in state) and writes
+  the connection string to the Key Vault secret `apim-redis-cache-connection-string`. The cache
+  references it through the Key Vault-backed named value `redis-cache-connection-string`, so
+  APIM generates no secret named value. The secret is rewritten every 60 days and expires after
+  90. After regenerating the Redis keys, refresh it at once:
+  `task apply STACK=platform ENV=<env> 'PLAN_ARGS=-replace=module.redis[0].time_rotating.connection_string'`.
+- Requirements: APIM must reach the Redis private endpoint and the vault, so it must be in a
+  VNet. A validation enforces this.
+
+**Verify.** Send the same chat completion twice with a contract's key (`$ENDPOINT` = the
+contract's endpoint secret, e.g. `https://<apim>.azure-api.net/models`). The second response
+carries the same `id` as the first and `UAIG-Semantic-Cache: hit`. A different prompt, another
+model or another contract gets a new `id`:
+
+```bash
+for i in 1 2; do
+  curl -s -D - -o /tmp/r.json "$ENDPOINT/chat/completions" \
+    -H "api-key: $KEY" -H "Content-Type: application/json" \
+    -d '{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"What is the capital of France?"}]}' \
+    | grep -i '^UAIG-Semantic-Cache'
+  jq -r .id /tmp/r.json
+done
+```
+
+The default `score_threshold` (0.05) only matches nearly identical prompts: "Name the capital…"
+and "Tell me the capital…" are different entries. Raise it carefully: a higher value lets
+different questions share an answer.
+
+**Switching an existing APIM on.** If the cache was registered with a plain connection string
+before, APIM keeps the secret named value it generated (`cache-Default-connection-…`). Delete
+it once after the platform apply (same loop as in [6.8](#68-apim-logger-credentials-in-key-vault),
+with the prefix `cache-Default-connection-`).
 
 ## 7. CI/CD (GitHub Actions)
 
