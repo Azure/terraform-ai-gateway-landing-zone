@@ -460,3 +460,7 @@ modules/logic-app/.artifacts/
 gitignore
 
 .vscode/
+environments/acc1/backend.hcl
+environments/qs-02/backend.hcl
+environments/qs-02/README.md
+environments/quickstart-01/README.md
