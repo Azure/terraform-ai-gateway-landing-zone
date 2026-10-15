@@ -92,7 +92,8 @@ variable "llm_backend_config" {
     auth_scheme  = optional(string)  # legacy, retained
     auth_type    = optional(string)  # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
     auth_config  = optional(object({
-      named_value_key = optional(string)
+      named_value_key      = optional(string)
+      authorization_scheme = optional(string, "Bearer") # api-key-bearer only; "" = secret holds full header value
     }))
     supported_models = list(object({
       name                = string

@@ -46,10 +46,14 @@ configure_circuit_breaker = true
 #  - endpoint: Base URL of the LLM service
 #  - auth_scheme
 #  - auth_type: 'managed-identity' | 'api-key-bearer' | 'api-key-header'
+#    (API-key types set Authorization: Bearer / api-key credentials on the APIM
+#    backend resource, referencing the named value below)
 #  -  auth_config (for api-key auth types):
 #    - named_value_key       APIM named value that holds the credential
 #    - key_vault_secret_uri   Key Vault secret reference (recommended)
 #    - secret_value           Explicit value (testing only — do NOT use in production)
+#    - authorization_scheme   api-key-bearer only (default "Bearer"). Set to "" when
+#                             the secret already includes the scheme ("Bearer abc...")
 #  - supportedModels: Array of model objects (see below)
 # Optional properties (for load balancing):
 #  - priority: 1-5, default 1 (lower = higher priority for load balancing)

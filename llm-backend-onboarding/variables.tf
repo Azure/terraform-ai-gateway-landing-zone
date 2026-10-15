@@ -32,7 +32,10 @@ variable "llm_backend_config" {
     - endpoint:         Base URL of the LLM service
     - auth_scheme:      'managedIdentity' | 'apiKey' | 'token'
     - auth_type:        (optional) 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'. Overrides legacy auth_scheme if set.
-    - auth_config:      Object with auth details (e.g. named value key for API key)
+    - auth_config:      Object with auth details (e.g. named value key for API key).
+                        authorization_scheme (api-key-bearer only, default 'Bearer'):
+                        set to '' when the secret already includes the scheme
+                        (e.g. 'Bearer abc...') to send it verbatim as Authorization.
     - supported_models: Array of model objects
     - priority:         1-5, default 1 (lower = higher priority)
     - weight:           1-1000, default 100 (load balancing weight)
@@ -45,6 +48,7 @@ variable "llm_backend_config" {
     auth_type    = optional(string)  # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
     auth_config  = optional(object({
       named_value_key      = optional(string)
+      authorization_scheme = optional(string, "Bearer") # api-key-bearer only; "" = secret holds full header value
       key_vault_secret_uri = optional(string)
       secret_value         = optional(string)
     }))
