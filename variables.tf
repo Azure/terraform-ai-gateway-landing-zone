@@ -200,6 +200,27 @@ variable "create_apim_gateway_key_secret" {
   default     = false
 }
 
+variable "apim_logger_credentials_in_key_vault" {
+  description = <<-EOT
+    When true (default), the APIM logger credentials (App Insights connection
+    string, managed identity client ID of the Event Hub loggers) are stored in
+    this deployment's Key Vault (secrets `apim-logger-*`) and the loggers
+    reference Key Vault-backed named values (`logger-identity-client-id`,
+    `logger-appinsights-connection-string`). APIM then generates no secret
+    `Logger-Credentials--*` named values, which the policy "API Management
+    secret named values should be stored in Azure Key Vault" flags.
+
+    The secrets are written through ARM (no Key Vault data-plane access from
+    the deployer needed). APIM must reach the vault: a V2 SKU, or
+    `apim_network_type` External/Internal, or an open vault
+    (`kv_public_network_access_enabled = true`, `network_acl_default_action = "Allow"`).
+
+    false = APIM keeps the credentials in the secret named values it generates.
+  EOT
+  type        = bool
+  default     = true
+}
+
 # -----------------------------------------------------------------------------
 # NETWORKING
 # -----------------------------------------------------------------------------

@@ -97,7 +97,10 @@ resource "azurerm_private_endpoint" "key_vault" {
 # -----------------------------------------------------------------------------
 
 resource "time_sleep" "wait_for_kv_rbac" {
-  depends_on      = [azurerm_role_assignment.deployer_kv_admin]
+  depends_on = [
+    azurerm_role_assignment.deployer_kv_admin,
+    azurerm_role_assignment.uami_kv_secrets_user,
+  ]
   create_duration = "60s"
 }
 

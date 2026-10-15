@@ -439,7 +439,7 @@ resource "azurerm_api_management_api_diagnostic" "ai_search_appinsights" {
   resource_group_name      = var.resource_group_name
   api_management_name      = azurerm_api_management.citadel.name
   api_name                 = azurerm_api_management_api.ai_search[0].name
-  api_management_logger_id = azurerm_api_management_logger.app_insights.id
+  api_management_logger_id = azapi_resource_action.app_insights_logger.resource_id
 
   sampling_percentage       = 100
   always_log_errors         = true
@@ -526,7 +526,7 @@ resource "azurerm_api_management_api_diagnostic" "doc_intelligence_legacy_appins
   resource_group_name      = var.resource_group_name
   api_management_name      = azurerm_api_management.citadel.name
   api_name                 = azurerm_api_management_api.doc_intelligence_legacy[0].name
-  api_management_logger_id = azurerm_api_management_logger.app_insights.id
+  api_management_logger_id = azapi_resource_action.app_insights_logger.resource_id
 
   sampling_percentage       = 100
   always_log_errors         = true
@@ -611,7 +611,7 @@ resource "azurerm_api_management_api_diagnostic" "doc_intelligence_appinsights" 
   resource_group_name      = var.resource_group_name
   api_management_name      = azurerm_api_management.citadel.name
   api_name                 = azurerm_api_management_api.doc_intelligence[0].name
-  api_management_logger_id = azurerm_api_management_logger.app_insights.id
+  api_management_logger_id = azapi_resource_action.app_insights_logger.resource_id
 
   sampling_percentage       = 100
   always_log_errors         = true

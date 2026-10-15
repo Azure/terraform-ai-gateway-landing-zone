@@ -300,3 +300,23 @@ variable "key_vault_name" {
   type = string
   default = ""
 }
+# -----------------------------------------------------------------------------
+# Logger credentials in Key Vault (see logger-credentials.tf)
+# -----------------------------------------------------------------------------
+variable "logger_credentials_in_key_vault" {
+  description = "Store the logger credentials (App Insights connection string, managed identity client ID) in Key Vault (secrets apim-logger-*) and have the loggers reference Key Vault-backed named values, so APIM generates no secret Logger-Credentials--* named values. false = APIM stores them in the secret named values it generates."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "logger_credentials_key_vault" {
+  description = "Key Vault for the logger credentials (logger_credentials_in_key_vault = true). managed_identity_client_id needs Key Vault Secrets User on it. public_access_open = APIM can reach it without a VNet (public network access with default action Allow)."
+  type = object({
+    id                 = string
+    uri                = string
+    rbac_enabled       = bool
+    public_access_open = bool
+  })
+  default = null
+}

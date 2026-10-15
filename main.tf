@@ -524,6 +524,17 @@ module "apim" {
   app_insights_instrumentation_key = module.monitoring.app_insights_instrumentation_key
   app_insights_connection_string   = module.monitoring.app_insights_connection_string
 
+  # Logger credentials in Key Vault (no APIM-generated secret named values)
+  logger_credentials_in_key_vault = var.apim_logger_credentials_in_key_vault
+  logger_credentials_key_vault = var.apim_logger_credentials_in_key_vault ? {
+    id           = module.security.key_vault_for_apim_secrets.id
+    uri          = module.security.key_vault_for_apim_secrets.uri
+    rbac_enabled = module.security.key_vault_for_apim_secrets.rbac_enabled
+    # Mirrors the public_network_access_enabled passed to module.security.
+    public_access_open = var.network_acl_default_action == "Allow" && (
+      length(var.kv_deployer_ip_rules) > 0 || var.kv_auto_detect_deployer_ip || var.kv_public_network_access_enabled
+    )
+  } : null
   # Redis (semantic cache) — optional
   redis_cache_connection_string = var.enable_redis_cache ? module.redis[0].connection_string : ""
 
