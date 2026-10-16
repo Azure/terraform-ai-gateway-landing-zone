@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import html
 import json
+import pathlib
 import re
 import time
 import urllib.parse
@@ -172,9 +173,12 @@ def answer(parser, body):
 class Explorer:
     """Discovery and calls for one environment (environments/<env>)."""
 
-    def __init__(self, env, prompt=DEFAULT_PROMPT, key_source="auto", backend_key="auto"):
-        self.gw = A.Gateway(env)
-        self.env, self.prompt = env, prompt
+    def __init__(self, env=None, prompt=DEFAULT_PROMPT, key_source="auto", backend_key="auto", contracts_path=None, **target):
+        """env: environments/<env> of this repository; or target = subscription_id / resource_group / apim_name /
+        key_vault for any Citadel deployment (see acceptance.Gateway). contracts_path: contract files
+        (.tfvars, .bicepparam, ARM .json); default environments/<env>/access-contracts."""
+        self.gw = A.Gateway(env, **target)
+        self.env, self.prompt = env or self.gw.label, prompt
         self.key_source, self.backend_key = key_source, backend_key
         self.contract = self._backend_contract()
         self.backends = {b["backendId"]: b for b in self.contract.get("backends", [])}
@@ -189,8 +193,8 @@ class Explorer:
             e["kind"] = model_kind(e_name, e["types"])
         self.apis = {a["name"]: a for a in self.gw.get(f"{self.gw.svc}/apis", api=A.APIM_MCP_API)["value"]}
         try:
-            self.contract_files = A.load_contracts(env)
-            self.contract_note = ""
+            self.contract_files, notes = A.load_contracts(env, contracts_path, gw=self.gw)
+            self.contract_note = "; ".join(notes)
         except ImportError:
             self.contract_files = []
             self.contract_note = "python-hcl2 isn't installed: contracts are found by product name only"
@@ -201,9 +205,36 @@ class Explorer:
     def _backend_contract(self):
         xml = self.gw.fragment("backend-contract")
         m = re.search(r"<set-body>(.*)</set-body>", xml or "", re.S)
-        if not m:
-            raise LookupError("no backend-contract fragment on the gateway: apply stacks/llm-backend-onboarding first")
-        return json.loads(html.unescape(m.group(1).strip()))
+        if m:
+            return json.loads(html.unescape(m.group(1).strip()))
+        contract = self._contract_from_pools()
+        if not contract["backends"]:
+            raise LookupError("neither a backend-contract nor a set-backend-pools fragment with pools on the gateway")
+        return contract
+
+    def _contract_from_pools(self):
+        """Backends and aliases from the set-backend-pools fragment, for gateways without the backend-contract
+        fragment (older Bicep or Terraform deployments). Pools stand in for backends: one per pool name and type."""
+        xml = html.unescape(self.gw.fragment("set-backend-pools") or "")
+        urls = {b["name"]: (b.get("properties") or {}).get("url", "") for b in self.gw.backends()}
+        backends, aliases = {}, []
+        for block in re.findall(r"new JObject\(\)\s*\{(.*?)\};", xml, re.S):
+            fields = dict(re.findall(r'\{\s*"(\w+)",\s*"([^"]*)"\s*\}', block))
+            models = re.findall(r'"([^"]+)"', (re.search(r'"supportedModels",\s*new JArray\(([^)]*)\)', block) or [None, ""])[1])
+            if fields.get("poolType") == "alias" or '"isAlias", true' in block:
+                aliases.append({"name": fields.get("aliasName") or (models[0] if models else ""), "strategy": fields.get("strategy", ""), "models": []})
+                continue
+            name, ptype = fields.get("poolName"), fields.get("poolType")
+            if not (name and ptype):
+                continue
+            b = backends.setdefault((name, ptype), {"backendId": name, "backendType": ptype, "authType": fields.get("authType", ""),
+                                                    "endpoint": urls.get(name, ""), "supportedModels": []})
+            b["supportedModels"] += [{"name": m} for m in models if m not in [x["name"] for x in b["supportedModels"]]]
+        for i, a in enumerate(aliases):
+            members = re.search(rf"var aliasMembers_{i} = new JArray\(\);(.*?)var aliasPool_{i}", xml, re.S)
+            a["models"] = re.findall(r'\{\s*"model",\s*"([^"]+)"\s*\}', members.group(1)) if members else []
+        return {"backendContractVersion": "from set-backend-pools", "masterVersion": "?",
+                "backends": list(backends.values()), "modelAliases": aliases}
 
     def product_apis(self, product_id):
         """{api name: {"path", "type"}} of the APIs the product grants (MCP APIs included)."""
@@ -226,7 +257,7 @@ class Explorer:
             s = self.gw.settings(pid)
             c = self.product_contract.get(pid)
             contracts.append({
-                "contract file": c[0]["file"].removesuffix(".tfvars") if c else "",
+                "contract file": pathlib.Path(c[0]["file"]).stem if c else "",
                 "product": pid,
                 "APIs": ", ".join(self.product_apis(pid)),
                 "models": ", ".join(s["allowed_models"]) or "all",
@@ -258,7 +289,7 @@ class Explorer:
             raise ValueError("TARGET is empty: pick a name from the catalogue")
         low = t.lower()
         candidates = (
-            [("contract", c, [c["file"].removesuffix(".tfvars"), c["file"], c["postfix"]]) for c in self.contract_files]
+            [("contract", c, [pathlib.Path(c["file"]).stem, c["file"], c["postfix"]]) for c in self.contract_files]
             + [("product", p["name"], [p["name"], p["properties"].get("displayName", "")]) for p in self.gw.products()]
             + [("backend", b, [b]) for b in self.backends]
             + [("alias", a, [a]) for a in self.aliases]
@@ -421,7 +452,7 @@ class Explorer:
             self._keys[product] = (k, "APIM all-access subscription")
             return self._keys[product]
         c = self.product_contract.get(product)
-        if self.key_source in ("auto", "key-vault") and c and c[0]["key_vault"]["enabled"]:
+        if self.key_source in ("auto", "key-vault") and c and c[0]["key_vault"]["enabled"] and c[1].get("key_secret"):
             vault = (c[0]["key_vault"]["id"] or "").rstrip("/").split("/")[-1] or self.gw.key_vault
             try:
                 k = self.gw.secret(vault, c[1]["key_secret"])

@@ -237,37 +237,198 @@ class Results:
 
 
 # ---------------------------------------------------------------------------------------------
-# Access contracts (environments/<env>/access-contracts/*.tfvars)
+# Access contracts
 # ---------------------------------------------------------------------------------------------
+# Contract definitions come from files when they are available (what the contract should be), else
+# from the deployment itself (what the gateway has). Supported files:
+# - this repository's .tfvars (environments/<env>/access-contracts): use_case, services[*] with the
+#   generated product policy's properties, key_vault = { enabled, id };
+# - older versions of this repository's .tfvars: apim = { ... }, use_target_key_vault, key_vault = { name, ... };
+# - the upstream Bicep templates' .bicepparam (compiled with `az bicep build-params`; the `using`
+#   template must be at its path) or an ARM parameters .json: useCase, services, useTargetAzureKeyVault, keyVault.
+# Every format derives the product ID <code>-<business unit>-<use case>-<environment>.
 
-def load_contracts(env, root=ROOT):
-    """Every contract of the environment, with the product IDs the access-contract module derives."""
-    try:
-        import hcl2
-    except ImportError as e:
-        raise ImportError("python-hcl2 is required to read the contracts: pip install -r validation/requirements.txt") from e
-    folder = pathlib.Path(root) / "environments" / env / "access-contracts"
+CONTRACT_SUFFIXES = (".tfvars", ".bicepparam", ".json")
+
+
+def _first(d, *keys, default=None):
+    for k in keys:
+        if isinstance(d, dict) and d.get(k) is not None:
+            return d[k]
+    return default
+
+
+def _vault_id(kv, default_subscription):
+    """Resource ID of a { subscription_id, resource_group_name, name } (or camelCase) Key Vault object."""
+    name = _first(kv, "name")
+    rg = _first(kv, "resource_group_name", "resourceGroupName")
+    if not (name and rg):
+        return None
+    sub = _first(kv, "subscription_id", "subscriptionId", default=default_subscription)
+    return f"/subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.KeyVault/vaults/{name}"
+
+
+def read_contract_file(path):
+    """(parameters dict, format) of a contract file."""
+    path = pathlib.Path(path)
+    if path.suffix == ".tfvars":
+        try:
+            import hcl2
+        except ImportError as e:
+            raise ImportError("python-hcl2 is required to read .tfvars contracts: pip install -r validation/requirements.txt") from e
+        with path.open(encoding="utf-8") as fh:
+            return unquote(hcl2.load(fh)), "tfvars"
+    if path.suffix == ".bicepparam":
+        p = subprocess.run(["az", "bicep", "build-params", "--file", str(path), "--stdout", "--only-show-errors"],
+                           capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        if p.returncode != 0:
+            raise ValueError(f"az bicep build-params: {(p.stderr.strip().splitlines() or ['failed'])[-1]}")
+        out = json.loads(p.stdout)
+        params = json.loads(out["parametersJson"]).get("parameters", {}) if "parametersJson" in out else out.get("parameters", {})
+        return {k: (v or {}).get("value") for k, v in params.items()}, "bicepparam"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    params = data.get("parameters", data)
+    return {k: (v.get("value") if isinstance(v, dict) and "value" in v else v) for k, v in params.items()}, "json"
+
+
+def normalize_contract(data, file_name, fmt, default_subscription=None):
+    """One contract in a single shape, whatever the file format (None when the file isn't a contract)."""
+    uc = _first(data, "use_case", "useCase", default={})
+    services_in = _first(data, "services", default=None)
+    if not uc or services_in is None:
+        return None
+    bu = _first(uc, "business_unit", "businessUnit", default="")
+    name = _first(uc, "use_case_name", "useCaseName", default="")
+    uenv = _first(uc, "environment", default="")
+    postfix = f"{bu}-{name}-{uenv}"
+    mapping = _first(data, "api_name_mapping", "apiNameMapping", default={})
+    kv = _first(data, "key_vault", "keyVault", default={}) or {}
+    if "enabled" in kv:                                   # this repository's current schema
+        schema = "terraform"
+        kv_enabled, vault_id = bool(kv.get("enabled", True)), kv.get("id")
+    elif fmt == "tfvars":                                 # older versions of this repository
+        schema = "terraform (legacy)"
+        kv_enabled, vault_id = bool(data.get("use_target_key_vault", False)), _vault_id(kv, default_subscription)
+    else:                                                 # upstream Bicep
+        schema = "bicep"
+        kv_enabled, vault_id = bool(data.get("useTargetAzureKeyVault", True)), _vault_id(kv, default_subscription)
+    services = []
+    for s in services_in:
+        s = dict(s)
+        code = s["code"]
+        key_name = _first(s, "api_key_secret_name", "apiKeySecretName", default="")
+        endpoint_name = _first(s, "endpoint_secret_name", "endpointSecretName", default="")
+        policy_xml = _first(s, "policy_xml", "policyXml", default="")
+        s.update({
+            "policy_xml": policy_xml,
+            "product_id": f"{code}-{postfix}",
+            "display_name": f"{code} {bu} {name} {uenv}",
+            "apis": mapping.get(code, []),
+            "key_secret": key_name.replace("_", "-").lower() if key_name else None,
+            "endpoint_secret": endpoint_name.replace("_", "-").lower() if endpoint_name else None,
+            # Only this repository's current schema generates the product policy from properties
+            # (allowed_models, token_limit, jwt_required) that can be compared with the deployment.
+            "generated_policy": schema == "terraform" and not policy_xml,
+        })
+        services.append(s)
+    apim = _first(data, "apim", default={}) or {}
+    return {"file": file_name, "format": fmt, "schema": schema, "source": "file",
+            "use_case": {"business_unit": bu, "use_case_name": name, "environment": uenv},
+            "postfix": postfix, "services": services, "apim_name": apim.get("name"),
+            "key_vault": {"enabled": kv_enabled, "id": vault_id}}
+
+
+def load_contracts(env=None, path=None, root=ROOT, gw=None):
+    """(contracts, notes) from contract files: path (a file or a folder), else environments/<env>/access-contracts.
+    Contracts that name another APIM service than gw's are skipped (a folder may hold several environments)."""
+    notes = []
+    if path:
+        base = pathlib.Path(path).expanduser()
+    elif env:
+        base = pathlib.Path(root) / "environments" / env / "access-contracts"
+    else:
+        return [], notes
+    if not base.exists():
+        if path:
+            notes.append(f"{base} not found")
+        return [], notes
+    files = [base] if base.is_file() else sorted(f for f in base.iterdir() if f.suffix in CONTRACT_SUFFIXES)
     contracts = []
-    for f in sorted(folder.glob("*.tfvars")):
-        with f.open(encoding="utf-8") as fh:
-            data = unquote(hcl2.load(fh))
-        uc = data.get("use_case") or {}
-        bu, name, uenv = uc.get("business_unit", ""), uc.get("use_case_name", ""), uc.get("environment", "")
-        postfix = f"{bu}-{name}-{uenv}"
-        mapping = data.get("api_name_mapping") or {}
-        kv = data.get("key_vault") or {}
-        services = []
-        for s in data.get("services") or []:
-            s = dict(s)
-            s["product_id"] = f"{s['code']}-{postfix}"
-            s["display_name"] = f"{s['code']} {bu} {name} {uenv}"
-            s["apis"] = mapping.get(s["code"], [])
-            s["key_secret"] = s["api_key_secret_name"].replace("_", "-").lower()
-            s["endpoint_secret"] = s["endpoint_secret_name"].replace("_", "-").lower()
-            services.append(s)
-        contracts.append({"file": f.name, "use_case": uc, "postfix": postfix, "services": services,
-                          "key_vault": {"enabled": kv.get("enabled", True), "id": kv.get("id")}})
-    return contracts
+    for f in files:
+        try:
+            data, fmt = read_contract_file(f)
+        except (ValueError, KeyError, OSError) as e:
+            notes.append(f"{f.name}: not readable ({e})")
+            continue
+        c = normalize_contract(data, f.name, fmt, gw.subscription_id if gw else None)
+        if c is None:
+            if f.suffix != ".json":
+                notes.append(f"{f.name}: not an access contract (no use case / services)")
+            continue
+        if gw and c["apim_name"] and c["apim_name"].lower() != gw.apim_name.lower():
+            notes.append(f"{f.name}: targets APIM {c['apim_name']}, not {gw.apim_name}: skipped")
+            continue
+        contracts.append(c)
+    return contracts, notes
+
+
+def discover_contracts(gw, find_key_secrets=True, max_secrets=200):
+    """(contracts, notes) from the deployment when there are no contract files: one contract per product
+    postfix (<code>-<postfix>), from the products with an active subscription. With find_key_secrets, each
+    product's key secret is found by comparing the secrets of the platform Key Vault and APIM's resource group
+    vaults with the subscription keys (values stay in memory; names containing "key" only)."""
+    notes, by_postfix = [], {}
+    products = {p["name"]: p for p in gw.products()}
+    for pid in gw.contract_products():
+        code, _, postfix = pid.partition("-")
+        display = products[pid]["properties"].get("displayName", pid)
+        parts = display.split(" ")
+        # The access-contract naming: product <code>-<bu>-<use case>-<env>, display name "<code> <bu> <use case> <env>".
+        named = len(parts) == 4 and "-".join(parts).lower() == pid.lower()
+        uc = {"business_unit": parts[1], "use_case_name": parts[2], "environment": parts[3]} if named else {}
+        c = by_postfix.setdefault(postfix or pid, {
+            "file": f"(APIM) {postfix or pid}", "format": "apim", "schema": "discovered", "source": "discovered",
+            "use_case": uc, "postfix": postfix, "services": [], "apim_name": gw.apim_name,
+            "key_vault": {"enabled": False, "id": None}})
+        c["services"].append({"code": code, "product_id": pid, "display_name": display,
+                              "apis": sorted(a["name"] for a in gw.product_apis(pid)), "policy_xml": None,
+                              "key_secret": None, "endpoint_secret": None, "generated_policy": False})
+    if find_key_secrets and by_postfix:
+        vaults = {}
+        if gw.key_vault:
+            vaults[gw.key_vault] = None
+        for r in gw.resources():
+            if r["type"].lower() == "microsoft.keyvault/vaults":
+                vaults[r["name"]] = r["id"]
+        key_owner = {}
+        for c in by_postfix.values():
+            for s in c["services"]:
+                keys = gw.keys(s["product_id"])
+                for k in ("primaryKey", "secondaryKey"):
+                    if keys.get(k):
+                        key_owner[keys[k]] = s
+        checked = 0
+        for vault, vault_id in vaults.items():
+            names = gw.az.run("keyvault", "secret", "list", "--vault-name", vault, "--query", "[].name", check=False)
+            if names is None:
+                notes.append(f"Key Vault {vault}: secrets not listable from here (network or permissions)")
+                continue
+            for name in [n for n in names if "key" in n.lower()]:
+                if checked >= max_secrets:
+                    notes.append(f"stopped after {max_secrets} secrets")
+                    break
+                checked += 1
+                value = gw.az.run("keyvault", "secret", "show", "--vault-name", vault, "--name", name, "--query", "value", check=False)
+                s = key_owner.get(value)
+                if s and not s["key_secret"]:
+                    s["key_secret"] = name
+                    s["vault_id"] = vault_id or next((r["id"] for r in gw.resources() if r["name"] == vault), None)
+        for c in by_postfix.values():
+            found = [s for s in c["services"] if s["key_secret"]]
+            if found:
+                c["key_vault"] = {"enabled": True, "id": found[0].get("vault_id")}
+                c["services"] = found + [s for s in c["services"] if not s["key_secret"]]
+    return list(by_postfix.values()), notes
 
 
 # ---------------------------------------------------------------------------------------------
@@ -301,6 +462,8 @@ def features(xml):
         "semantic_cache": bool(re.search(r"<(llm|azure-openai)-semantic-cache-lookup\b", xml))
         or variables.get("semanticCacheEnabled", "").lower() == "true",
         "jwt_validation": bool(re.search(r"<validate-(jwt|azure-ad-token)\b|fragment-id=\"security-handler\"", xml)),
+        # UAIG-* response headers (set-response-headers): UAIG-Request-Id correlates a call with the logs.
+        "response_headers": 'name="enableResponseHeaders"' in xml,
     }
 
 
@@ -526,17 +689,51 @@ def probe_plan(url):
 LLM_API_ORDER = ("azure-openai-api", "universal-llm-api", "unified-ai-api")
 
 
-class Gateway:
-    """A deployed environment (environments/<env>), seen through the management plane and the gateway."""
+def connect(target, **kwargs):
+    """A Gateway for an environment name (environments/<env>) or a dict of Gateway arguments
+    (subscription_id, resource_group, apim_name, key_vault)."""
+    if isinstance(target, dict):
+        return Gateway(**{**kwargs, **target})
+    return Gateway(target, **kwargs)
 
-    def __init__(self, env, default_model=None, key_vault=None):
-        self.env = gateway_env.Env(env)
-        self.az = Az(self.env.subscription_id)
-        self.names = self.env.names
-        self.rg, self.apim_name = self.names["resource_group"], self.names["apim"]
+
+def arm_id_parts(resource_id):
+    """{"subscriptions": ..., "resourcegroups": ..., ...} of a resource ID (keys lower-case)."""
+    parts = resource_id.strip("/").split("/")
+    return {parts[i].lower(): parts[i + 1] for i in range(0, len(parts) - 1, 2)}
+
+
+class Gateway:
+    """A deployed Citadel gateway, seen through the management plane and the gateway.
+
+    Found from environments/<env>/common.tfvars (this repository's naming contract), or from a
+    subscription / resource group for any Citadel deployment (Bicep, older Terraform versions):
+    - APIM: the named service; else the only APIM service of the resource group (or subscription).
+      Several candidates need apim_name. Names derived from common.tfvars that don't exist (another
+      naming scheme) fall back to the same discovery.
+    - Key Vault (test client secrets, contract keys): the named vault; else the vault APIM's Key
+      Vault-backed named values use; else the only vault of APIM's resource group. None when
+      ambiguous: the cases that need it say so.
+    discovery lists how each was found.
+    """
+
+    def __init__(self, env=None, default_model=None, key_vault=None, subscription_id=None, resource_group=None,
+                 apim_name=None):
+        self.env = gateway_env.Env(env) if env else None
+        self.discovery = []
+        names = self.env.names if self.env else {}
+        subscription_id = subscription_id or (self.env.subscription_id if self.env else None)
+        if not subscription_id:
+            subscription_id = Az().run("account", "show")["id"]
+            self.discovery.append(f"subscription: the az CLI default ({subscription_id})")
+        self.subscription_id = subscription_id
+        self.az = Az(subscription_id)
+        self.names = names
+        self.apim = self._find_apim(resource_group or names.get("resource_group"), apim_name or names.get("apim"))
+        self.apim_id = self.apim["id"]
+        self.rg, self.apim_name = arm_id_parts(self.apim_id)["resourcegroups"], self.apim["name"]
         self.svc = f"/resourceGroups/{self.rg}/providers/Microsoft.ApiManagement/service/{self.apim_name}"
-        self.apim_id = f"/subscriptions/{self.env.subscription_id}{self.svc}"
-        self.apim = self.get(self.svc)
+        self.label = env or self.apim_name
         props = self.apim["properties"]
         self.gateway_url = props["gatewayUrl"]
         self.sku = self.apim["sku"]["name"]
@@ -544,8 +741,67 @@ class Gateway:
         account = self.az.run("account", "show")
         self.tenant_id, self.signed_in = account["tenantId"], account["user"]["name"]
         self.default_model = default_model
-        self.key_vault = key_vault or self.names["key_vault"]
         self._cache, self._token, self.used = {}, (None, 0), {}
+        self.key_vault = self._find_key_vault(key_vault or names.get("key_vault"))
+
+    # -- discovery ----------------------------------------------------------------------------
+    def _find_apim(self, resource_group, name):
+        if resource_group and name:
+            apim = self.get(f"/resourceGroups/{resource_group}/providers/Microsoft.ApiManagement/service/{name}", check=False)
+            if apim:
+                return apim
+            self.discovery.append(f"APIM {name} not found in {resource_group}: searching")
+        rg_exists = bool(resource_group) and bool(self.get(f"/resourceGroups/{resource_group}", api="2021-04-01", check=False))
+        scope = f"/resourceGroups/{resource_group}" if rg_exists else ""
+        if resource_group and not rg_exists:
+            self.discovery.append(f"resource group {resource_group} not found: searching the subscription")
+        found = (self.get(f"{scope}/providers/Microsoft.ApiManagement/service") or {}).get("value", [])
+        where = f"resource group {resource_group}" if scope else f"subscription {self.subscription_id}"
+        named = [a for a in found if name and a["name"].lower() == name.lower()]
+        if named:
+            self.discovery.append(f"APIM {name}: found in {arm_id_parts(named[0]['id'])['resourcegroups']}")
+            return named[0]
+        if not found:
+            raise LookupError(f"no API Management service in {where}: set RESOURCE_GROUP / SUBSCRIPTION_ID")
+        if len(found) > 1:
+            listed = ", ".join(f"{a['name']} ({arm_id_parts(a['id'])['resourcegroups']})" for a in found)
+            raise LookupError(f"{len(found)} API Management services in {where}: set APIM_NAME (and RESOURCE_GROUP): {listed}")
+        self.discovery.append(f"APIM: the only service in {where}")
+        return found[0]
+
+    def _find_key_vault(self, name):
+        if name:
+            if self.get(f"/resourceGroups/{self.rg}/providers/Microsoft.KeyVault/vaults/{name}", api="2023-07-01", check=False) \
+                    or self.az.run("keyvault", "show", "--name", name, "--subscription", self.subscription_id, "--query", "id", check=False):
+                return name
+            self.discovery.append(f"Key Vault {name} not found: searching")
+        used = {}
+        for nv in (self.get(f"{self.svc}/namedValues") or {}).get("value", []):
+            uri = ((nv["properties"].get("keyVault") or {}).get("secretIdentifier") or "")
+            host = urllib.parse.urlparse(uri).hostname or ""
+            if host:
+                used[host.split(".")[0]] = used.get(host.split(".")[0], 0) + 1
+        if used:
+            vault = max(used, key=used.get)
+            self.discovery.append(f"Key Vault: {vault}, used by {used[vault]} Key Vault-backed APIM named value(s)")
+            return vault
+        in_rg = [v["name"] for v in (self.get(f"/resourceGroups/{self.rg}/providers/Microsoft.KeyVault/vaults", api="2023-07-01",
+                                               check=False) or {}).get("value", [])]
+        if len(in_rg) == 1:
+            self.discovery.append(f"Key Vault: the only vault in {self.rg}")
+            return in_rg[0]
+        self.discovery.append(f"Key Vault: not found ({len(in_rg)} vaults in {self.rg}; set KEY_VAULT_NAME)")
+        return None
+
+    def vault_id(self, name):
+        """Resource ID of a Key Vault by name (any resource group of the subscription)."""
+        return self.cached(("vault-id", name), lambda: next(
+            (r["id"] for r in self.resources() if r["name"].lower() == (name or "").lower()), None)
+            or self.az.run("keyvault", "show", "--name", name, "--subscription", self.subscription_id, "--query", "id", check=False))
+
+    def contract_products(self):
+        """Products that look like access contracts: an active subscription, not APIM's built-in samples."""
+        return [p for p in self.product_ids() if p.lower() not in ("starter", "unlimited") and self.subscription(p)]
 
     # -- management plane ---------------------------------------------------------------------
     def url(self, path, api=APIM_API):
@@ -672,6 +928,8 @@ class Gateway:
         cid, secret = os.environ.get("JWT_TEST_CLIENT_ID"), os.environ.get("JWT_TEST_CLIENT_SECRET")
         if cid and secret:
             return cid, secret
+        if not self.key_vault:
+            raise LookupError("no platform Key Vault for the test client: set KEY_VAULT_NAME, or JWT_TEST_CLIENT_ID / JWT_TEST_CLIENT_SECRET")
         return (self.secret(self.key_vault, "ENTRA-TEST-CLIENT-ID"),
                 self.secret(self.key_vault, "ENTRA-TEST-CLIENT-SECRET"))
 
@@ -801,7 +1059,7 @@ class Gateway:
 
     # -- Azure resources ------------------------------------------------------------------------
     def resources(self):
-        return self.cached("resources", lambda: self.az.run("resource", "list", "-g", self.rg))
+        return self.cached("resources", lambda: self.az.run("resource", "list", "-g", self.rg, "--subscription", self.subscription_id))
 
     def resource_details(self, ids):
         out = []
@@ -811,7 +1069,7 @@ class Gateway:
         return out
 
     def resource_group(self):
-        return self.az.run("group", "show", "-n", self.rg)
+        return self.az.run("group", "show", "-n", self.rg, "--subscription", self.subscription_id)
 
     def workspace(self):
         """(resource ID, customer ID) of the Log Analytics workspace APIM sends its logs to."""

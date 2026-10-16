@@ -405,7 +405,7 @@ inference_api_version = "2024-05-01-preview"
 |---|---|
 | **Notebook** | [`citadel-acceptance-tests.ipynb`](citadel-acceptance-tests.ipynb) |
 | **Purpose** | Run a customer acceptance catalogue (authentication, authorization, MCP, AI policies, circuit breakers, usage / chargeback, token accounting, network security) against a deployed environment and export the results for the test sheet |
-| **Run this** | After `task up` (and the contracts). Doesn't deploy anything; the opt-in cases change a subscription key or trigger the usage workflow. |
+| **Run this** | After `task up` (and the contracts), or on any Citadel deployment (upstream Bicep, older versions of this repository). Doesn't deploy anything; the opt-in cases change a subscription key or trigger the usage workflow. |
 
 #### What It Does
 
@@ -428,10 +428,33 @@ case, and how it maps to this deployment.
 with small limits (300 tokens/minute; 2,000 tokens/hour) so the rate-limit and quota cases trip after a
 few requests.
 
+#### Target: this repository or any Citadel deployment
+
+| Deployment | Settings | What the notebook finds |
+|---|---|---|
+| An environment of this repository | `ENV = "<env>"` (only `environments/<env>/common.tfvars` is needed) | APIM, Key Vault and resource group from the naming contract; derived names that don't exist fall back to discovery |
+| Upstream Bicep templates, older versions of this repository, any other Citadel gateway | `ENV = None`, `RESOURCE_GROUP` (+ `SUBSCRIPTION_ID`, `APIM_NAME` when ambiguous) | APIM: the only service of the resource group; Key Vault: the one APIM's Key Vault-backed named values use, else the only vault of the resource group (`KEY_VAULT_NAME` overrides); workspace from APIM's diagnostic settings; Logic App and Cosmos DB by resource type |
+
+**Access contracts** (AUTH-001/002, PBI-003): `CONTRACTS` points at a folder or file of contract definitions:
+this repository's `.tfvars` (current or older schema), the upstream `.bicepparam` (compiled with
+`az bicep build-params`, so its `using` template must be at its path) or an ARM parameters `.json`. Files for
+another APIM service are skipped. Without files, the products with a subscription stand in for the contracts
+(AUTH-001 lists them for review) and their key secrets are found in the Key Vaults by value
+(`DISCOVER_KEY_SECRETS`; values are compared in memory, never printed).
+
+**Differences outside this repository:**
+- JWT cases: the test client comes from `JWT_TEST_CLIENT_ID` / `JWT_TEST_CLIENT_SECRET` (environment variables)
+  or the Key Vault secrets `ENTRA-TEST-CLIENT-ID` / `ENTRA-TEST-CLIENT-SECRET`.
+- AUTH-001: only this repository's current contracts generate the product policy from properties, so only
+  they have `allowedModels`, token limits and `jwtRequired` compared; other contracts are checked for name,
+  APIs, publication and subscription.
+- POL-009: the fragment drift against this repository is reported, not checked.
+
 #### Key Configuration
 
 ```python
-ENV = "dev"
+ENV = "dev"                       # or None with RESOURCE_GROUP / SUBSCRIPTION_ID / APIM_NAME / KEY_VAULT_NAME
+CONTRACTS = None                  # contract files (.tfvars, .bicepparam, ARM .json); None = environments/<ENV>/access-contracts
 DEFAULT_MODEL = None              # model for products that allow every model
 PRODUCTS = {}                     # pin a product per test kind ("jwt", "rate", "quota", "usage", ...)
 ALLOW_KEY_ROTATION = False        # AUTH-009 (regenerates a primary key)
@@ -486,7 +509,8 @@ Set `TARGET` to a name and run all cells. The notebook:
 #### Key Configuration
 
 ```python
-ENV = "dev"
+ENV = "dev"                       # or None with RESOURCE_GROUP (+ SUBSCRIPTION_ID, APIM_NAME, KEY_VAULT_NAME): any Citadel deployment
+CONTRACTS = None                  # contract files (.tfvars, .bicepparam, ARM .json); None = environments/<ENV>/access-contracts
 TARGET = "team-a-chatbot"         # or a list of names; "" = catalogue only
 INCLUDE = ("chat", "embeddings", "image")
 GUARDRAILS = True                 # 401 without key, 403 for a model outside allowed_models
@@ -536,6 +560,9 @@ BACKEND_KEY = "auto"              # backends / models: all-access subscription, 
 > Notebook 5 (acceptance tests) only reads and calls the deployment: run it on any environment, typically as the sign-off step after the baseline.
 >
 > Notebook 6 (backend & access contract tests) also only reads and calls: use it as a quick check of one backend or contract at any time.
+>
+> Notebooks 5 and 6 also run against Citadel deployments made with the upstream Bicep templates or older
+> versions of this repository: set `ENV = None` and `RESOURCE_GROUP` (see notebook 5, *Target*).
 
 ## Shared Utilities
 
@@ -545,8 +572,8 @@ All notebooks import shared helper modules from the [`shared/`](shared/) directo
 |---|---|
 | `utils.py` | CLI command runner, stack helpers (`env_dir`, `write_tfvars`, `run_stack`, `stack_outputs`, `terraform_output_get`, `get_contract_subscription_key`), formatted output helpers (`print_ok`, `print_error`, `print_info`) |
 | `apimtools.py` | `APIMClientTool` class for APIM discovery, API key retrieval, policy fragment parsing, and backend management |
-| `acceptance.py` | Acceptance-test helpers: result registry and CSV export, gateway discovery (products, policies, subscriptions, keys in memory only), authenticated calls, Log Analytics queries, network-access inspection, direct probes, log secret scan. Reuses `scripts/gateway_env.py` and `scripts/jwt_auth_tests.py` |
-| `explorer.py` | Backend & access contract tests: discovery (backend contract, products, contract files, MCP servers), name resolution, request shapes per backend type and model kind, keys and calls. Builds on `acceptance.py` |
+| `acceptance.py` | Acceptance-test helpers: result registry and CSV export, gateway discovery (from `environments/<env>` or a subscription / resource group; products, policies, subscriptions, keys in memory only), access contracts from `.tfvars` / `.bicepparam` / ARM `.json` or from the products, authenticated calls, Log Analytics queries, network-access inspection, direct probes, log secret scan. Reuses `scripts/gateway_env.py` and `scripts/jwt_auth_tests.py` |
+| `explorer.py` | Backend & access contract tests: discovery (backend contract, or `set-backend-pools` on older gateways; products, contract files, MCP servers), name resolution, request shapes per backend type and model kind, keys and calls. Builds on `acceptance.py` |
 
 ## Cleanup
 
