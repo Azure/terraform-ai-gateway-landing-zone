@@ -20,6 +20,13 @@
                  
                  When skipBackendUrlRewrite is set (by request-processor for Unified AI API),
                  URL rewriting is skipped because path-builder handles URI construction instead.
+                 The Azure OpenAI API rewrites the URI again after this fragment (its own
+                 deployments template), so the ai-foundry / azure-openai rewrites below only
+                 shape Universal LLM API requests.
+
+                 api-version: the /openai/deployments/{model}/... paths need one, and Universal
+                 LLM API (OpenAI SDK) clients don't send it. Without one, the OpenAI v1 endpoint
+                 family (/openai/v1/..., model in the body) is used instead, which needs none.
         
         Expected Input Variables:
         - targetAuthType: The auth type for the target backend
@@ -261,6 +268,11 @@
                         path = "";
                     }
                 }
+                // No api-version from the client (OpenAI SDK style): the v1 endpoint family.
+                if (string.IsNullOrEmpty(context.Request.OriginalUrl.Query.GetValueOrDefault("api-version", "")))
+                {
+                    return string.Format("openai/v1/{0}", path);
+                }
                 return string.Format("openai/deployments/{0}/{1}", requestedModel, path);
             }" />
             <rewrite-uri template="@((string)context.Variables["rewriteTemplate"])" copy-unmatched-params="true" />
@@ -300,9 +312,15 @@
                     return string.Format("models/{0}", path);
                 }
 
-                // If embeddings endpoint, route to /openai/deployments/{model}/embeddings to leverage Azure OpenAI backend for embeddings
+                // Embeddings: the Azure OpenAI surface of the account. /openai/deployments/{model}/embeddings
+                // needs an api-version (404 without one), so it's only used when the client sent one;
+                // otherwise /openai/v1/embeddings (model in the body).
                 if (lowerPath.Contains("embeddings"))
                 {
+                    if (string.IsNullOrEmpty(context.Request.OriginalUrl.Query.GetValueOrDefault("api-version", "")))
+                    {
+                        return string.Format("openai/v1/{0}", path);
+                    }
                     string requestedModel = (string)context.Variables["requestedModel"];
                     return string.Format("openai/deployments/{0}/{1}", requestedModel, path);
                 }
