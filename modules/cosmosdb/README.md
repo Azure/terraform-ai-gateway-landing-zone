@@ -2,7 +2,7 @@
 
 Creates the serverless Cosmos DB account (Session consistency, one region, periodic backup every 4 hours kept 8 hours) on AVM `avm-res-documentdb-databaseaccount`, with:
 
-- the `usage-db` database and its containers: `ai-usage-container` (`/productName`), `llm-usage-container` (`/productName`), `pii-usage-container` (`/productName`), `streaming-export-config` (`/type`) and `model-pricing` (`/model`);
+- the `usage-db` database and its containers: `ai-usage-container` (`/productName`), `llm-usage-container` (`/productName`), `mcp-usage-container` (`/productName`), `agent-usage-container` (`/productName`), `pii-usage-container` (`/productName`), `streaming-export-config` (`/type`) and `model-pricing` (`/model`);
 - local (key) authentication off unless `local_authentication_enabled`, public access per `public_network_access`;
 - a `Sql` private endpoint with the zone group `cosmos-dns-group` (no zone group when Azure Policy owns it);
 - diagnostics (`DataPlaneRequests`, `QueryRuntimeStatistics`, `Requests`) by idempotent PUT, skipped when Policy owns them;
@@ -63,11 +63,13 @@ Called by [stacks/platform](../../stacks/platform/usage-data.tf); the caller pas
 | ---- | ----------- |
 | <a name="output_account_id"></a> [account\_id](#output\_account\_id) | Resource ID of the Cosmos DB account. |
 | <a name="output_account_name"></a> [account\_name](#output\_account\_name) | Name of the Cosmos DB account. |
+| <a name="output_agent_usage_container_name"></a> [agent\_usage\_container\_name](#output\_agent\_usage\_container\_name) | Name of the A2A (agent) usage container. |
 | <a name="output_config_container_name"></a> [config\_container\_name](#output\_config\_container\_name) | Name of the configuration container. |
 | <a name="output_database_name"></a> [database\_name](#output\_database\_name) | Name of the usage database. |
 | <a name="output_diagnostic_setting_names"></a> [diagnostic\_setting\_names](#output\_diagnostic\_setting\_names) | Workload diagnostic setting names (empty when policy owns diagnostics). |
 | <a name="output_endpoint"></a> [endpoint](#output\_endpoint) | Cosmos DB account endpoint. |
 | <a name="output_llm_usage_container_name"></a> [llm\_usage\_container\_name](#output\_llm\_usage\_container\_name) | Name of the LLM usage container. |
+| <a name="output_mcp_usage_container_name"></a> [mcp\_usage\_container\_name](#output\_mcp\_usage\_container\_name) | Name of the MCP (tool) usage container. |
 | <a name="output_model_pricing_container_name"></a> [model\_pricing\_container\_name](#output\_model\_pricing\_container\_name) | Name of the model pricing container. |
 | <a name="output_pii_container_name"></a> [pii\_container\_name](#output\_pii\_container\_name) | Name of the PII usage container. |
 | <a name="output_usage_container_name"></a> [usage\_container\_name](#output\_usage\_container\_name) | Name of the AI usage container. |

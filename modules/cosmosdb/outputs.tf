@@ -47,6 +47,18 @@ output "llm_usage_container_name" {
   # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
   depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
 }
+output "mcp_usage_container_name" {
+  description = "Name of the MCP (tool) usage container."
+  value       = local.containers.mcp_usage.name
+  # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
+  depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
+}
+output "agent_usage_container_name" {
+  description = "Name of the A2A (agent) usage container."
+  value       = local.containers.agent_usage.name
+  # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
+  depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
+}
 output "model_pricing_container_name" {
   description = "Name of the model pricing container."
   value       = local.containers.model_pricing.name

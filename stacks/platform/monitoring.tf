@@ -38,7 +38,7 @@ module "monitoring" {
 
   public_ingestion_enabled = var.monitoring.public_ingestion_enabled
   public_query_enabled     = var.monitoring.public_query_enabled
-  # The usage pipeline's llm-usage-ingestion and ai-usage-streaming-ingestion workflows query the
+  # The usage pipeline's llm-, mcp- and agent-usage-ingestion workflows query the
   # APIM component with the azuremonitorlogs managed connector: through Resource Manager, which
   # can't use private links. The component's data lives in the workspace, and a workspace that
   # blocks public query returns those queries empty (no error), so both keep public query.

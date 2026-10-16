@@ -202,7 +202,7 @@ locals {
   common_app_settings = merge({
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = var.app_insights_connection_string
     "FUNCTIONS_WORKER_RUNTIME"              = "node"
-    "WEBSITE_NODE_DEFAULT_VERSION"          = "~20"
+    "WEBSITE_NODE_DEFAULT_VERSION"          = "~22"
 
     "eventHub_fullyQualifiedNamespace" = var.eventhub_endpoint_host
     "eventHub_name"                    = var.eventhub_ai_usage_hub_name
@@ -220,6 +220,8 @@ locals {
     "CosmosDBContainerUsage"        = var.cosmos_db_container_usage
     "CosmosDBContainerPII"          = var.cosmos_db_container_pii
     "CosmosDBContainerLLMUsage"     = var.cosmos_db_container_llm_usage
+    "CosmosDBContainerMCPUsage"     = var.cosmos_db_container_mcp_usage
+    "CosmosDBContainerAgentUsage"   = var.cosmos_db_container_agent_usage
 
     # App Insights workbook lookup info
     "AppInsights_SubscriptionId" = var.subscription_id

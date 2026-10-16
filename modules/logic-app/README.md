@@ -107,8 +107,10 @@ Called by [stacks/platform](../../stacks/platform/usage-pipeline.tf); the caller
 | <a name="input_content_share_name"></a> [content\_share\_name](#input\_content\_share\_name) | Logic App content share (WEBSITE\_CONTENTSHARE). Leave blank to auto-derive. | `string` | `""` | no |
 | <a name="input_cosmos_db_account_id"></a> [cosmos\_db\_account\_id](#input\_cosmos\_db\_account\_id) | Cosmos DB account ID for SQL role assignment on Logic App system-assigned principal. | `string` | `""` | no |
 | <a name="input_cosmos_db_account_name"></a> [cosmos\_db\_account\_name](#input\_cosmos\_db\_account\_name) | Cosmos DB account name (for AppSettings CosmosDBAccount). | `string` | `""` | no |
+| <a name="input_cosmos_db_container_agent_usage"></a> [cosmos\_db\_container\_agent\_usage](#input\_cosmos\_db\_container\_agent\_usage) | Cosmos DB container for A2A (agent) usage records (agent-usage-ingestion). | `string` | `""` | no |
 | <a name="input_cosmos_db_container_config"></a> [cosmos\_db\_container\_config](#input\_cosmos\_db\_container\_config) | Cosmos DB container holding configuration documents (model pricing, ...). | `string` | `""` | no |
 | <a name="input_cosmos_db_container_llm_usage"></a> [cosmos\_db\_container\_llm\_usage](#input\_cosmos\_db\_container\_llm\_usage) | Cosmos DB container for LLM usage records. | `string` | `""` | no |
+| <a name="input_cosmos_db_container_mcp_usage"></a> [cosmos\_db\_container\_mcp\_usage](#input\_cosmos\_db\_container\_mcp\_usage) | Cosmos DB container for MCP (tool) usage records (mcp-usage-ingestion). | `string` | `""` | no |
 | <a name="input_cosmos_db_container_pii"></a> [cosmos\_db\_container\_pii](#input\_cosmos\_db\_container\_pii) | Cosmos DB container for PII usage records. | `string` | `""` | no |
 | <a name="input_cosmos_db_container_usage"></a> [cosmos\_db\_container\_usage](#input\_cosmos\_db\_container\_usage) | Cosmos DB container for AI usage records. | `string` | `""` | no |
 | <a name="input_cosmos_db_database_name"></a> [cosmos\_db\_database\_name](#input\_cosmos\_db\_database\_name) | Cosmos DB database that holds the usage containers. | `string` | `""` | no |

@@ -60,14 +60,16 @@ module "logic_app" {
   eventhub_ai_usage_hub_name  = module.eventhub.apim_usage_hub_name
   eventhub_pii_usage_hub_name = module.eventhub.pii_usage_hub_name
 
-  cosmos_db_endpoint            = module.cosmosdb.endpoint
-  cosmos_db_account_name        = module.cosmosdb.account_name
-  cosmos_db_account_id          = module.cosmosdb.account_id
-  cosmos_db_database_name       = module.cosmosdb.database_name
-  cosmos_db_container_config    = module.cosmosdb.config_container_name
-  cosmos_db_container_usage     = module.cosmosdb.usage_container_name
-  cosmos_db_container_pii       = module.cosmosdb.pii_container_name
-  cosmos_db_container_llm_usage = module.cosmosdb.llm_usage_container_name
+  cosmos_db_endpoint              = module.cosmosdb.endpoint
+  cosmos_db_account_name          = module.cosmosdb.account_name
+  cosmos_db_account_id            = module.cosmosdb.account_id
+  cosmos_db_database_name         = module.cosmosdb.database_name
+  cosmos_db_container_config      = module.cosmosdb.config_container_name
+  cosmos_db_container_usage       = module.cosmosdb.usage_container_name
+  cosmos_db_container_pii         = module.cosmosdb.pii_container_name
+  cosmos_db_container_llm_usage   = module.cosmosdb.llm_usage_container_name
+  cosmos_db_container_mcp_usage   = module.cosmosdb.mcp_usage_container_name
+  cosmos_db_container_agent_usage = module.cosmosdb.agent_usage_container_name
 
   # The Logic App's own runtime telemetry goes to its component (appi-logic-*); the usage
   # workflow still queries the APIM component's token metrics (AppInsights_* settings below).

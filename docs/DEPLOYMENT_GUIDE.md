@@ -226,8 +226,8 @@ monitoring = {
   false` needs APIM in a VNet. Diagnostic settings aren't affected
   (Microsoft's private channel).
 - **Public query stays on the workspace and the APIM component.** The usage
-  pipeline's `llm-usage-ingestion` and `ai-usage-streaming-ingestion`
-  workflows read the APIM component with the Logic App managed connector,
+  pipeline's `llm-usage-ingestion`, `mcp-usage-ingestion` and
+  `agent-usage-ingestion` workflows read the APIM component with the Logic App managed connector,
   whose queries go through Resource Manager, which can't use private links.
   The component's data lives in the workspace, and a workspace that blocks
   public query returns those queries **empty, without an error**: the
@@ -360,6 +360,20 @@ They are rewritten every `secret_rotation_days`.
 
 ### 6.1 Usage-ingestion workflow code
 
+The workflows (synced with the upstream accelerator, except `connections.json`, which uses the
+managed identity for Cosmos DB):
+
+| Workflow | Trigger | Reads | Writes (Cosmos DB `usage-db`) |
+|---|---|---|---|
+| `llm-usage-ingestion` | every 3 hours (GMT) | APIM App Insights token metrics (`llm-usage` namespace, `set-llm-usage`): prompt, completion and total tokens plus cached, audio, reasoning and prediction tokens | `llm-usage-container`, hourly per product, subscription, model and backend |
+| `mcp-usage-ingestion` | every 3 hours | `McpRequests` (`mcp-usage` fragment; include it in your MCP server policies) | `mcp-usage-container`, request counts per product, subscription, MCP server and operation |
+| `agent-usage-ingestion` | every 3 hours | `A2ARequests` (`a2a-usage` fragment; include it in your A2A agent API policies) | `agent-usage-container` |
+| `ai-usage-ingestion` | Event Hub `ai-usage` | per-request usage events (`ai-usage` / `openai-usage` fragments, not included by default) | `ai-usage-container` |
+| `pii-usage-ingestion` | Event Hub `pii-usage` | `pii-state-saving` events | `pii-usage-container` |
+
+Each scheduled workflow keeps its last export time in `streaming-export-config` (documents
+`002`, `003`, `004`), so a run picks up where the previous one stopped.
+
 `usage_pipeline.logic_app.code_deploy = true` publishes
 `logicapp-src/usage-ingestion-logicapp` (or `code_source_path`) with the
 infrastructure ([modules/logic-app/code-deploy.tf](../modules/logic-app/code-deploy.tf)):
@@ -369,7 +383,7 @@ infrastructure ([modules/logic-app/code-deploy.tf](../modules/logic-app/code-dep
 | `run_from_package` | `ase_v3` default | the zip is uploaded as a content-addressed blob to the keyless account's `deployments` container; the site gets `WEBSITE_RUN_FROM_PACKAGE` + `WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID` (usage identity); restart + `syncfunctiontriggers` per new package | the storage blob private endpoint, on **every plan** (the blob is read on refresh) |
 | `zip_deploy` | `workflow_standard`; `ase_v3` opt-in | `az functionapp deployment source config-zip` | the site's SCM endpoint (inside the VNet for an ILB ASE) |
 
-Verified live (ASE v3, `run_from_package`): the four workflows load from the
+Verified live (ASE v3, `run_from_package`): the workflows load from the
 managed-identity-fetched package and a usage event lands in Cosmos DB with key
 auth disabled.
 
@@ -960,5 +974,5 @@ a human, or keep the names and let `recover_soft_deleted_key_vaults` recover.
 | APIM create sits for 30–60 min; `app-hosting` for 2–4 h | first-time provisioning | normal; don't cancel |
 | Private-only Logic App: `zip_deploy` fails with `403` / times out, or `<site>.scm.azurewebsites.net` resolves to a public IP | SCM is closed to the public and the runner isn't on a network that resolves `privatelink.azurewebsites.net` | run from a runner or VM on the VNet; check the zone is linked and has the `<site>` and `<site>.scm` records ([§6.2](#62-private-logic-app-workflow-standard)) |
 | Logic App runs but the workflows are empty | code publish skipped or failed | `task logic-app-code ENV=<env>` from a runner that reaches the storage PE; fall back to `deployment = "zip_deploy"` |
-| `llm-usage-ingestion` / `ai-usage-streaming-ingestion` runs succeed but write no usage records, while the gateway serves traffic | the Log Analytics workspace behind the APIM App Insights component blocks queries from public networks (often a central BYO workspace); the managed connector queries through Resource Manager and gets an empty result, not an error | let the workspace accept public queries (`publicNetworkAccessForQuery = Enabled`); this repository keeps it on for the workspace it creates |
+| `llm-usage-ingestion` / `mcp-usage-ingestion` / `agent-usage-ingestion` runs succeed but write no usage records, while the gateway serves traffic | the Log Analytics workspace behind the APIM App Insights component blocks queries from public networks (often a central BYO workspace); the managed connector queries through Resource Manager and gets an empty result, not an error | let the workspace accept public queries (`publicNetworkAccessForQuery = Enabled`); this repository keeps it on for the workspace it creates |
 | `Error acquiring the state lock` in a PR plan | the plan identity can only read state | plans run with `-lock=false` (`LOCK=-lock=false`) |

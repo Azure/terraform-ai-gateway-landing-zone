@@ -157,6 +157,18 @@ variable "cosmos_db_container_llm_usage" {
   default     = ""
 }
 
+variable "cosmos_db_container_mcp_usage" {
+  description = "Cosmos DB container for MCP (tool) usage records (mcp-usage-ingestion)."
+  type        = string
+  default     = ""
+}
+
+variable "cosmos_db_container_agent_usage" {
+  description = "Cosmos DB container for A2A (agent) usage records (agent-usage-ingestion)."
+  type        = string
+  default     = ""
+}
+
 variable "cosmos_db_account_id" {
   description = "Cosmos DB account ID for SQL role assignment on Logic App system-assigned principal."
   type        = string

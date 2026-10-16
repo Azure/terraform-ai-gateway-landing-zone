@@ -580,6 +580,15 @@ run "ase_v3_is_keyless_and_runs_from_package" {
     condition     = length(setintersection(module.logic_app.hosting.app_setting_names, ["AzureWebJobsStorage", "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING", "WEBSITE_CONTENTSHARE", "AzureCosmosDB_connectionString"])) == 0
     error_message = "No key-based app settings on the keyless site."
   }
+  assert {
+    condition = (
+      contains(module.logic_app.hosting.app_setting_names, "CosmosDBContainerMCPUsage") &&
+      contains(module.logic_app.hosting.app_setting_names, "CosmosDBContainerAgentUsage") &&
+      module.cosmosdb.mcp_usage_container_name == "mcp-usage-container" &&
+      module.cosmosdb.agent_usage_container_name == "agent-usage-container"
+    )
+    error_message = "The mcp- and agent-usage-ingestion workflows get their Cosmos DB containers and app settings."
+  }
 }
 
 run "shared_ase_is_not_looked_up" {

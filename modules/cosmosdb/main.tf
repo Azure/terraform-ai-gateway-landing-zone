@@ -6,11 +6,13 @@
 locals {
   # Every container: consistent indexing over /*; usage containers never expire items.
   containers = {
-    usage         = { name = "ai-usage-container", partition_key = "/productName", default_ttl = -1 }  # token/request records from APIM
-    config        = { name = "streaming-export-config", partition_key = "/type", default_ttl = null }  # Logic App configuration documents
-    pii           = { name = "pii-usage-container", partition_key = "/productName", default_ttl = -1 } # PII anonymization audit records
-    llm_usage     = { name = "llm-usage-container", partition_key = "/productName", default_ttl = -1 } # LLM token usage records
-    model_pricing = { name = "model-pricing", partition_key = "/model", default_ttl = null }           # Model pricing reference data
+    usage         = { name = "ai-usage-container", partition_key = "/productName", default_ttl = -1 }    # token/request records from APIM
+    config        = { name = "streaming-export-config", partition_key = "/type", default_ttl = null }    # Logic App configuration documents
+    pii           = { name = "pii-usage-container", partition_key = "/productName", default_ttl = -1 }   # PII anonymization audit records
+    llm_usage     = { name = "llm-usage-container", partition_key = "/productName", default_ttl = -1 }   # LLM token usage records
+    mcp_usage     = { name = "mcp-usage-container", partition_key = "/productName", default_ttl = -1 }   # MCP (tool) request counts
+    agent_usage   = { name = "agent-usage-container", partition_key = "/productName", default_ttl = -1 } # A2A (agent) request counts
+    model_pricing = { name = "model-pricing", partition_key = "/model", default_ttl = null }             # Model pricing reference data
   }
 }
 
