@@ -10,8 +10,20 @@ locals {
     AzureOpenAI = "${local.apis_dir}/azure-openai-api/AIFoundryOpenAI.json"
     AzureAI     = "${local.apis_dir}/universal-llm-api/AIFoundryAzureAI.json"
     OpenAI      = "${local.apis_dir}/universal-llm-api/AIFoundryAzureAI.json"
-    OpenAIV1    = "${local.apis_dir}/universal-llm-api/AIFoundryOpenAIV1.json"
+    OpenAIV1    = "${local.apis_dir}/universal-llm-api/Universal LLM API v2.openapi.yaml"
   }, var.inference_api_type, "${local.apis_dir}/universal-llm-api/PassThrough.json")
+  universal_llm_display_name = "Universal LLM API"
+  universal_llm_description  = "Universal LLM API to route requests to different LLM providers including Azure OpenAI, AI Foundry and 3rd party models."
+  # The OpenAIV1 spec is upstream's YAML, kept verbatim and imported as JSON (as upstream does), with:
+  # - no `servers`: it is a sample APIM URL that would become the API's service URL, so a request
+  #   no policy routes would go there with the caller's key;
+  # - `info` matching the API's name and description (APIM sets them, and the license, from the
+  #   spec on import; otherwise the next plan wants to change them back).
+  universal_llm_spec_doc = endswith(local.universal_llm_spec_path, ".yaml") ? yamldecode(file(local.universal_llm_spec_path)) : null
+  universal_llm_spec = local.universal_llm_spec_doc == null ? file(local.universal_llm_spec_path) : jsonencode(merge(
+    { for k, v in local.universal_llm_spec_doc : k => v if k != "servers" },
+    { info = { title = local.universal_llm_display_name, description = local.universal_llm_description, version = local.universal_llm_spec_doc.info.version } },
+  ))
 
   has_llm_backends = length(local.all_llm_backends) > 0
 
@@ -60,12 +72,12 @@ locals {
       "universal-llm-api" = {
         api = {
           name                   = "universal-llm-api"
-          display_name           = "Universal LLM API"
-          description            = "Universal LLM API to route requests to different LLM providers including Azure OpenAI, AI Foundry and 3rd party models."
+          display_name           = local.universal_llm_display_name
+          description            = local.universal_llm_description
           path                   = local.universal_llm_api_path
           subscription_required  = local.subscription_required
           subscription_key_names = local.api_key_names
-          spec                   = { format = "openapi+json", value = file(local.universal_llm_spec_path) }
+          spec                   = { format = "openapi+json", value = local.universal_llm_spec }
           policy_xml             = file("${local.apis_dir}/universal-llm-api/universal-llm-api-policy-v2.xml")
         }
         operation_policies = merge(

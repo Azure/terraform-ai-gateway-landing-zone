@@ -623,20 +623,38 @@ endings). The rest differ on purpose:
 | `universal-llm-api-policy-v2.xml` | `external` in `compatiblePoolTypes`; semantic cache lookup / store |
 | `azure-open-ai-api-policy.xml`, `unified-ai-api-policy.xml` | semantic cache lookup / store ([DEPLOYMENT_GUIDE §6.9](DEPLOYMENT_GUIDE.md#69-semantic-cache)) |
 | `frag-set-backend-authorization.xml` | Bedrock SigV4 signs the `bedrock-runtime.<aws-region>` host (§3.2); Universal LLM API requests to `ai-foundry` embeddings and `azure-openai` pools use the OpenAI v1 endpoint when the client sends no `api-version` (upstream returns 404) |
-| `AIFoundryOpenAI.json`, `AIFoundryOpenAIV1.json` | tag names that don't collide when both specs are imported (APIM creates import tags service-wide) |
+| `AIFoundryOpenAI.json` | tag names that don't collide when both specs are imported (APIM creates import tags service-wide) |
+| `Universal LLM API v2.openapi.yaml` (the `OpenAIV1` Universal LLM spec) | file identical; imported without its `servers` entry, a sample APIM URL that would become the API's service URL and receive (with the caller's key) any request no policy routes ([apis.tf](../stacks/llm-backend-onboarding/apis.tf)) |
 | `mcp-default-policy.xml` | includes `mcp-usage` (upstream does this only in its publish-contract baseline MCP policy) |
 | Release Version API | requires a subscription key (upstream: anonymous) |
 | Logic App `connections.json` | Cosmos DB through the managed identity (upstream: connection string) |
 
-Not ported:
-- upstream files that its Bicep doesn't load: older specs (`openai-api/*`, `speech-api`,
-  `translator-api`, `language-api`, the AI Search *service* spec, `Universal-LLM-*.openapi.yaml`)
-  and unused policies (`openai_api_policy*.xml`, `product-llm-oauth-access.xml`,
-  `translator-api-policy.xml`, `ai-search-service-api-policy.xml`);
+Not ported (upstream's Bicep doesn't load them either; most predate the current layout):
+- **Speech** (`speech-api/speech-api-3-1.json`, batch transcription v3.1, since 2024-05) and
+  **Translator** (`translator-api/*`, `translator-api-policy.xml`, since 2024-07): never published.
+  Speech and audio go through the LLM APIs instead: `audio/speech`, `transcriptions` and
+  `translations` on the Azure OpenAI API and the Universal LLM API (v2 spec).
+- **Language** (`language-api/language-api-2024-11-01.json`, added with the PII feature): not
+  published as an API; the `pii-anonymization` fragment calls the Language service directly
+  (`{{piiServiceUrl}}/language/:analyze-text`, gateway-config `pii_service`).
+- older or alternative specs: `openai-api/*`, the AI Search *service* spec, the Document
+  Intelligence uncompressed specs (the compressed one is used), `Universal-LLM-*.openapi.yaml`,
+  `Universal LLM API v2.openapi.json` (the YAML is the one upstream loads) and
+  `AIFoundryOpenAIV1.json` (replaced by the v2 spec upstream in 2026-07);
+- unused policies: `openai_api_policy*.xml`, `product-llm-oauth-access.xml`,
+  `ai-search-service-api-policy.xml`; `llm-policy-fragments.json`;
 - the publish contracts (`bicep/infra/citadel-publish-contracts`: publishing MCP servers and A2A
   agents with baseline policies), a separate deployment. Its usage fragments (`mcp-usage`,
   `a2a-usage`), the `mcp-usage-ingestion` / `agent-usage-ingestion` workflows and their Cosmos DB
   containers are here.
+
+Known limitations of the Universal LLM API (`OpenAIV1`), the same upstream:
+- operations without a model (`GET /files`, `/batches`, `/vector_stores`, `/videos`, `/containers`,
+  `/evals`, `/fine_tuning/jobs`, …) return 500 "Backend service URL is not defined": the routing
+  picks a backend by model, and GET requests are classified as non-LLM;
+- `GET /models/{model}` (`retrieveModel`) returns 500: its operation policy
+  (`universal-llm-api-deployment-by-name-policy.xml`) reads the `deployment-id` path parameter,
+  which only `GET /deployments/{deployment-id}` has. `GET /models` and `/deployments/{id}` work.
 
 To compare with a newer upstream, clone it and diff each upstream file against the file of the
 same name under `stacks/` and `modules/` (the table above lists the expected differences), and

@@ -1,0 +1,4853 @@
+openapi: 3.0.1
+info:
+  title: Azure AI Foundry Models Service
+  license:
+    name: MIT
+    url: https://github.com/openai/openai-openapi/blob/master/LICENSE
+  version: '1.0'
+servers:
+  - url: https://apim-djiidqck2nhpg.azure-api.net/models
+paths:
+  /deployments:
+    get:
+      summary: List deployments
+      operationId: deployments
+      description: Get deployments for Azure OpenAI resource for Microsoft Foundry Integration
+      parameters: []
+      responses:
+        '200':
+          description: AI Foundry integration operations for retrieving available deployments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+        default:
+          description: An unexpected error response.
+          headers:
+            x-ms-error-code:
+              required: false
+              description: String error code indicating what went wrong.
+              schema:
+                type: string
+  '/deployments/{deployment-id}':
+    get:
+      summary: Get deployment by name
+      operationId: deployment-by-name
+      description: Get deployment details by deployment name for LLM resource for Microsoft Foundry Integration
+      parameters:
+        - name: deployment-id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+  /chat/completions:
+    post:
+      tags:
+        - Chat
+      summary: createChatCompletion
+      operationId: createChatCompletion
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+            example:
+              model: gpt-4.1
+              stream: false
+              messages:
+                - role: system
+                  content: You are a helpful assistant.
+                - role: user
+                  content: Explain Azure Bicep in one sentence.
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /containers:
+    get:
+      tags:
+        - Containers
+      summary: listContainers
+      operationId: ListContainers
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: before
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Containers
+      summary: createContainer
+      operationId: CreateContainer
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/containers/{container_id}':
+    get:
+      tags:
+        - Containers
+      summary: retrieveContainer
+      operationId: RetrieveContainer
+      parameters:
+        - name: container_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Containers
+      summary: deleteContainer
+      operationId: DeleteContainer
+      parameters:
+        - name: container_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/containers/{container_id}/files':
+    post:
+      tags:
+        - Containers
+      summary: createContainerFile
+      operationId: CreateContainerFile
+      parameters:
+        - name: container_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data: { }
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Containers
+      summary: listContainerFiles
+      operationId: ListContainerFiles
+      parameters:
+        - name: container_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: before
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/containers/{container_id}/files/{file_id}':
+    get:
+      tags:
+        - Containers
+      summary: retrieveContainerFile
+      operationId: RetrieveContainerFile
+      parameters:
+        - name: container_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Containers
+      summary: deleteContainerFile
+      operationId: DeleteContainerFile
+      parameters:
+        - name: container_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/containers/{container_id}/files/{file_id}/content':
+    get:
+      tags:
+        - Containers
+      summary: retrieveContainerFileContent
+      operationId: RetrieveContainerFileContent
+      parameters:
+        - name: container_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+              examples:
+                default:
+                  value: 
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /embeddings:
+    post:
+      tags:
+        - Embeddings
+      summary: Creates an embedding vector representing the input text.
+      description: Creates an embedding vector representing the input text.
+      operationId: createEmbedding
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /evals:
+    get:
+      tags:
+        - Evals
+      summary: List evaluations for a project.
+      description: List evaluations for a project.
+      operationId: listEvals
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: order_by
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Evals
+      summary: createEval
+      operationId: createEval
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/evals/{eval_id}':
+    get:
+      tags:
+        - Evals
+      summary: Retrieve an evaluation by its ID.
+      description: Retrieve an evaluation by its ID.
+      operationId: getEval
+      parameters:
+        - name: eval_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Evals
+      summary: updateEval
+      operationId: updateEval
+      parameters:
+        - name: eval_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Evals
+      summary: deleteEval
+      operationId: deleteEval
+      parameters:
+        - name: eval_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/evals/{eval_id}/runs':
+    get:
+      tags:
+        - Evals
+      summary: getEvalRuns
+      operationId: getEvalRuns
+      parameters:
+        - name: eval_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Evals
+      summary: createEvalRun
+      operationId: createEvalRun
+      parameters:
+        - name: eval_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: The request has succeeded and a new resource has been created as a result.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/evals/{eval_id}/runs/{run_id}':
+    get:
+      tags:
+        - Evals
+      summary: getEvalRun
+      operationId: getEvalRun
+      parameters:
+        - name: eval_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Evals
+      summary: cancelEvalRun
+      operationId: cancelEvalRun
+      parameters:
+        - name: eval_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Evals
+      summary: deleteEvalRun
+      operationId: deleteEvalRun
+      parameters:
+        - name: eval_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/evals/{eval_id}/runs/{run_id}/output_items':
+    get:
+      tags:
+        - Evals
+      summary: getEvalRunOutputItems
+      operationId: getEvalRunOutputItems
+      parameters:
+        - name: eval_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/evals/{eval_id}/runs/{run_id}/output_items/{output_item_id}':
+    get:
+      tags:
+        - Evals
+      summary: getEvalRunOutputItem
+      operationId: getEvalRunOutputItem
+      parameters:
+        - name: eval_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: output_item_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /files:
+    post:
+      tags:
+        - Files
+      summary: createFile
+      operationId: createFile
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data: { }
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Files
+      summary: listFiles
+      operationId: listFiles
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: purpose
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/files/{file_id}':
+    get:
+      tags:
+        - Files
+      summary: retrieveFile
+      operationId: retrieveFile
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Files
+      summary: deleteFile
+      operationId: deleteFile
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/files/{file_id}/content':
+    get:
+      tags:
+        - Files
+      summary: downloadFile
+      operationId: downloadFile
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+              examples:
+                default:
+                  value: 
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /fine_tuning/alpha/graders/run:
+    post:
+      tags:
+        - Fine-tuning
+      summary: Run a grader.
+      description: Run a grader.
+      operationId: runGrader
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /fine_tuning/alpha/graders/validate:
+    post:
+      tags:
+        - Fine-tuning
+      summary: Validate a grader.
+      description: Validate a grader.
+      operationId: validateGrader
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /fine_tuning/jobs:
+    post:
+      tags:
+        - Fine-tuning
+      summary: "Creates a fine-tuning job which begins the process of creating a new model from a given dataset.\n\nResponse includes details of the enqueued job including job status and the name of the fine-tuned models once complete.\n\n[Learn more about fine-tuning](/docs/guides/fine-tuning)"
+      description: "Creates a fine-tuning job which begins the process of creating a new model from a given dataset.\n\nResponse includes details of the enqueued job including job status and the name of the fine-tuned models once complete.\n\n[Learn more about fine-tuning](/docs/guides/fine-tuning)"
+      operationId: createFineTuningJob
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Fine-tuning
+      summary: List your organization's fine-tuning jobs
+      description: List your organization's fine-tuning jobs
+      operationId: listPaginatedFineTuningJobs
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/fine_tuning/jobs/{fine_tuning_job_id}':
+    get:
+      tags:
+        - Fine-tuning
+      summary: "Get info about a fine-tuning job.\n\n[Learn more about fine-tuning](/docs/guides/fine-tuning)"
+      description: "Get info about a fine-tuning job.\n\n[Learn more about fine-tuning](/docs/guides/fine-tuning)"
+      operationId: retrieveFineTuningJob
+      parameters:
+        - name: fine_tuning_job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/fine_tuning/jobs/{fine_tuning_job_id}/cancel':
+    post:
+      tags:
+        - Fine-tuning
+      summary: Immediately cancel a fine-tune job.
+      description: Immediately cancel a fine-tune job.
+      operationId: cancelFineTuningJob
+      parameters:
+        - name: fine_tuning_job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/fine_tuning/jobs/{fine_tuning_job_id}/checkpoints':
+    get:
+      tags:
+        - Fine-tuning
+      summary: List the checkpoints for a fine-tuning job.
+      description: List the checkpoints for a fine-tuning job.
+      operationId: listFineTuningJobCheckpoints
+      parameters:
+        - name: fine_tuning_job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/fine_tuning/jobs/{fine_tuning_job_id}/checkpoints/{fine_tuning_checkpoint_id}/copy':
+    post:
+      tags:
+        - Fine-tuning
+      summary: FineTuning_CopyCheckpoint
+      operationId: FineTuning_CopyCheckpoint
+      parameters:
+        - name: fine_tuning_job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: fine_tuning_checkpoint_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: aoai-copy-ft-checkpoints
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: accept
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Fine-tuning
+      summary: FineTuning_GetCheckpoint
+      operationId: FineTuning_GetCheckpoint
+      parameters:
+        - name: fine_tuning_job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: fine_tuning_checkpoint_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: aoai-copy-ft-checkpoints
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: accept
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/fine_tuning/jobs/{fine_tuning_job_id}/events':
+    get:
+      tags:
+        - Fine-tuning
+      summary: Get status updates for a fine-tuning job.
+      description: Get status updates for a fine-tuning job.
+      operationId: listFineTuningEvents
+      parameters:
+        - name: fine_tuning_job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/fine_tuning/jobs/{fine_tuning_job_id}/pause':
+    post:
+      tags:
+        - Fine-tuning
+      summary: Pause a fine-tune job.
+      description: Pause a fine-tune job.
+      operationId: pauseFineTuningJob
+      parameters:
+        - name: fine_tuning_job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/fine_tuning/jobs/{fine_tuning_job_id}/resume':
+    post:
+      tags:
+        - Fine-tuning
+      summary: Resume a paused fine-tune job.
+      description: Resume a paused fine-tune job.
+      operationId: resumeFineTuningJob
+      parameters:
+        - name: fine_tuning_job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /models:
+    get:
+      tags:
+        - Models
+      summary: "Lists the currently available models, and provides basic information about each one such as the\nowner and availability."
+      description: "Lists the currently available models, and provides basic information about each one such as the\nowner and availability."
+      operationId: listModels
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/models/{model}':
+    get:
+      tags:
+        - Models
+      summary: "Retrieves a model instance, providing basic information about the model such as the owner and\npermissioning."
+      description: "Retrieves a model instance, providing basic information about the model such as the owner and\npermissioning."
+      operationId: retrieveModel
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Models
+      summary: Deletes a model instance.
+      description: Deletes a model instance.
+      operationId: deleteModel
+      parameters:
+        - name: model
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /responses:
+    post:
+      tags:
+        - Responses
+      summary: createResponse
+      operationId: createResponse
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+            example:
+              model: gpt-4.1
+              stream: true
+              input:
+                - role: system
+                  content: You are a helpful assistant.
+                - role: user
+                  content: Explain Azure Bicep in one sentence.
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+            text/event-stream:
+              schema:
+                type: string
+              examples:
+                default:
+                  value: 
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/responses/{response_id}':
+    get:
+      tags:
+        - Responses
+      summary: getResponse
+      operationId: getResponse
+      parameters:
+        - name: response_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: 'include[]'
+          in: query
+          schema:
+            type: string
+        - name: stream
+          in: query
+          schema:
+            type: string
+        - name: starting_after
+          in: query
+          schema:
+            type: string
+        - name: include_obfuscation
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Responses
+      summary: deleteResponse
+      operationId: deleteResponse
+      parameters:
+        - name: response_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/responses/{response_id}/input_items':
+    get:
+      tags:
+        - Responses
+      summary: listInputItems
+      operationId: listInputItems
+      parameters:
+        - name: response_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: before
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /vector_stores:
+    get:
+      tags:
+        - Vector Stores
+      summary: Returns a list of vector stores.
+      description: Returns a list of vector stores.
+      operationId: listVectorStores
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: before
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Vector Stores
+      summary: Creates a vector store.
+      description: Creates a vector store.
+      operationId: createVectorStore
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/vector_stores/{vector_store_id}':
+    get:
+      tags:
+        - Vector Stores
+      summary: Retrieves a vector store.
+      description: Retrieves a vector store.
+      operationId: getVectorStore
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Vector Stores
+      summary: Modifies a vector store.
+      description: Modifies a vector store.
+      operationId: modifyVectorStore
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Vector Stores
+      summary: Delete a vector store.
+      description: Delete a vector store.
+      operationId: deleteVectorStore
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/vector_stores/{vector_store_id}/file_batches':
+    post:
+      tags:
+        - Vector Stores
+      summary: Create a vector store file batch.
+      description: Create a vector store file batch.
+      operationId: createVectorStoreFileBatch
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/vector_stores/{vector_store_id}/file_batches/{batch_id}':
+    get:
+      tags:
+        - Vector Stores
+      summary: Retrieves a vector store file batch.
+      description: Retrieves a vector store file batch.
+      operationId: getVectorStoreFileBatch
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/vector_stores/{vector_store_id}/file_batches/{batch_id}/cancel':
+    post:
+      tags:
+        - Vector Stores
+      summary: Cancel a vector store file batch. This attempts to cancel the processing of files in this batch as soon as possible.
+      description: Cancel a vector store file batch. This attempts to cancel the processing of files in this batch as soon as possible.
+      operationId: cancelVectorStoreFileBatch
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/vector_stores/{vector_store_id}/file_batches/{batch_id}/files':
+    get:
+      tags:
+        - Vector Stores
+      summary: Returns a list of vector store files in a batch.
+      description: Returns a list of vector store files in a batch.
+      operationId: listFilesInVectorStoreBatch
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: before
+          in: query
+          schema:
+            type: string
+        - name: filter
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/vector_stores/{vector_store_id}/files':
+    get:
+      tags:
+        - Vector Stores
+      summary: Returns a list of vector store files.
+      description: Returns a list of vector store files.
+      operationId: listVectorStoreFiles
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: before
+          in: query
+          schema:
+            type: string
+        - name: filter
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Vector Stores
+      summary: 'Create a vector store file by attaching a [File](/docs/api-reference/files) to a [vector store](/docs/api-reference/vector-stores/object).'
+      description: 'Create a vector store file by attaching a [File](/docs/api-reference/files) to a [vector store](/docs/api-reference/vector-stores/object).'
+      operationId: createVectorStoreFile
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/vector_stores/{vector_store_id}/files/{file_id}':
+    get:
+      tags:
+        - Vector Stores
+      summary: Retrieves a vector store file.
+      description: Retrieves a vector store file.
+      operationId: getVectorStoreFile
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Vector Stores
+      summary: updateVectorStoreFileAttributes
+      operationId: updateVectorStoreFileAttributes
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Vector Stores
+      summary: 'Delete a vector store file. This will remove the file from the vector store but the file itself will not be deleted. To delete the file, use the [delete file](/docs/api-reference/files/delete) endpoint.'
+      description: 'Delete a vector store file. This will remove the file from the vector store but the file itself will not be deleted. To delete the file, use the [delete file](/docs/api-reference/files/delete) endpoint.'
+      operationId: deleteVectorStoreFile
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /audio/speech:
+    post:
+      tags:
+        - Audio
+      summary: Generates text-to-speech audio from the input text.
+      description: Generates text-to-speech audio from the input text.
+      operationId: createSpeech
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+              examples:
+                default:
+                  value: 
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /audio/transcriptions:
+    post:
+      tags:
+        - Audio
+      summary: Transcribes audio into the input language.
+      description: Transcribes audio into the input language.
+      operationId: createTranscription
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+            text/plain:
+              schema:
+                type: string
+              examples:
+                default:
+                  value: 
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /audio/translations:
+    post:
+      tags:
+        - Audio
+      summary: Gets English language transcribed text and associated metadata from provided spoken audio data.
+      description: Gets English language transcribed text and associated metadata from provided spoken audio data.
+      operationId: createTranslation
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+            text/plain:
+              schema:
+                type: string
+              examples:
+                default:
+                  value: 
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /batches:
+    post:
+      tags:
+        - Batch
+      summary: Creates and executes a batch from an uploaded file of requests
+      description: Creates and executes a batch from an uploaded file of requests
+      operationId: createBatch
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: accept
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '201':
+          description: The request has succeeded and a new resource has been created as a result.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Batch
+      summary: List your organization's batches.
+      description: List your organization's batches.
+      operationId: listBatches
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: $filter
+          in: query
+          schema:
+            type: string
+        - name: $orderby
+          in: query
+          schema:
+            type: string
+        - name: accept
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/batches/{batch_id}':
+    get:
+      tags:
+        - Batch
+      summary: Retrieves a batch.
+      description: Retrieves a batch.
+      operationId: retrieveBatch
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: accept
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/batches/{batch_id}/cancel':
+    post:
+      tags:
+        - Batch
+      summary: Cancels an in-progress batch.
+      description: Cancels an in-progress batch.
+      operationId: cancelBatch
+      parameters:
+        - name: batch_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: accept
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /completions:
+    post:
+      tags:
+        - Completions
+      summary: createCompletion
+      operationId: createCompletion
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /conversations:
+    post:
+      tags:
+        - Conversations
+      summary: createConversation
+      operationId: createConversation
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/conversations/{conversation_id}':
+    get:
+      tags:
+        - Conversations
+      summary: retrieveConversation
+      operationId: retrieveConversation
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Conversations
+      summary: updateConversation
+      operationId: updateConversation
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Conversations
+      summary: deleteConversation
+      operationId: deleteConversation
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/conversations/{conversation_id}/items':
+    get:
+      tags:
+        - Conversations
+      summary: listConversationItems
+      operationId: listConversationItems
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: include
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Conversations
+      summary: createConversationItems
+      operationId: createConversationItems
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: include
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/conversations/{conversation_id}/items/{item_id}':
+    get:
+      tags:
+        - Conversations
+      summary: retrieveConversationItem
+      operationId: retrieveConversationItem
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: item_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: include
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Conversations
+      summary: deleteConversationItem
+      operationId: deleteConversationItem
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: item_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/fine_tuning/checkpoints/{fine_tuned_model_checkpoint}/permissions':
+    get:
+      tags:
+        - Fine-tuning
+      summary: List checkpoint permissions
+      description: List checkpoint permissions
+      operationId: listFineTuningCheckpointPermissions
+      parameters:
+        - name: fine_tuned_model_checkpoint
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: project_id
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Fine-tuning
+      summary: Create checkpoint permissions
+      description: Create checkpoint permissions
+      operationId: createFineTuningCheckpointPermission
+      parameters:
+        - name: fine_tuned_model_checkpoint
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/fine_tuning/checkpoints/{fine_tuned_model_checkpoint}/permissions/{permission_id}':
+    delete:
+      tags:
+        - Fine-tuning
+      summary: Delete checkpoint permission
+      description: Delete checkpoint permission
+      operationId: deleteFineTuningCheckpointPermission
+      parameters:
+        - name: fine_tuned_model_checkpoint
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: permission_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /images/edits:
+    post:
+      tags:
+        - Images
+      summary: createImageEdit
+      operationId: createImageEdit
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /images/generations:
+    post:
+      tags:
+        - Images
+      summary: createImage
+      operationId: createImage
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /images/variations:
+    post:
+      tags:
+        - Images
+      summary: createImageVariation
+      operationId: createImageVariation
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /realtime/calls:
+    post:
+      tags:
+        - Realtime
+      summary: Create a new Realtime API call over WebRTC and receive the SDP answer needed to complete the peer connection.
+      description: Create a new Realtime API call over WebRTC and receive the SDP answer needed to complete the peer connection.
+      operationId: createRealtimeCall
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          multipart/form-data: { }
+      responses:
+        '201':
+          description: The request has succeeded and a new resource has been created as a result.
+          content:
+            application/sdp:
+              schema:
+                type: object
+              examples:
+                default:
+                  value: 
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/realtime/calls/{call_id}/accept':
+    post:
+      tags:
+        - Realtime
+      summary: Accept an incoming SIP call and configure the realtime session that will handle it.
+      description: Accept an incoming SIP call and configure the realtime session that will handle it.
+      operationId: acceptRealtimeCall
+      parameters:
+        - name: call_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/realtime/calls/{call_id}/hangup':
+    post:
+      tags:
+        - Realtime
+      summary: 'End an active Realtime API call, whether it was initiated over SIP or WebRTC.'
+      description: 'End an active Realtime API call, whether it was initiated over SIP or WebRTC.'
+      operationId: hangupRealtimeCall
+      parameters:
+        - name: call_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/realtime/calls/{call_id}/refer':
+    post:
+      tags:
+        - Realtime
+      summary: Transfer an active SIP call to a new destination using the SIP REFER verb.
+      description: Transfer an active SIP call to a new destination using the SIP REFER verb.
+      operationId: referRealtimeCall
+      parameters:
+        - name: call_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/realtime/calls/{call_id}/reject':
+    post:
+      tags:
+        - Realtime
+      summary: Decline an incoming SIP call by returning a SIP status code to the caller.
+      description: Decline an incoming SIP call by returning a SIP status code to the caller.
+      operationId: rejectRealtimeCall
+      parameters:
+        - name: call_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /realtime/client_secrets:
+    post:
+      tags:
+        - Realtime
+      summary: Create a Realtime client secret with an associated session configuration.
+      description: Create a Realtime client secret with an associated session configuration.
+      operationId: createRealtimeClientSecret
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /realtime/sessions:
+    post:
+      tags:
+        - Realtime
+      summary: Create an ephemeral API token for use in client-side applications with the Realtime API.
+      description: Create an ephemeral API token for use in client-side applications with the Realtime API.
+      operationId: createRealtimeSession
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /realtime/transcription_sessions:
+    post:
+      tags:
+        - Realtime
+      summary: Create an ephemeral API token for use in client-side applications with the Realtime API specifically for realtime transcriptions.
+      description: Create an ephemeral API token for use in client-side applications with the Realtime API specifically for realtime transcriptions.
+      operationId: createRealtimeTranscriptionSession
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/responses/{response_id}/cancel':
+    post:
+      tags:
+        - Responses
+      summary: cancelResponse
+      operationId: cancelResponse
+      parameters:
+        - name: response_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /threads:
+    post:
+      tags:
+        - Threads
+      summary: createThread
+      operationId: createThread
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /threads/runs:
+    post:
+      tags:
+        - Threads
+      summary: createThreadAndRun
+      operationId: createThreadAndRun
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/threads/{thread_id}':
+    delete:
+      tags:
+        - Threads
+      summary: deleteThread
+      operationId: deleteThread
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Threads
+      summary: retrieveThread
+      operationId: retrieveThread
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Threads
+      summary: modifyThread
+      operationId: modifyThread
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/threads/{thread_id}/messages':
+    get:
+      tags:
+        - Threads
+      summary: listMessages
+      operationId: listMessages
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: before
+          in: query
+          schema:
+            type: string
+        - name: run_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Threads
+      summary: createMessage
+      operationId: createMessage
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/threads/{thread_id}/messages/{message_id}':
+    delete:
+      tags:
+        - Threads
+      summary: deleteMessage
+      operationId: deleteMessage
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Threads
+      summary: retrieveMessage
+      operationId: retrieveMessage
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Threads
+      summary: modifyMessage
+      operationId: modifyMessage
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/threads/{thread_id}/runs':
+    post:
+      tags:
+        - Threads
+      summary: createRun
+      operationId: createRun
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Threads
+      summary: listRuns
+      operationId: listRuns
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: before
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/threads/{thread_id}/runs/{run_id}':
+    get:
+      tags:
+        - Threads
+      summary: retrieveRun
+      operationId: retrieveRun
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      tags:
+        - Threads
+      summary: modifyRun
+      operationId: modifyRun
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/threads/{thread_id}/runs/{run_id}/cancel':
+    post:
+      tags:
+        - Threads
+      summary: cancelRun
+      operationId: cancelRun
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/threads/{thread_id}/runs/{run_id}/steps':
+    get:
+      tags:
+        - Threads
+      summary: listRunSteps
+      operationId: listRunSteps
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: before
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/threads/{thread_id}/runs/{run_id}/steps/{step_id}':
+    get:
+      tags:
+        - Threads
+      summary: getRunStep
+      operationId: getRunStep
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: step_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/threads/{thread_id}/runs/{run_id}/submit_tool_outputs':
+    post:
+      tags:
+        - Threads
+      summary: submitToolOutputsToRun
+      operationId: submitToolOutputsToRun
+      parameters:
+        - name: thread_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/vector_stores/{vector_store_id}/files/{file_id}/content':
+    get:
+      tags:
+        - Vector Stores
+      summary: Retrieve vector store file content
+      description: Retrieve vector store file content
+      operationId: retrieveVectorStoreFileContent
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/vector_stores/{vector_store_id}/search':
+    post:
+      tags:
+        - Vector Stores
+      summary: Search vector store
+      description: Search vector store
+      operationId: searchVectorStore
+      parameters:
+        - name: vector_store_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  /videos:
+    post:
+      tags:
+        - Videos
+      summary: Videos_Create
+      operationId: Videos_Create
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+          multipart/form-data: { }
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    get:
+      tags:
+        - Videos
+      summary: Videos_List
+      operationId: Videos_List
+      parameters:
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: after
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: order
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/videos/{video-id}':
+    get:
+      tags:
+        - Videos
+      summary: Videos_Get
+      operationId: Videos_Get
+      parameters:
+        - name: video-id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      tags:
+        - Videos
+      summary: Videos_Delete
+      operationId: Videos_Delete
+      parameters:
+        - name: video-id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/videos/{video-id}/content':
+    get:
+      tags:
+        - Videos
+      summary: Videos_RetrieveContent
+      operationId: Videos_RetrieveContent
+      parameters:
+        - name: video-id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: api-version
+          in: query
+          schema:
+            type: string
+        - name: variant
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            image/jpg:
+              schema:
+                type: string
+                format: binary
+              examples:
+                default:
+                  value: 
+            image/webp:
+              schema:
+                type: string
+                format: binary
+              examples:
+                default:
+                  value: 
+            video/mp4:
+              schema:
+                type: object
+              examples:
+                default:
+                  value: 
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+  '/videos/{video-id}/remix':
+    post:
+      tags:
+        - Videos
+      summary: Videos_Remix
+      operationId: Videos_Remix
+      parameters:
+        - name: video-id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: The request has succeeded.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+        '500':
+          description: An unexpected error response.
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  securitySchemes:
+    apiKeyHeader:
+      type: apiKey
+      name: api-key
+      in: header
+    apiKeyQuery:
+      type: apiKey
+      name: api-key
+      in: query
+security:
+  - apiKeyHeader: [ ]
+  - apiKeyQuery: [ ]
+tags:
+  - name: Completions
+  - name: Embeddings
+  - name: Chat
+  - name: Audio
+  - name: Images
+  - name: Vector Stores
+  - name: Responses
+  - name: Batch
+  - name: Containers
+  - name: Conversations
+  - name: Evals
+  - name: Files
+  - name: Fine-tuning
+  - name: Models
+  - name: Realtime
+  - name: Threads
+  - name: Videos

@@ -378,3 +378,33 @@ run "universal_llm_api_is_imported_after_the_azure_openai_api" {
     error_message = "Every LLM API is in exactly one wave."
   }
 }
+
+# The OpenAIV1 Universal LLM spec is upstream's v2 YAML (all OpenAI v1 operations), imported without its
+# `servers` entry: a sample APIM URL that would otherwise become the API's service URL.
+run "universal_llm_api_v2_spec" {
+  command = plan
+
+  variables {
+    inference_api_type = "OpenAIV1"
+  }
+
+  assert {
+    condition     = endswith(local.universal_llm_spec_path, "Universal LLM API v2.openapi.yaml") && !can(jsondecode(local.universal_llm_spec).servers)
+    error_message = "OpenAIV1 imports the v2 spec, without servers (no service URL)."
+  }
+  assert {
+    condition     = jsondecode(local.universal_llm_spec).info.title == "Universal LLM API" && !can(jsondecode(local.universal_llm_spec).info.license)
+    error_message = "The spec's info matches the API (APIM applies it on import), without a license."
+  }
+  assert {
+    condition = alltrue([for p in ["/chat/completions", "/embeddings", "/responses", "/audio/speech", "/audio/transcriptions", "/images/generations", "/batches", "/videos", "/models", "/models/{model}"] :
+    contains(keys(jsondecode(local.universal_llm_spec).paths), p)])
+    error_message = "The v2 spec covers chat, embeddings, responses, audio, images, batches and videos."
+  }
+  assert {
+    condition = alltrue([for id in ["listModels", "retrieveModel", "deployments", "deployment-by-name"] :
+      contains(flatten([for p in values(jsondecode(local.universal_llm_spec).paths) : [for m, o in p : try(o.operationId, "")]]), id)
+    ])
+    error_message = "The operations that carry operation policies keep their operation IDs."
+  }
+}
