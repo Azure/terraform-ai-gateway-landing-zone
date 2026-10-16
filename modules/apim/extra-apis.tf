@@ -44,6 +44,7 @@ module "unified_ai" {
     azurerm_api_management_policy_fragment.set_backend_pools,
     azurerm_api_management_policy_fragment.get_available_models,
     azurerm_api_management_policy_fragment.metadata_config,
+    azapi_resource.semantic_cache_fragment,
     azurerm_api_management_named_value.uami_client_id,
     azurerm_api_management_named_value.entra_tenant_id,
     azurerm_api_management_named_value.entra_client_id,

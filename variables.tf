@@ -1008,9 +1008,31 @@ variable "configure_circuit_breaker" {
 }
 
 variable "enable_embeddings_backend" {
-  description = "Register a Foundry embeddings backend for semantic caching."
+  description = "Register a Foundry embeddings backend for semantic caching (URL: embeddings_backend_url, else primary_foundry_embedding_model_name on the primary Foundry account). With enable_redis_cache, turns the semantic cache on."
   type        = bool
   default     = false
+}
+
+variable "semantic_cache" {
+  description = <<-EOT
+    Semantic cache tuning (llm-semantic-cache-lookup / -store). The cache is on
+    when enable_redis_cache and enable_embeddings_backend are both true; access
+    contracts then opt in per product (citadel-access-contracts
+    services[*].semantic_cache). Only non-streaming chat completions are
+    cached, partitioned by subscription and requested model.
+      score_threshold         0.0-1.0; lower = a closer match is needed. Above 0.2 risks mismatches.
+      ttl_seconds             How long a response is cached (gateway-wide).
+      ignore_system_messages  Leave system messages out of the similarity.
+      max_message_count       Skip caching for conversations longer than this many messages.
+  EOT
+  type = object({
+    score_threshold        = optional(number, 0.05)
+    ttl_seconds            = optional(number, 300)
+    ignore_system_messages = optional(bool, true)
+    max_message_count      = optional(number, 10)
+  })
+  default  = {}
+  nullable = false
 }
 
 variable "enable_pii_anonymization" {

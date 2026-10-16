@@ -36,12 +36,12 @@ locals {
   logger_identity_client_id_ref = local.logger_credentials_in_key_vault ? "{{logger-identity-client-id}}" : var.managed_identity_client_id
   logger_connection_string_ref  = local.logger_credentials_in_key_vault ? "{{logger-appinsights-connection-string}}" : var.app_insights_connection_string
 
-  logger_key_vault_id  = try(var.logger_credentials_key_vault.id, "")
-  logger_key_vault_uri = trimsuffix(try(var.logger_credentials_key_vault.uri, ""), "/")
+  secrets_key_vault_id  = try(var.secrets_key_vault.id, "")
+  secrets_key_vault_uri = trimsuffix(try(var.secrets_key_vault.uri, ""), "/")
 
   # A classic SKU with apim_network_type = None has no VNet path to the vault's
   # private endpoint, and a user-assigned identity isn't a trusted service.
-  apim_reaches_key_vault = local.is_vnet_injection || local.is_vnet_integration || try(var.logger_credentials_key_vault.public_access_open, false)
+  apim_reaches_key_vault = local.is_vnet_injection || local.is_vnet_integration || try(var.secrets_key_vault.public_access_open, false)
 }
 
 # Expiry clock: ALZ guardrails (Enforce-GR-KeyVault) require secrets to expire.
@@ -56,7 +56,7 @@ resource "azapi_resource_action" "logger_credential_secret" {
   for_each = toset(local.logger_credential_names)
 
   type        = "Microsoft.KeyVault/vaults/secrets@2023-07-01"
-  resource_id = "${local.logger_key_vault_id}/secrets/apim-${each.key}"
+  resource_id = "${local.secrets_key_vault_id}/secrets/apim-${each.key}"
   method      = "PUT"
 
   body = {
@@ -72,15 +72,15 @@ resource "azapi_resource_action" "logger_credential_secret" {
 
   lifecycle {
     precondition {
-      condition     = local.logger_key_vault_id != "" && local.logger_key_vault_uri != ""
-      error_message = "logger_credentials_in_key_vault needs logger_credentials_key_vault (id, uri)."
+      condition     = local.secrets_key_vault_id != "" && local.secrets_key_vault_uri != ""
+      error_message = "logger_credentials_in_key_vault needs secrets_key_vault (id, uri)."
     }
     precondition {
       condition     = local.logger_uses_connection_string
       error_message = "logger_credentials_in_key_vault needs app_insights_connection_string: an instrumentation key alone isn't supported as a Key Vault reference."
     }
     precondition {
-      condition     = try(var.logger_credentials_key_vault.rbac_enabled, false)
+      condition     = try(var.secrets_key_vault.rbac_enabled, false)
       error_message = "logger_credentials_in_key_vault needs a Key Vault with RBAC authorization (the APIM identity is granted Key Vault Secrets User, not an access policy)."
     }
     precondition {
@@ -101,7 +101,7 @@ resource "azurerm_api_management_named_value" "logger_credential" {
 
   # Versionless: APIM picks up new versions on its own (every 4 hours).
   value_from_key_vault {
-    secret_id          = "${local.logger_key_vault_uri}/secrets/apim-${each.key}"
+    secret_id          = "${local.secrets_key_vault_uri}/secrets/apim-${each.key}"
     identity_client_id = var.managed_identity_client_id
   }
 

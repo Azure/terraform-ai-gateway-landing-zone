@@ -290,10 +290,14 @@ resource "azurerm_api_management_backend" "ai_search" {
 
 # -----------------------------------------------------------------------------
 # EMBEDDINGS BACKEND (for semantic cache) — apim.bicep embeddingsBackend
+# The URL is the full embeddings endpoint without a query string (the lookup
+# adds api-version). No credentials: llm-semantic-cache-lookup authenticates as
+# APIM's system-assigned identity (embeddings-backend-auth="system-assigned",
+# the only option), which needs Cognitive Services OpenAI User on the account.
 # -----------------------------------------------------------------------------
 
 resource "azapi_resource" "embeddings_backend" {
-  count     = var.enable_embeddings_backend && var.embeddings_backend_url != "" ? 1 : 0
+  count     = var.enable_embeddings_backend ? 1 : 0
   type      = "Microsoft.ApiManagement/service/backends@2024-06-01-preview"
   name      = var.embeddings_backend_id
   parent_id = azurerm_api_management.citadel.id
@@ -309,12 +313,17 @@ resource "azapi_resource" "embeddings_backend" {
         validateCertificateChain = true
         validateCertificateName  = true
       }
-      credentials = {
-        managedIdentity = {
-          clientId = var.managed_identity_client_id
-          resource = "https://cognitiveservices.azure.com"
-        }
-      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.embeddings_backend_url != ""
+      error_message = "enable_embeddings_backend needs an embeddings endpoint: set primary_foundry_embedding_model_name (an embeddings deployment on the primary Foundry account) or embeddings_backend_url."
+    }
+    precondition {
+      condition     = !strcontains(var.embeddings_backend_url, "?")
+      error_message = "embeddings_backend_url must not contain a query string (the semantic cache lookup adds api-version)."
     }
   }
 }

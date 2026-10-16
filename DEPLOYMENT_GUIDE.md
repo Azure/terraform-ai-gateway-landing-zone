@@ -797,6 +797,49 @@ for n in $(az rest --method get --url "https://management.azure.com$S/namedValue
 done
 ```
 
+### 9.6 Semantic cache (Azure Managed Redis)
+
+Semantic caching returns a stored completion for a prompt similar to an
+earlier one (`llm-semantic-cache-lookup` / `llm-semantic-cache-store`), with
+Azure Managed Redis as the APIM external cache. It is on when both flags are
+set; each access contract then opts in.
+
+```hcl
+# environments/<env>.tfvars
+enable_redis_cache                   = true
+enable_embeddings_backend            = true
+primary_foundry_embedding_model_name = "text-embedding-3-small" # also in ai_foundry_models (ai_service_index = 0)
+# embeddings_backend_url             = "https://<account>.openai.azure.com/openai/deployments/<name>/embeddings" # alternative
+semantic_cache = { score_threshold = 0.05, ttl_seconds = 300 }
+
+# citadel-access-contracts/terraform.tfvars
+services = [{ code = "LLM", ..., semantic_cache = true }]
+```
+
+| Piece | What it does |
+|---|---|
+| `module.redis` | Azure Managed Redis (RediSearch, private endpoint on 10000) |
+| Key Vault secret `apim-redis-cache-connection-string` + named value `redis-cache-connection-string` | the connection string with the access key (APIM can't use Entra auth for Azure Managed Redis), written through ARM, read by the APIM user-assigned identity |
+| APIM external cache `Default` | `{{redis-cache-connection-string}}` |
+| Backend `foundry-embeddings` | the embeddings deployment; no credentials |
+| APIM system-assigned identity + *Cognitive Services OpenAI User* on the Foundry accounts | the lookup calls the embeddings backend only as the system-assigned identity |
+| Fragments `semantic-cache-lookup` / `semantic-cache-store` | included by the Universal LLM, Azure OpenAI and Unified AI API policies; without the flags they only set `semanticCacheEnabled = false` |
+| Product policy `semanticCacheEnabled = "true"` | set by access contracts with `semantic_cache = true` (inserted after the inbound `<base />`) |
+
+Behavior:
+- Only non-streaming chat completions are cached, after authentication and
+  model access checks. Entries are partitioned by subscription and requested
+  model.
+- A hit returns before the backend call; a miss stores the 200 response for
+  `ttl_seconds`. With `enableResponseHeaders`, the `UAIG-Semantic-Cache`
+  header reports `hit` / `miss`.
+
+Requirements (preconditions fail the plan otherwise):
+- APIM reaches Redis and the vault: a V2 SKU or `apim_network_type`
+  External/Internal, or public access on both.
+- An embeddings endpoint: `primary_foundry_embedding_model_name` or
+  `embeddings_backend_url`.
+
 ---
 
 ## 10. Troubleshooting

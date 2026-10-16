@@ -11,3 +11,9 @@ output "foundry_connection_primary_key" {
   value     = try(azurerm_api_management_subscription.foundry_connection[0].primary_key, "")
   sensitive = true
 }
+
+# System-assigned identity (only with the semantic cache): needs Cognitive
+# Services OpenAI User on the embeddings deployment's account.
+output "system_assigned_principal_id" {
+  value = try(azurerm_api_management.citadel.identity[0].principal_id, null)
+}

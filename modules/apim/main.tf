@@ -80,6 +80,8 @@ locals {
   # forwarded verbatim to the Event Hub loggers, so we strip the scheme + any
   # trailing slash/port suffix here.
   eventhub_hostname = replace(replace(var.eventhub_endpoint_uri, "https://", ""), "/", "")
+
+  semantic_cache_enabled = var.semantic_cache.enabled
 }
 
 resource "azurerm_api_management" "citadel" {
@@ -109,10 +111,11 @@ resource "azurerm_api_management" "citadel" {
     ignore_changes = [public_network_access_enabled]
   }
 
-  # Bicep parity: UserAssigned only (system-assigned identity dropped upstream;
-  # all backend auth + RBAC uses the user-assigned MI).
+  # Bicep parity: UserAssigned for everything (backend auth + RBAC). The
+  # semantic cache adds SystemAssigned: llm-semantic-cache-lookup calls the
+  # embeddings backend only as the system-assigned identity.
   identity {
-    type         = "UserAssigned"
+    type         = local.semantic_cache_enabled ? "SystemAssigned, UserAssigned" : "UserAssigned"
     identity_ids = [var.managed_identity_id]
   }
 
@@ -599,6 +602,7 @@ module "universal_llm" {
     azurerm_api_management_policy_fragment.set_backend_pools,
     azurerm_api_management_policy_fragment.get_available_models,
     azurerm_api_management_policy_fragment.metadata_config,
+    azapi_resource.semantic_cache_fragment,
     azurerm_api_management_named_value.uami_client_id,
     azurerm_api_management_named_value.entra_tenant_id,
     azurerm_api_management_named_value.entra_client_id,
@@ -641,6 +645,7 @@ module "azure_openai" {
     azurerm_api_management_policy_fragment.set_backend_pools,
     azurerm_api_management_policy_fragment.get_available_models,
     azurerm_api_management_policy_fragment.metadata_config,
+    azapi_resource.semantic_cache_fragment,
     azurerm_api_management_named_value.uami_client_id,
     azurerm_api_management_named_value.entra_tenant_id,
     azurerm_api_management_named_value.entra_client_id,
@@ -683,14 +688,76 @@ resource "azurerm_api_management_product_api" "openai_default" {
 
 # -----------------------------------------------------------------------------
 # APIM REDIS CACHE (Bicep parity: `service/caches` resource)
-# Links Azure Managed Redis to APIM for semantic caching. Created only when
-# a connection string is provided.
+# Links Azure Managed Redis to APIM as the external cache (the store behind
+# llm-semantic-cache-lookup / -store). APIM can't use Entra auth for Azure
+# Managed Redis, so it needs the connection string with the access key: it's
+# written to Key Vault through ARM (like the logger credentials) and the cache
+# references a Key Vault-backed named value, so no secret is stored in APIM.
+# Gated on the enable flag: the connection string is sensitive and unknown
+# until Redis exists, so it can't drive `count`.
 # -----------------------------------------------------------------------------
 
+resource "azapi_resource_action" "redis_cache_connection_string_secret" {
+  count = var.enable_redis_cache ? 1 : 0
+
+  type        = "Microsoft.KeyVault/vaults/secrets@2023-07-01"
+  resource_id = "${local.secrets_key_vault_id}/secrets/apim-redis-cache-connection-string"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      value       = var.redis_cache_connection_string
+      contentType = "redis-connection-string"
+      attributes = {
+        enabled = true
+        exp     = time_rotating.redis_cache_connection_string[0].unix + 90 * 24 * 3600
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.secrets_key_vault_id != "" && local.secrets_key_vault_uri != "" && try(var.secrets_key_vault.rbac_enabled, false)
+      error_message = "enable_redis_cache needs secrets_key_vault (an RBAC-authorized vault the APIM identity can read)."
+    }
+    precondition {
+      condition     = local.apim_reaches_key_vault
+      error_message = "enable_redis_cache needs APIM to reach the Key Vault: use a V2 SKU or apim_network_type External/Internal, or open the vault (kv_public_network_access_enabled = true, network_acl_default_action = \"Allow\")."
+    }
+    precondition {
+      condition     = local.is_vnet_injection || local.is_vnet_integration || var.redis_public_network_access_enabled
+      error_message = "enable_redis_cache needs APIM to reach Azure Managed Redis: use a V2 SKU or apim_network_type External/Internal (private endpoint), or set redis_public_network_access = \"Enabled\"."
+    }
+  }
+}
+
+# Same expiry clock as the logger credentials (ALZ Enforce-GR-KeyVault).
+resource "time_rotating" "redis_cache_connection_string" {
+  count         = var.enable_redis_cache ? 1 : 0
+  rotation_days = 60
+}
+
+resource "azurerm_api_management_named_value" "redis_cache_connection_string" {
+  count               = var.enable_redis_cache ? 1 : 0
+  name                = "redis-cache-connection-string"
+  display_name        = "redis-cache-connection-string"
+  api_management_name = azurerm_api_management.citadel.name
+  resource_group_name = var.resource_group_name
+  secret              = true
+
+  value_from_key_vault {
+    secret_id          = "${local.secrets_key_vault_uri}/secrets/apim-redis-cache-connection-string"
+    identity_client_id = var.managed_identity_client_id
+  }
+
+  depends_on = [azapi_resource_action.redis_cache_connection_string_secret]
+}
+
 resource "azurerm_api_management_redis_cache" "default" {
-  count             = var.redis_cache_connection_string != "" ? 1 : 0
+  count             = var.enable_redis_cache ? 1 : 0
   name              = "Default"
   api_management_id = azurerm_api_management.citadel.id
-  connection_string = var.redis_cache_connection_string
+  connection_string = "{{${azurerm_api_management_named_value.redis_cache_connection_string[0].name}}}"
+  redis_cache_id    = var.redis_cache_id != "" ? var.redis_cache_id : null
   description       = "Azure Managed Redis for APIM semantic cache"
 }

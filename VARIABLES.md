@@ -148,7 +148,7 @@ Things to plan for:
 | ☆ `enable_api_center` | bool | `true` | Deploy API Center as AI Registry. |
 | ☆ `enable_pii_redaction` | bool | `true` | Deploy Language Service. |
 | ☆ `enable_content_safety` | bool | `true` | Deploy Content Safety. |
-| ☆ `enable_redis_cache` | bool | `false` | Deploy Azure Managed Redis (semantic cache). |
+| ☆ `enable_redis_cache` | bool | `false` | Deploy Azure Managed Redis and attach it as the APIM external cache (connection string in Key Vault, Key Vault-backed named value `redis-cache-connection-string`). With `enable_embeddings_backend`, turns the semantic cache on. See [DEPLOYMENT_GUIDE.md §9.6](DEPLOYMENT_GUIDE.md#96-semantic-cache-azure-managed-redis). |
 | ☆ `create_app_insights_dashboards` | bool | `true` | App Insights dashboard JSON. |
 
 ## 7. Log Analytics Strategy
@@ -332,9 +332,10 @@ Used only when `enable_redis_cache = true`.
 
 | Variable | Type | Default | Notes |
 |---|---|---|---|
-| ☆ `primary_foundry_embedding_model_name` | string | `""` | For semantic-cache embeddings backend. |
-| ☆ `enable_embeddings_backend` | bool | `false` | Register embeddings backend in APIM. |
-| ☆ `embeddings_backend_url` | string | `""` | Used only when flag above is true. |
+| ☆ `primary_foundry_embedding_model_name` | string | `""` | Embeddings deployment on the primary Foundry account (must also be in `ai_foundry_models` with `ai_service_index = 0`); the embeddings backend URL is derived from it when `embeddings_backend_url` is empty. |
+| ☆ `enable_embeddings_backend` | bool | `false` | Register the embeddings backend (`foundry-embeddings`) used by the semantic cache lookup. With `enable_redis_cache`, turns the semantic cache on (adds APIM's system-assigned identity + *Cognitive Services OpenAI User* on the Foundry accounts). |
+| ☆ `embeddings_backend_url` | string | `""` | Full embeddings endpoint without a query string (e.g. `https://<account>.openai.azure.com/openai/deployments/<name>/embeddings`); overrides the derived one. An account outside this deployment needs *Cognitive Services OpenAI User* for APIM's system-assigned identity. |
+| ☆ `semantic_cache` | object | `{}` | Tuning: `score_threshold` (0.05), `ttl_seconds` (300), `ignore_system_messages` (true), `max_message_count` (10). |
 
 ## 19. Logic App Content Share
 
