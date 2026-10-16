@@ -71,6 +71,11 @@
         <!-- Step 5: Model access control per product [SHARED with Azure OpenAI / Universal LLM] -->
         <include-fragment fragment-id="validate-model-access" />
 
+        <!-- Semantic cache lookup (no-op unless the product sets semanticCacheEnabled): after
+             authentication and model access, so a cached answer only goes to a caller allowed
+             to use the model. A hit returns here and skips the backend call. -->
+        <include-fragment fragment-id="semantic-cache-lookup" />
+
         <!-- Step 5.1: Resolve model alias (uses config-model-aliases from cached metadata-config). -->
         <!-- Sets is-alias, original-model-alias, alias-models — the unified-ai-api retry block -->
         <!-- uses alias-models for cross-model fallback on transient backend failures. -->
@@ -188,6 +193,8 @@
     </backend>
     <outbound>
         <base />
+        <!-- Semantic cache store after a lookup miss (+ UAIG-Semantic-Cache header) -->
+        <include-fragment fragment-id="semantic-cache-store" />
         <!-- Cache response_id → owner mapping for successful POST /responses [SHARED]. -->
         <include-fragment fragment-id="responses-id-cache-store" />
         <include-fragment fragment-id="set-response-headers" />

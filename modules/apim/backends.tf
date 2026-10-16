@@ -87,6 +87,59 @@ locals {
 # LLM BACKENDS (one per endpoint) — llm-backends.bicep
 # -----------------------------------------------------------------------------
 
+locals {
+  # Per-backend credentials applied natively by APIM on forward-request.
+  # auth_type takes precedence over legacy auth_scheme; the type-based fallback
+  # mirrors frag-set-target-backend-pool.xml. API-key secrets are referenced as
+  # {{named-value}} tokens, which APIM resolves for backend credentials (policy
+  # expressions cannot resolve a named value from a runtime variable).
+  llm_backend_credentials = {
+    for b in var.llm_backend_config : b.backend_id => {
+      auth_type = (
+        try(b.auth_type, null) != null && try(b.auth_type, "") != "" ? b.auth_type :
+        try(b.auth_scheme, "") == "managedIdentity" ? "managed-identity" :
+        contains(["aws-bedrock-mantle", "gemini-openai"], b.backend_type) ? "api-key-bearer" : ""
+      )
+      named_value_key = try(b.auth_config.named_value_key, null) != null ? b.auth_config.named_value_key : ""
+      # "" = the named value already holds the full Authorization header value.
+      authorization_scheme = try(b.auth_config.authorization_scheme, null) != null ? trimspace(b.auth_config.authorization_scheme) : "Bearer"
+    }
+  }
+
+  llm_backend_auth = {
+    for id, c in local.llm_backend_credentials : id => {
+      managed_identity     = contains(["managed-identity", "native-backend-authorization"], c.auth_type)
+      api_key_bearer       = c.auth_type == "api-key-bearer" && c.named_value_key != ""
+      api_key_header       = c.auth_type == "api-key-header" && c.named_value_key != ""
+      authorization_scheme = c.authorization_scheme
+      named_value_ref      = "{{${c.named_value_key}}}"
+    }
+  }
+
+  # Named values referenced by backend credentials (deduplicated).
+  llm_backend_api_key_named_values = toset([
+    for c in local.llm_backend_credentials : c.named_value_key
+    if c.named_value_key != "" && contains(["api-key-bearer", "api-key-header"], c.auth_type)
+  ])
+}
+
+# Placeholder named values so backend credentials referencing {{key}} can be
+# created. Real secrets (Key Vault references) are owned by llm-backend-onboarding.
+resource "azurerm_api_management_named_value" "llm_backend_api_key" {
+  for_each = local.llm_backend_api_key_named_values
+
+  name                = each.value
+  api_management_name = azurerm_api_management.citadel.name
+  resource_group_name = var.resource_group_name
+  display_name        = each.value
+  value               = "NOT_CONFIGURED"
+  secret              = false
+
+  lifecycle {
+    ignore_changes = [value, secret, value_from_key_vault]
+  }
+}
+
 resource "azapi_resource" "llm_backend" {
   for_each = { for b in var.llm_backend_config : b.backend_id => b }
 
@@ -121,18 +174,29 @@ resource "azapi_resource" "llm_backend" {
         }]
       } : null
 
-      # Native APIM backend managed-identity credential (Bicep parity:
-      # llm-backends.bicep credentials.managedIdentity). The x-ms-client-id
-      # header is preserved for backends that key on it. Non-managed-identity
-      # auth schemes are handled in policy fragments, so both keys are null.
+      # Native APIM backend credentials:
+      # - managed-identity: credentials.managedIdentity (Bicep parity) plus the
+      #   x-ms-client-id header for backends that key on it.
+      # - api-key-bearer:   Authorization: <authorization_scheme> {{named_value_key}}
+      #                     (raw {{named_value_key}} header when the scheme is "")
+      # - api-key-header:   api-key: {{named_value_key}}
+      # aws-sigv4 is signed per-request in the set-backend-authorization fragment.
       credentials = {
-        managedIdentity = each.value.auth_scheme == "managedIdentity" ? {
+        managedIdentity = local.llm_backend_auth[each.key].managed_identity ? {
           clientId = var.managed_identity_client_id
           resource = "https://cognitiveservices.azure.com"
         } : null
-        header = each.value.auth_scheme == "managedIdentity" ? {
-          "x-ms-client-id" = [var.managed_identity_client_id]
+        authorization = local.llm_backend_auth[each.key].api_key_bearer && local.llm_backend_auth[each.key].authorization_scheme != "" ? {
+          scheme    = local.llm_backend_auth[each.key].authorization_scheme
+          parameter = local.llm_backend_auth[each.key].named_value_ref
         } : null
+        header = (
+          local.llm_backend_auth[each.key].managed_identity ? tomap({ "x-ms-client-id" = [var.managed_identity_client_id] }) :
+          local.llm_backend_auth[each.key].api_key_header ? tomap({ "api-key" = [local.llm_backend_auth[each.key].named_value_ref] }) :
+          # credentials.authorization requires a scheme; send the named value verbatim instead.
+          local.llm_backend_auth[each.key].api_key_bearer && local.llm_backend_auth[each.key].authorization_scheme == "" ? tomap({ "Authorization" = [local.llm_backend_auth[each.key].named_value_ref] }) :
+          null
+        )
       }
 
       tls = {
@@ -141,6 +205,8 @@ resource "azapi_resource" "llm_backend" {
       }
     }
   }
+
+  depends_on = [azurerm_api_management_named_value.llm_backend_api_key]
 }
 
 # -----------------------------------------------------------------------------
@@ -224,10 +290,14 @@ resource "azurerm_api_management_backend" "ai_search" {
 
 # -----------------------------------------------------------------------------
 # EMBEDDINGS BACKEND (for semantic cache) — apim.bicep embeddingsBackend
+# The URL is the full embeddings endpoint without a query string (the lookup
+# adds api-version). No credentials: llm-semantic-cache-lookup authenticates as
+# APIM's system-assigned identity (embeddings-backend-auth="system-assigned",
+# the only option), which needs Cognitive Services OpenAI User on the account.
 # -----------------------------------------------------------------------------
 
 resource "azapi_resource" "embeddings_backend" {
-  count     = var.enable_embeddings_backend && var.embeddings_backend_url != "" ? 1 : 0
+  count     = var.enable_embeddings_backend ? 1 : 0
   type      = "Microsoft.ApiManagement/service/backends@2024-06-01-preview"
   name      = var.embeddings_backend_id
   parent_id = azurerm_api_management.citadel.id
@@ -243,12 +313,17 @@ resource "azapi_resource" "embeddings_backend" {
         validateCertificateChain = true
         validateCertificateName  = true
       }
-      credentials = {
-        managedIdentity = {
-          clientId = var.managed_identity_client_id
-          resource = "https://cognitiveservices.azure.com"
-        }
-      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.embeddings_backend_url != ""
+      error_message = "enable_embeddings_backend needs an embeddings endpoint: set primary_foundry_embedding_model_name (an embeddings deployment on the primary Foundry account) or embeddings_backend_url."
+    }
+    precondition {
+      condition     = !strcontains(var.embeddings_backend_url, "?")
+      error_message = "embeddings_backend_url must not contain a query string (the semantic cache lookup adds api-version)."
     }
   }
 }

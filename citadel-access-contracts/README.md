@@ -288,6 +288,7 @@ Mappings are typically focused on a specific category of services (e.g. LLM, Doc
 | `endpoint_secret_name` | string | Yes | Key Vault secret name for the gateway endpoint URL. Underscores are lower-cased to hyphens. |
 | `api_key_secret_name` | string | Yes | Key Vault secret name for the subscription key. Underscores are lower-cased to hyphens. |
 | `policy_xml` | string | No | Inbound product policy XML. Empty (`""`) applies `policies/default-ai-product-policy.xml`. Use `file("policies/your-policy.xml")` for a custom one. |
+| `semantic_cache` | bool | No | `true` = chat completions for this product are served from the gateway's semantic cache when a similar prompt was answered before (sets `semanticCacheEnabled` right after the inbound `<base />` of the product policy). Needs `enable_redis_cache` + `enable_embeddings_backend` on the gateway (see [DEPLOYMENT_GUIDE.md §9.6](../DEPLOYMENT_GUIDE.md#96-semantic-cache-azure-managed-redis)). Default `false`. |
 
 ### Foundry connection config (`foundry_config`)
 

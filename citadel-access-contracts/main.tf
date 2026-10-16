@@ -102,13 +102,37 @@ resource "azurerm_api_management_product_api" "service" {
   depends_on = [azurerm_api_management_product.service]
 }
 
+locals {
+  # semantic_cache = true: the LLM APIs' semantic-cache-lookup fragment runs for
+  # this product. The flag is set right after the inbound <base />, so it's in
+  # place before the API policy (which runs the lookup) continues.
+  product_policy_xml = {
+    for s in var.services : s.code => (
+      s.semantic_cache
+      ? replace(
+        s.policy_xml != "" ? s.policy_xml : file("${path.module}/policies/default-ai-product-policy.xml"),
+        "/<inbound>(\\s*)<base\\s*/>/",
+        "<inbound>$${1}<base />$${1}<!-- Semantic cache: the LLM APIs look up / store chat completions (semantic-cache-* fragments) -->$${1}<set-variable name=\"semanticCacheEnabled\" value=\"true\" />"
+      )
+      : (s.policy_xml != "" ? s.policy_xml : file("${path.module}/policies/default-ai-product-policy.xml"))
+    )
+  }
+}
+
 resource "azurerm_api_management_product_policy" "service" {
   for_each = { for s in var.services : s.code => s }
 
   api_management_name = var.apim.name
   resource_group_name = var.apim.resource_group_name
   product_id          = azurerm_api_management_product.service[each.key].product_id
-  xml_content         = each.value.policy_xml != "" ? each.value.policy_xml : file("${path.module}/policies/default-ai-product-policy.xml")
+  xml_content         = local.product_policy_xml[each.key]
+
+  lifecycle {
+    precondition {
+      condition     = !each.value.semantic_cache || strcontains(local.product_policy_xml[each.key], "semanticCacheEnabled")
+      error_message = "services[${each.key}].semantic_cache needs a policy_xml whose <inbound> starts with <base /> (the flag is inserted after it)."
+    }
+  }
 }
 
 resource "azurerm_api_management_subscription" "service" {

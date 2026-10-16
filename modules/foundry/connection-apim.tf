@@ -9,10 +9,13 @@
 
 locals {
   # Flatten: for each enabled connection entry × each Foundry project.
+  # Keyed by instance index (like azapi_resource.project), not instance name:
+  # auto-generated names embed var.random_suffix, which is unknown until apply
+  # on a first deployment, and for_each keys must be known at plan time.
   apim_connection_pairs = var.enable_apim_connections ? flatten([
     for pi, p in local.instances : [
       for c in var.apim_connections : {
-        key                = "${local.instance_names[pi]}-${c.api_name}"
+        key                = "${pi}-${c.api_name}"
         project_index      = pi
         api_name           = c.api_name
         api_path           = c.api_path

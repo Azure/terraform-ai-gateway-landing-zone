@@ -11,8 +11,10 @@
                    credentials.managedIdentity configured (handles token acquisition natively)
                  - managed-identity: Alias for native-backend-authorization (backward compat)
                  - aws-sigv4: AWS SigV4 signing in policy (cannot be done at backend resource level)
-                 - api-key-bearer: Authorization: Bearer {key} header from named value
-                 - api-key-header: api-key: {value} header from named value
+                 - api-key-bearer: No policy auth — APIM backend resource has credentials.authorization
+                   (Bearer named value from auth_config.named_value_key); caller credentials are stripped
+                 - api-key-header: No policy auth — APIM backend resource has credentials.header
+                   (api-key: named value from auth_config.named_value_key); caller credentials are stripped
                  - none: No auth (backend credentials configured on APIM backend resource)
                  
                  When skipBackendUrlRewrite is set (by request-processor for Unified AI API),
@@ -22,7 +24,8 @@
         - targetAuthType: The auth type for the target backend
         - targetPoolType: The type of the target backend pool
         - targetBackendPool: The selected backend pool name
-        - targetAuthConfigNamedValue: APIM named value key for api-key-based auth types
+        - targetAuthConfigNamedValue: APIM named value key for api-key-based auth types (informational;
+          the secret is applied by the APIM backend resource credentials)
         - requestedModel: The model name extracted from the request payload
         - skipBackendUrlRewrite (optional): When set, skips URL rewriting
     -->
@@ -202,21 +205,19 @@
             </set-header>
         </when>
         <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-bearer")">
-            <!-- API Key Bearer: Authorization: Bearer {key} from APIM named value -->
-            <set-header name="Authorization" exists-action="override">
-                <value>@{
-                    var namedValue = context.Variables.GetValueOrDefault<string>("targetAuthConfigNamedValue", "");
-                    // Named value is resolved at deploy-time by APIM; at runtime we just read the variable
-                    // The actual key lookup happens via the pool's authConfigNamedValue → APIM named value
-                    return "Bearer " + namedValue;
-                }</value>
-            </set-header>
+            <!-- API Key Bearer: the APIM backend resource carries credentials.authorization
+                 (Bearer named value from auth_config.named_value_key) and APIM applies it natively on forward-request. Policy
+                 expressions cannot resolve a named value from a runtime variable, so the key is not
+                 set here. Strip caller-supplied credentials so they are never forwarded upstream. -->
+            <set-header name="Authorization" exists-action="delete" />
+            <set-header name="api-key" exists-action="delete" />
         </when>
         <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-header")">
-            <!-- API Key Header: api-key: {value} from APIM named value -->
-            <set-header name="api-key" exists-action="override">
-                <value>@(context.Variables.GetValueOrDefault<string>("targetAuthConfigNamedValue", ""))</value>
-            </set-header>
+            <!-- API Key Header: the APIM backend resource carries credentials.header
+                 (api-key: named value from auth_config.named_value_key) and APIM applies it natively on forward-request.
+                 Strip caller-supplied credentials so they are never forwarded upstream. -->
+            <set-header name="Authorization" exists-action="delete" />
+            <set-header name="api-key" exists-action="delete" />
         </when>
         <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "none")">
             <!-- No auth: backend credentials configured on APIM backend resource -->

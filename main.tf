@@ -524,8 +524,31 @@ module "apim" {
   app_insights_instrumentation_key = module.monitoring.app_insights_instrumentation_key
   app_insights_connection_string   = module.monitoring.app_insights_connection_string
 
-  # Redis (semantic cache) — optional
-  redis_cache_connection_string = var.enable_redis_cache ? module.redis[0].connection_string : ""
+  # Logger credentials in Key Vault (no APIM-generated secret named values)
+  logger_credentials_in_key_vault = var.apim_logger_credentials_in_key_vault
+
+  # Vault for the secrets APIM reads through Key Vault-backed named values
+  # (logger credentials, Redis connection string).
+  secrets_key_vault = {
+    id           = module.security.key_vault_for_apim_secrets.id
+    uri          = module.security.key_vault_for_apim_secrets.uri
+    rbac_enabled = module.security.key_vault_for_apim_secrets.rbac_enabled
+    # Mirrors the public_network_access_enabled passed to module.security.
+    public_access_open = var.network_acl_default_action == "Allow" && (
+      length(var.kv_deployer_ip_rules) > 0 || var.kv_auto_detect_deployer_ip || var.kv_public_network_access_enabled
+    )
+  }
+
+  # Redis (APIM external cache for the semantic cache) — optional
+  enable_redis_cache                  = var.enable_redis_cache
+  redis_cache_connection_string       = var.enable_redis_cache ? module.redis[0].connection_string : ""
+  redis_cache_id                      = var.enable_redis_cache ? module.redis[0].redis_id : ""
+  redis_public_network_access_enabled = var.redis_public_network_access == "Enabled"
+
+  # Semantic cache: on when both the external cache and the embeddings backend are.
+  semantic_cache = merge(var.semantic_cache, {
+    enabled = local.semantic_cache_enabled
+  })
 
   # Availability zones (Bicep parity: Premium + skuCount>1)
   apim_zones = var.apim_sku == "Premium" && var.apim_sku_units > 1 ? (
@@ -569,7 +592,7 @@ module "apim" {
   ai_search_instances          = [for s in var.ai_search_instances : { name = s.name, url = s.endpoint, description = "AI Search backend" }]
   enable_azure_ai_search       = var.enable_azure_ai_search
   enable_embeddings_backend    = var.enable_embeddings_backend
-  embeddings_backend_url       = var.embeddings_backend_url
+  embeddings_backend_url       = local.embeddings_backend_url
   enable_pii_anonymization     = var.enable_pii_anonymization
   enable_unified_ai_api        = var.enable_unified_ai_api
   enable_ai_model_inference    = var.enable_ai_model_inference
@@ -593,6 +616,43 @@ module "apim" {
   enable_foundry_apim_connection = var.enable_foundry_apim_connection
 
   depends_on = [module.networking, module.monitoring, module.eventhub, module.cosmosdb, module.redis, module.apic]
+}
+
+# =============================================================================
+# SEMANTIC CACHE (Azure Managed Redis external cache + embeddings backend)
+# =============================================================================
+
+locals {
+  semantic_cache_enabled = var.enable_redis_cache && var.enable_embeddings_backend
+
+  # Explicit URL, else the embeddings deployment on the primary Foundry account.
+  embeddings_backend_url = var.embeddings_backend_url != "" ? var.embeddings_backend_url : (
+    var.primary_foundry_embedding_model_name != "" && length(var.ai_foundry_instances) > 0
+    ? "${trimsuffix(module.foundry.primary_foundry_endpoint, "/")}/openai/deployments/${var.primary_foundry_embedding_model_name}/embeddings"
+    : ""
+  )
+}
+
+# llm-semantic-cache-lookup calls the embeddings backend as APIM's
+# system-assigned identity. Granted on every Foundry account; an external
+# embeddings_backend_url needs the same role granted on its account.
+resource "azurerm_role_assignment" "apim_system_openai_user" {
+  count = local.semantic_cache_enabled ? length(var.ai_foundry_instances) : 0
+
+  scope                = module.foundry.foundry_ids[count.index]
+  role_definition_name = "Cognitive Services OpenAI User"
+  principal_id         = module.apim.system_assigned_principal_id
+  principal_type       = "ServicePrincipal"
+}
+
+check "semantic_cache_embeddings_model" {
+  assert {
+    condition = (
+      !local.semantic_cache_enabled || var.embeddings_backend_url != "" ||
+      contains([for m in var.ai_foundry_models : m.name if try(m.ai_service_index, 0) == 0], var.primary_foundry_embedding_model_name)
+    )
+    error_message = "Semantic cache: primary_foundry_embedding_model_name (\"${var.primary_foundry_embedding_model_name}\") isn't in ai_foundry_models for the primary Foundry account (ai_service_index = 0). Add the embeddings deployment there, or set embeddings_backend_url."
+  }
 }
 
 # =============================================================================

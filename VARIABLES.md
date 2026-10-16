@@ -71,6 +71,7 @@ Leave values empty (`""`) to auto-generate (`<prefix>-<resource_token>`).
 | ☆ `kv_deployer_ip_rules` | list(string) | `[]` | Optional public IPs / CIDRs added to KV `network_acls.ip_rules`. Use to let a CI runner or admin workstation perform data-plane writes (secrets) when `network_acl_default_action = "Deny"`. Accepts `"203.0.113.4"` or `"203.0.113.0/24"`. **When non-empty, `public_network_access_enabled` is automatically forced to `true`** — Azure ignores `ip_rules` when public access is fully disabled. Default-action `Deny` still restricts traffic to the allowlist + private endpoints. Leave empty in production; prefer running Terraform from inside the VNet. |
 | ☆ `kv_auto_detect_deployer_ip` | bool | `false` | When `true`, auto-detects the current public IP (via `https://api.ipify.org`) and appends `<ip>/32` to `kv_deployer_ip_rules`. Same auto-flip of `public_network_access_enabled` applies. Convenient for local bootstrap. Not recommended for CI with unstable egress IPs. |
 | ☆ `create_apim_gateway_key_secret` | bool | `false` | When `true`, writes a placeholder `apim-gateway-key` secret (value `PLACEHOLDER-update-after-apim-deploy`) to Key Vault for optional downstream tooling. Nothing in this stack reads it; validation notebooks fetch the real key via `az apim subscription show`. Enabling it requires KV data-plane write access from the deployer IP (see `kv_deployer_ip_rules` / `kv_auto_detect_deployer_ip`) and is the most common cause of 403 `ForbiddenByFirewall` errors on first apply. |
+| ☆ `apim_logger_credentials_in_key_vault` | bool | `true` | Stores the APIM logger credentials (App Insights connection string, managed identity client ID) as Key Vault secrets `apim-logger-*` (written through ARM) and points the loggers at Key Vault-backed named values, so APIM generates no secret `Logger-Credentials--*` named values (policy "API Management secret named values should be stored in Azure Key Vault"). Needs APIM to reach the vault (V2 SKU, `apim_network_type` External/Internal, or an open vault). See [DEPLOYMENT_GUIDE.md §9.5](DEPLOYMENT_GUIDE.md#95-apim-logger-credentials-in-key-vault). |
 | ☆ `key_vault_sku` | string | `standard` | `standard` or `premium`. |
 
 ## 4. Networking
@@ -147,7 +148,7 @@ Things to plan for:
 | ☆ `enable_api_center` | bool | `true` | Deploy API Center as AI Registry. |
 | ☆ `enable_pii_redaction` | bool | `true` | Deploy Language Service. |
 | ☆ `enable_content_safety` | bool | `true` | Deploy Content Safety. |
-| ☆ `enable_redis_cache` | bool | `false` | Deploy Azure Managed Redis (semantic cache). |
+| ☆ `enable_redis_cache` | bool | `false` | Deploy Azure Managed Redis and attach it as the APIM external cache (connection string in Key Vault, Key Vault-backed named value `redis-cache-connection-string`). With `enable_embeddings_backend`, turns the semantic cache on. See [DEPLOYMENT_GUIDE.md §9.6](DEPLOYMENT_GUIDE.md#96-semantic-cache-azure-managed-redis). |
 | ☆ `create_app_insights_dashboards` | bool | `true` | App Insights dashboard JSON. |
 
 ## 7. Log Analytics Strategy
@@ -331,9 +332,10 @@ Used only when `enable_redis_cache = true`.
 
 | Variable | Type | Default | Notes |
 |---|---|---|---|
-| ☆ `primary_foundry_embedding_model_name` | string | `""` | For semantic-cache embeddings backend. |
-| ☆ `enable_embeddings_backend` | bool | `false` | Register embeddings backend in APIM. |
-| ☆ `embeddings_backend_url` | string | `""` | Used only when flag above is true. |
+| ☆ `primary_foundry_embedding_model_name` | string | `""` | Embeddings deployment on the primary Foundry account (must also be in `ai_foundry_models` with `ai_service_index = 0`); the embeddings backend URL is derived from it when `embeddings_backend_url` is empty. |
+| ☆ `enable_embeddings_backend` | bool | `false` | Register the embeddings backend (`foundry-embeddings`) used by the semantic cache lookup. With `enable_redis_cache`, turns the semantic cache on (adds APIM's system-assigned identity + *Cognitive Services OpenAI User* on the Foundry accounts). |
+| ☆ `embeddings_backend_url` | string | `""` | Full embeddings endpoint without a query string (e.g. `https://<account>.openai.azure.com/openai/deployments/<name>/embeddings`); overrides the derived one. An account outside this deployment needs *Cognitive Services OpenAI User* for APIM's system-assigned identity. |
+| ☆ `semantic_cache` | object | `{}` | Tuning: `score_threshold` (0.05), `ttl_seconds` (300), `ignore_system_messages` (true), `max_message_count` (10). |
 
 ## 19. Logic App Content Share
 

@@ -56,12 +56,16 @@ variable "services" {
     - endpoint_secret_name: Key Vault secret name for the gateway endpoint URL
     - api_key_secret_name:  Key Vault secret name for the subscription key
     - policy_xml:           (optional) Inbound product policy XML; empty = default policy
+    - semantic_cache:       (optional) Serve similar chat completions from the gateway's
+                            semantic cache (needs enable_redis_cache + enable_embeddings_backend
+                            on the gateway). Default false.
   EOT
   type = list(object({
     code                 = string
     endpoint_secret_name = string
     api_key_secret_name  = string
     policy_xml           = optional(string, "")
+    semantic_cache       = optional(bool, false)
   }))
 }
 

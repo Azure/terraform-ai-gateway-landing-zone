@@ -421,6 +421,31 @@ the subscription resource directly.
 ./scripts/deploy.sh dev --with-foundry-conn
 ```
 
+**State keys.** Connections are keyed `<instance index>-<api_name>` (e.g.
+`0-universal-llm-api`), so they can be planned in the same apply that creates
+the Foundry instances. Earlier versions keyed them `<instance name>-<api_name>`.
+That failed on a first deployment with auto-generated instance names, which
+embed a random suffix unknown until apply ("Invalid for_each argument").
+
+If a deployment already has connections under the old keys, move them once
+before the next apply. Otherwise Terraform deletes and recreates them in
+parallel, and the create fails with "already exists" (same connection name).
+Run from the repo root after `terraform init`:
+
+```bash
+terraform show -json | jq -r '
+  [.values.root_module.child_modules[]? | select(.address == "module.foundry") | .resources[]] as $r
+  | ($r | map(select(.type == "azapi_resource" and .name == "project")) | map({key: .values.id, value: (.index | tostring)}) | from_entries) as $proj
+  | $r[] | select(.type == "azapi_resource" and .name == "apim_connection")
+  | (.values.parent_id | capture("/accounts/(?<a>[^/]+)/").a) as $acct
+  | select(.index | startswith($acct + "-"))
+  | "\(.index)\t\($proj[.values.parent_id])-\(.index | ltrimstr($acct + "-"))"' |
+while IFS=$'\t' read -r old new; do
+  terraform state mv "module.foundry.azapi_resource.apim_connection[\"$old\"]" \
+                     "module.foundry.azapi_resource.apim_connection[\"$new\"]"
+done
+```
+
 ### 7.3 Access contracts (`--with-access-contracts`)
 
 **Bicep parity:** `citadel-access-contracts/main.bicep` + its 3 sub-modules.
@@ -728,6 +753,92 @@ pip install -r shared/requirements.txt
 
 See [validation/README.md](validation/README.md) for the full per-notebook
 variable map.
+
+### 9.5 APIM logger credentials in Key Vault
+
+APIM stores every credential given to a logger in a secret named value it
+generates (`Logger-Credentials--<id>`):
+- the App Insights logger's connection string;
+- the client ID of the managed identity the Event Hub loggers authenticate with.
+
+The built-in policy **"API Management secret named values should be stored in
+Azure Key Vault"** (Audit / Deny) flags those named values.
+
+With `apim_logger_credentials_in_key_vault = true` (the default), APIM generates
+none:
+
+| Item | Where |
+|---|---|
+| Key Vault secrets `apim-logger-identity-client-id`, `apim-logger-appinsights-connection-string` | this deployment's Key Vault, written through ARM by the apply (no data-plane access from the deployer). They expire after 90 days (ALZ guardrail); the expiry is moved forward every 60 days on apply, and APIM keeps resolving them after it |
+| Named values `logger-identity-client-id`, `logger-appinsights-connection-string` | Key Vault references (versionless), resolved by the APIM user-assigned identity (*Key Vault Secrets User*) |
+| Loggers `appinsights-logger`, `usage-eventhub-logger`, `pii-usage-eventhub-logger` | credentials are `{{logger-…}}` references |
+
+Requirements (a precondition fails the plan otherwise):
+- APIM must reach the vault: a V2 SKU, `apim_network_type` External/Internal,
+  or an open vault (`kv_public_network_access_enabled = true` and
+  `network_acl_default_action = "Allow"`).
+- The vault uses RBAC authorization (`rbac_authorization_enabled = true`).
+- The App Insights connection string is available (an instrumentation key alone
+  isn't supported).
+
+The loggers are written with idempotent ARM PUTs. On an existing deployment,
+the first apply drops the `azurerm_api_management_logger` entries from state
+(`removed` blocks, nothing is deleted) and updates the loggers in place.
+
+**Switching an existing APIM.** APIM doesn't delete the named values it
+generated earlier. Delete them once after the apply; APIM refuses to delete one
+that is still in use:
+
+```bash
+S=$(az apim show -n <apim> -g <rg> --query id -o tsv)
+for n in $(az rest --method get --url "https://management.azure.com$S/namedValues?api-version=2024-05-01" \
+    --query "value[?starts_with(properties.displayName, 'Logger-Credentials--')].name" -o tsv); do
+  az rest --method delete --url "https://management.azure.com$S/namedValues/$n?api-version=2024-05-01"
+done
+```
+
+### 9.6 Semantic cache (Azure Managed Redis)
+
+Semantic caching returns a stored completion for a prompt similar to an
+earlier one (`llm-semantic-cache-lookup` / `llm-semantic-cache-store`), with
+Azure Managed Redis as the APIM external cache. It is on when both flags are
+set; each access contract then opts in.
+
+```hcl
+# environments/<env>.tfvars
+enable_redis_cache                   = true
+enable_embeddings_backend            = true
+primary_foundry_embedding_model_name = "text-embedding-3-small" # also in ai_foundry_models (ai_service_index = 0)
+# embeddings_backend_url             = "https://<account>.openai.azure.com/openai/deployments/<name>/embeddings" # alternative
+semantic_cache = { score_threshold = 0.05, ttl_seconds = 300 }
+
+# citadel-access-contracts/terraform.tfvars
+services = [{ code = "LLM", ..., semantic_cache = true }]
+```
+
+| Piece | What it does |
+|---|---|
+| `module.redis` | Azure Managed Redis (RediSearch, private endpoint on 10000) |
+| Key Vault secret `apim-redis-cache-connection-string` + named value `redis-cache-connection-string` | the connection string with the access key (APIM can't use Entra auth for Azure Managed Redis), written through ARM, read by the APIM user-assigned identity |
+| APIM external cache `Default` | `{{redis-cache-connection-string}}` |
+| Backend `foundry-embeddings` | the embeddings deployment; no credentials |
+| APIM system-assigned identity + *Cognitive Services OpenAI User* on the Foundry accounts | the lookup calls the embeddings backend only as the system-assigned identity |
+| Fragments `semantic-cache-lookup` / `semantic-cache-store` | included by the Universal LLM, Azure OpenAI and Unified AI API policies; without the flags they only set `semanticCacheEnabled = false` |
+| Product policy `semanticCacheEnabled = "true"` | set by access contracts with `semantic_cache = true` (inserted after the inbound `<base />`) |
+
+Behavior:
+- Only non-streaming chat completions are cached, after authentication and
+  model access checks. Entries are partitioned by subscription and requested
+  model.
+- A hit returns before the backend call; a miss stores the 200 response for
+  `ttl_seconds`. With `enableResponseHeaders`, the `UAIG-Semantic-Cache`
+  header reports `hit` / `miss`.
+
+Requirements (preconditions fail the plan otherwise):
+- APIM reaches Redis and the vault: a V2 SKU or `apim_network_type`
+  External/Internal, or public access on both.
+- An embeddings endpoint: `primary_foundry_embedding_model_name` or
+  `embeddings_backend_url`.
 
 ---
 

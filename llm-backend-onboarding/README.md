@@ -126,7 +126,7 @@ terraform apply -var-file=terraform.tfvars
 | `backend_type` | string | Yes | `ai-foundry`, `azure-openai`, `aws-bedrock`, or `external` |
 | `endpoint` | string | Yes | Base URL of the LLM service |
 | `auth_scheme` | string | Yes | `managedIdentity`, `apiKey`, or `token` (legacy; sets native MI credentials when `managedIdentity`) |
-| `auth_type` | string | No | `managed-identity`, `aws-sigv4`, `api-key-bearer`, `api-key-header`, or `none`. Overrides `auth_scheme` for policy-fragment routing |
+| `auth_type` | string | No | `managed-identity`, `aws-sigv4`, `api-key-bearer`, `api-key-header`, or `none`. Overrides `auth_scheme` (see [Backend Authentication](#backend-authentication)) |
 | `auth_config` | object | No | API-key credential source: `{ named_value_key, key_vault_secret_uri?, secret_value? }` (see below) |
 | `supported_models` | list | Yes | Array of model objects (see Model Object Properties below) |
 | `priority` | number | No | 1-5, default 1 (lower = higher priority) |
@@ -139,6 +139,21 @@ terraform apply -var-file=terraform.tfvars
 | `named_value_key` | string | No | APIM named value that holds the credential |
 | `key_vault_secret_uri` | string | No | Key Vault secret reference (recommended for production) |
 | `secret_value` | string | No | Explicit value (testing only — do **not** use in production) |
+| `authorization_scheme` | string | No | `api-key-bearer` only. Scheme prefixed to the secret (default `Bearer`). Set to `""` when the secret already contains the scheme (e.g. `Bearer abc…`) so it is sent verbatim as the `Authorization` header |
+
+#### Backend Authentication
+
+The effective auth type is `auth_type` when set; otherwise `managed-identity` when `auth_scheme = "managedIdentity"`, `api-key-bearer` for `aws-bedrock-mantle` / `gemini-openai` backends, and no credentials for anything else. Credentials are configured on the APIM backend resource and applied natively by APIM when the request is forwarded:
+
+| Effective auth type | APIM backend `credentials` | Policy (`set-backend-authorization`) |
+|---------------------|----------------------------|--------------------------------------|
+| `managed-identity` | `managedIdentity` (Cognitive Services scope) + `x-ms-client-id` header | No-op |
+| `api-key-bearer` | `authorization` = `<authorization_scheme> {{<named_value_key>}}` (default scheme `Bearer`); with `authorization_scheme = ""`, `header` = `Authorization: {{<named_value_key>}}` | Strips caller `Authorization` / `api-key` headers |
+| `api-key-header` | `header` = `api-key: {{<named_value_key>}}` | Strips caller `Authorization` / `api-key` headers |
+| `aws-sigv4` | None | Signs the request with `aws-access-key` / `aws-secret-key` / `aws-region` |
+| `none` | None | No-op |
+
+> API-key credentials must live on the backend resource: APIM resolves `{{named-value}}` references only where they appear literally (backend credentials or policy text), not from runtime policy variables. `api-key-bearer` / `api-key-header` require `auth_config.named_value_key`. Because credentials are per backend, a backend pool may mix auth types.
 
 ### Model Object Properties
 
@@ -628,6 +643,7 @@ dataset
 2. For Amazon Bedrock: Verify AWS IAM access keys are valid in Key Vault and that the named values `aws-access-key` / `aws-secret-key` show a successful Key Vault sync status in the Azure Portal (and `aws-region` is set)
 3. `Unauthorized model access` indicates the used access contract product is restricted for the model
 4. Check the named value `uami-client-id` is set correctly to APIM's managed identity client ID
+5. For `api-key-bearer` / `api-key-header` backends: verify the backend resource's **Authorization credentials** reference the expected named value and that the named value (`auth_config.named_value_key`) is not the `NOT_CONFIGURED` placeholder and shows a successful Key Vault sync status
 
 ### "500 AWSCredentialsNotConfigured" Error
 

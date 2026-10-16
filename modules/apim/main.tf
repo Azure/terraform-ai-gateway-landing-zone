@@ -21,6 +21,35 @@ removed {
 }
 
 # -----------------------------------------------------------------------------
+# STATE MIGRATION: `azurerm_api_management_logger.*` → `azapi_resource_action.*`
+# The App Insights and Event Hub loggers are idempotent ARM PUTs now (see the
+# loggers below and logger-credentials.tf). These blocks drop the azurerm
+# entries from state without deleting the loggers; the PUTs then update them
+# in place under the same names (no replacement, so the diagnostics that
+# reference them are untouched).
+# -----------------------------------------------------------------------------
+removed {
+  from = azurerm_api_management_logger.app_insights
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_api_management_logger.eventhub
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = azurerm_api_management_logger.pii_eventhub
+  lifecycle {
+    destroy = false
+  }
+}
+
+# -----------------------------------------------------------------------------
 # API MANAGEMENT SERVICE
 # -----------------------------------------------------------------------------
 
@@ -47,10 +76,12 @@ locals {
   virtual_network_type = local.is_vnet_injection ? var.apim_network_type : (local.is_vnet_integration ? "External" : "None")
 
   # APIM logger `endpointAddress` expects hostname (optionally with :port), not a
-  # URL. Bicep does: replace(eventHubEndpoint, 'https://', ''). Terraform's
-  # azurerm_api_management_logger.eventhub.endpoint_uri is forwarded verbatim,
-  # so we strip the scheme + any trailing slash/port suffix here.
+  # URL. Bicep does: replace(eventHubEndpoint, 'https://', ''). The value is
+  # forwarded verbatim to the Event Hub loggers, so we strip the scheme + any
+  # trailing slash/port suffix here.
   eventhub_hostname = replace(replace(var.eventhub_endpoint_uri, "https://", ""), "/", "")
+
+  semantic_cache_enabled = var.semantic_cache.enabled
 }
 
 resource "azurerm_api_management" "citadel" {
@@ -80,10 +111,11 @@ resource "azurerm_api_management" "citadel" {
     ignore_changes = [public_network_access_enabled]
   }
 
-  # Bicep parity: UserAssigned only (system-assigned identity dropped upstream;
-  # all backend auth + RBAC uses the user-assigned MI).
+  # Bicep parity: UserAssigned for everything (backend auth + RBAC). The
+  # semantic cache adds SystemAssigned: llm-semantic-cache-lookup calls the
+  # embeddings backend only as the system-assigned identity.
   identity {
-    type         = "UserAssigned"
+    type         = local.semantic_cache_enabled ? "SystemAssigned, UserAssigned" : "UserAssigned"
     identity_ids = [var.managed_identity_id]
   }
 
@@ -181,18 +213,44 @@ resource "azapi_update_resource" "apim_public_network_access" {
 # APIM LOGGER: Application Insights
 # -----------------------------------------------------------------------------
 
-resource "azurerm_api_management_logger" "app_insights" {
-  name                = "appinsights-logger"
-  api_management_name = azurerm_api_management.citadel.name
-  resource_group_name = var.resource_group_name
-  resource_id         = var.app_insights_id
+#
+# An idempotent ARM PUT rather than azurerm_api_management_logger:
+# - azurerm forces a replacement when the credentials change, and APIM refuses
+#   to delete a logger the diagnostics still reference;
+# - with logger_credentials_in_key_vault the connection string is a
+#   {{named value}} reference, which APIM reads back differently (it reports
+#   identityClientId = that reference), so a diffing resource would drift.
+# The PUT re-runs whenever the body changes. Nothing is deleted on destroy
+# (the logger goes with the APIM service).
+# -----------------------------------------------------------------------------
 
-  application_insights {
-    # Bicep parity: prefer connection_string (correlates region+resource) when
-    # available; fall back to instrumentation_key.
-    connection_string   = var.app_insights_connection_string != "" ? var.app_insights_connection_string : null
-    instrumentation_key = var.app_insights_connection_string == "" ? var.app_insights_instrumentation_key : null
+locals {
+  # Bicep parity: prefer the connection string (correlates region+resource)
+  # when available; fall back to the instrumentation key.
+  app_insights_logger_credentials = (
+    local.logger_uses_connection_string
+    ? { connectionString = local.logger_connection_string_ref }
+    : { instrumentationKey = var.app_insights_instrumentation_key }
+  )
+}
+
+resource "azapi_resource_action" "app_insights_logger" {
+  type        = "Microsoft.ApiManagement/service/loggers@2024-05-01"
+  resource_id = "${azurerm_api_management.citadel.id}/loggers/appinsights-logger"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      loggerType  = "applicationInsights"
+      description = "Application Insights logger"
+      resourceId  = var.app_insights_id
+      isBuffered  = true
+      credentials = local.app_insights_logger_credentials
+    }
   }
+
+  # The {{references}} must resolve when the logger is saved.
+  depends_on = [azurerm_api_management_named_value.logger_credential]
 }
 
 # -----------------------------------------------------------------------------
@@ -288,32 +346,43 @@ resource "terraform_data" "azure_monitor_logger_windows" {
 }
 
 # -----------------------------------------------------------------------------
-# APIM LOGGER: Event Hub (for usage streaming)
+# APIM LOGGERS: Event Hub (usage and PII events), managed identity (no SAS).
+# Idempotent ARM PUTs like the App Insights logger: azurerm only accepts a
+# literal UUID as the identity client ID, while logger_credentials_in_key_vault
+# passes a {{named value}} reference. The names are a contract: the fragments'
+# log-to-eventhub logger-id. Nothing is deleted on destroy or when PII
+# redaction is turned off (the unused logger stays until the APIM goes).
 # -----------------------------------------------------------------------------
 
-resource "azurerm_api_management_logger" "eventhub" {
-  name                = "usage-eventhub-logger"
-  api_management_name = azurerm_api_management.citadel.name
-  resource_group_name = var.resource_group_name
-
-  eventhub {
-    name                             = var.eventhub_usage_hub_name
-    endpoint_uri                     = local.eventhub_hostname
-    user_assigned_identity_client_id = var.managed_identity_client_id
-  }
+locals {
+  eventhub_loggers = merge(
+    { "usage-eventhub-logger" = { hub = var.eventhub_usage_hub_name, description = "AI usage events" } },
+    var.enable_pii_redaction ? { "pii-usage-eventhub-logger" = { hub = var.eventhub_pii_hub_name, description = "PII processing events" } } : {},
+  )
 }
 
-resource "azurerm_api_management_logger" "pii_eventhub" {
-  count               = var.enable_pii_redaction ? 1 : 0
-  name                = "pii-usage-eventhub-logger"
-  api_management_name = azurerm_api_management.citadel.name
-  resource_group_name = var.resource_group_name
+resource "azapi_resource_action" "eventhub_logger" {
+  for_each = local.eventhub_loggers
 
-  eventhub {
-    name                             = var.eventhub_pii_hub_name
-    endpoint_uri                     = local.eventhub_hostname
-    user_assigned_identity_client_id = var.managed_identity_client_id
+  type        = "Microsoft.ApiManagement/service/loggers@2024-05-01"
+  resource_id = "${azurerm_api_management.citadel.id}/loggers/${each.key}"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      loggerType  = "azureEventHub"
+      description = each.value.description
+      isBuffered  = true
+      credentials = {
+        name             = each.value.hub
+        endpointAddress  = local.eventhub_hostname
+        identityClientId = local.logger_identity_client_id_ref
+      }
+    }
   }
+
+  # The {{reference}} must resolve when the logger is saved.
+  depends_on = [azurerm_api_management_named_value.logger_credential]
 }
 
 # -----------------------------------------------------------------------------
@@ -324,7 +393,7 @@ resource "azurerm_api_management_diagnostic" "global" {
   identifier               = "applicationinsights"
   resource_group_name      = var.resource_group_name
   api_management_name      = azurerm_api_management.citadel.name
-  api_management_logger_id = azurerm_api_management_logger.app_insights.id
+  api_management_logger_id = azapi_resource_action.app_insights_logger.resource_id
 
   sampling_percentage   = 100
   always_log_errors     = true
@@ -523,7 +592,7 @@ module "universal_llm" {
   list_models_op_policy_xml_path    = "${path.module}/policies/universal-llm-api-deployments-policy.xml"
   retrieve_model_op_policy_xml_path = "${path.module}/policies/universal-llm-api-deployment-by-name-policy.xml"
 
-  app_insights_logger_id = azurerm_api_management_logger.app_insights.id
+  app_insights_logger_id = azapi_resource_action.app_insights_logger.resource_id
   # Azure Monitor logger is created via az-rest (terraform_data); construct
   # its ARM resource ID deterministically and depend on the upsert below.
   azure_monitor_logger_id = "${azurerm_api_management.citadel.id}/loggers/azuremonitor"
@@ -533,6 +602,7 @@ module "universal_llm" {
     azurerm_api_management_policy_fragment.set_backend_pools,
     azurerm_api_management_policy_fragment.get_available_models,
     azurerm_api_management_policy_fragment.metadata_config,
+    azapi_resource.semantic_cache_fragment,
     azurerm_api_management_named_value.uami_client_id,
     azurerm_api_management_named_value.entra_tenant_id,
     azurerm_api_management_named_value.entra_client_id,
@@ -567,7 +637,7 @@ module "azure_openai" {
   deployments_op_policy_xml_path        = "${path.module}/policies/universal-llm-api-deployments-policy.xml"
   deployment_by_name_op_policy_xml_path = "${path.module}/policies/universal-llm-api-deployment-by-name-policy.xml"
 
-  app_insights_logger_id  = azurerm_api_management_logger.app_insights.id
+  app_insights_logger_id  = azapi_resource_action.app_insights_logger.resource_id
   azure_monitor_logger_id = "${azurerm_api_management.citadel.id}/loggers/azuremonitor"
 
   policy_dependencies = [
@@ -575,6 +645,7 @@ module "azure_openai" {
     azurerm_api_management_policy_fragment.set_backend_pools,
     azurerm_api_management_policy_fragment.get_available_models,
     azurerm_api_management_policy_fragment.metadata_config,
+    azapi_resource.semantic_cache_fragment,
     azurerm_api_management_named_value.uami_client_id,
     azurerm_api_management_named_value.entra_tenant_id,
     azurerm_api_management_named_value.entra_client_id,
@@ -617,14 +688,76 @@ resource "azurerm_api_management_product_api" "openai_default" {
 
 # -----------------------------------------------------------------------------
 # APIM REDIS CACHE (Bicep parity: `service/caches` resource)
-# Links Azure Managed Redis to APIM for semantic caching. Created only when
-# a connection string is provided.
+# Links Azure Managed Redis to APIM as the external cache (the store behind
+# llm-semantic-cache-lookup / -store). APIM can't use Entra auth for Azure
+# Managed Redis, so it needs the connection string with the access key: it's
+# written to Key Vault through ARM (like the logger credentials) and the cache
+# references a Key Vault-backed named value, so no secret is stored in APIM.
+# Gated on the enable flag: the connection string is sensitive and unknown
+# until Redis exists, so it can't drive `count`.
 # -----------------------------------------------------------------------------
 
+resource "azapi_resource_action" "redis_cache_connection_string_secret" {
+  count = var.enable_redis_cache ? 1 : 0
+
+  type        = "Microsoft.KeyVault/vaults/secrets@2023-07-01"
+  resource_id = "${local.secrets_key_vault_id}/secrets/apim-redis-cache-connection-string"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      value       = var.redis_cache_connection_string
+      contentType = "redis-connection-string"
+      attributes = {
+        enabled = true
+        exp     = time_rotating.redis_cache_connection_string[0].unix + 90 * 24 * 3600
+      }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.secrets_key_vault_id != "" && local.secrets_key_vault_uri != "" && try(var.secrets_key_vault.rbac_enabled, false)
+      error_message = "enable_redis_cache needs secrets_key_vault (an RBAC-authorized vault the APIM identity can read)."
+    }
+    precondition {
+      condition     = local.apim_reaches_key_vault
+      error_message = "enable_redis_cache needs APIM to reach the Key Vault: use a V2 SKU or apim_network_type External/Internal, or open the vault (kv_public_network_access_enabled = true, network_acl_default_action = \"Allow\")."
+    }
+    precondition {
+      condition     = local.is_vnet_injection || local.is_vnet_integration || var.redis_public_network_access_enabled
+      error_message = "enable_redis_cache needs APIM to reach Azure Managed Redis: use a V2 SKU or apim_network_type External/Internal (private endpoint), or set redis_public_network_access = \"Enabled\"."
+    }
+  }
+}
+
+# Same expiry clock as the logger credentials (ALZ Enforce-GR-KeyVault).
+resource "time_rotating" "redis_cache_connection_string" {
+  count         = var.enable_redis_cache ? 1 : 0
+  rotation_days = 60
+}
+
+resource "azurerm_api_management_named_value" "redis_cache_connection_string" {
+  count               = var.enable_redis_cache ? 1 : 0
+  name                = "redis-cache-connection-string"
+  display_name        = "redis-cache-connection-string"
+  api_management_name = azurerm_api_management.citadel.name
+  resource_group_name = var.resource_group_name
+  secret              = true
+
+  value_from_key_vault {
+    secret_id          = "${local.secrets_key_vault_uri}/secrets/apim-redis-cache-connection-string"
+    identity_client_id = var.managed_identity_client_id
+  }
+
+  depends_on = [azapi_resource_action.redis_cache_connection_string_secret]
+}
+
 resource "azurerm_api_management_redis_cache" "default" {
-  count             = var.redis_cache_connection_string != "" ? 1 : 0
+  count             = var.enable_redis_cache ? 1 : 0
   name              = "Default"
   api_management_id = azurerm_api_management.citadel.id
-  connection_string = var.redis_cache_connection_string
+  connection_string = "{{${azurerm_api_management_named_value.redis_cache_connection_string[0].name}}}"
+  redis_cache_id    = var.redis_cache_id != "" ? var.redis_cache_id : null
   description       = "Azure Managed Redis for APIM semantic cache"
 }

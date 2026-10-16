@@ -200,6 +200,27 @@ variable "create_apim_gateway_key_secret" {
   default     = false
 }
 
+variable "apim_logger_credentials_in_key_vault" {
+  description = <<-EOT
+    When true (default), the APIM logger credentials (App Insights connection
+    string, managed identity client ID of the Event Hub loggers) are stored in
+    this deployment's Key Vault (secrets `apim-logger-*`) and the loggers
+    reference Key Vault-backed named values (`logger-identity-client-id`,
+    `logger-appinsights-connection-string`). APIM then generates no secret
+    `Logger-Credentials--*` named values, which the policy "API Management
+    secret named values should be stored in Azure Key Vault" flags.
+
+    The secrets are written through ARM (no Key Vault data-plane access from
+    the deployer needed). APIM must reach the vault: a V2 SKU, or
+    `apim_network_type` External/Internal, or an open vault
+    (`kv_public_network_access_enabled = true`, `network_acl_default_action = "Allow"`).
+
+    false = APIM keeps the credentials in the secret named values it generates.
+  EOT
+  type        = bool
+  default     = true
+}
+
 # -----------------------------------------------------------------------------
 # NETWORKING
 # -----------------------------------------------------------------------------
@@ -719,7 +740,8 @@ variable "llm_backend_config" {
     auth_scheme  = string # managedIdentity, apiKey, token
     auth_type    = optional(string)  # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
     auth_config  = optional(object({
-      named_value_key = optional(string)
+      named_value_key      = optional(string)
+      authorization_scheme = optional(string, "Bearer") # api-key-bearer only; "" = secret holds full header value
     }))
     supported_models = list(object({
       name                = string
@@ -755,7 +777,8 @@ variable "extra_llm_backends" {
     auth_scheme  = string # managedIdentity, apiKey, token
     auth_type    = optional(string)  # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
     auth_config  = optional(object({
-      named_value_key = optional(string)
+      named_value_key      = optional(string)
+      authorization_scheme = optional(string, "Bearer") # api-key-bearer only; "" = secret holds full header value
     }))
     supported_models = list(object({
       name                = string
@@ -985,9 +1008,31 @@ variable "configure_circuit_breaker" {
 }
 
 variable "enable_embeddings_backend" {
-  description = "Register a Foundry embeddings backend for semantic caching."
+  description = "Register a Foundry embeddings backend for semantic caching (URL: embeddings_backend_url, else primary_foundry_embedding_model_name on the primary Foundry account). With enable_redis_cache, turns the semantic cache on."
   type        = bool
   default     = false
+}
+
+variable "semantic_cache" {
+  description = <<-EOT
+    Semantic cache tuning (llm-semantic-cache-lookup / -store). The cache is on
+    when enable_redis_cache and enable_embeddings_backend are both true; access
+    contracts then opt in per product (citadel-access-contracts
+    services[*].semantic_cache). Only non-streaming chat completions are
+    cached, partitioned by subscription and requested model.
+      score_threshold         0.0-1.0; lower = a closer match is needed. Above 0.2 risks mismatches.
+      ttl_seconds             How long a response is cached (gateway-wide).
+      ignore_system_messages  Leave system messages out of the similarity.
+      max_message_count       Skip caching for conversations longer than this many messages.
+  EOT
+  type = object({
+    score_threshold        = optional(number, 0.05)
+    ttl_seconds            = optional(number, 300)
+    ignore_system_messages = optional(bool, true)
+    max_message_count      = optional(number, 10)
+  })
+  default  = {}
+  nullable = false
 }
 
 variable "enable_pii_anonymization" {

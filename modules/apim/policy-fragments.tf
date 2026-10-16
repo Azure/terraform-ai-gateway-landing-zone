@@ -410,3 +410,66 @@ resource "azapi_resource" "pii_fragment" {
     azurerm_api_management_named_value.pii_service_url
   ]
 }
+
+# -----------------------------------------------------------------------------
+# Semantic cache fragments — always deployed (the LLM API policies include them
+# unconditionally); with the semantic cache off they only set
+# semanticCacheEnabled = false. azapi for the same LRO reason as the PII
+# fragments. APIM validates embeddings-backend-id when the lookup is saved.
+# -----------------------------------------------------------------------------
+
+locals {
+  semantic_cache_off_xml = "<fragment>\n    <!-- Semantic cache disabled (enable_redis_cache + enable_embeddings_backend). -->\n    <set-variable name=\"semanticCacheEnabled\" value=\"false\" />\n</fragment>"
+
+  semantic_cache_fragments = {
+    "semantic-cache-lookup" = {
+      description = "Semantic cache lookup (llm-semantic-cache-lookup) for products whose access contract enables it"
+      xml = local.semantic_cache_enabled ? templatefile("${path.module}/policies/frag-semantic-cache-lookup.xml.tftpl", {
+        embeddings_backend_id  = var.embeddings_backend_id
+        score_threshold        = var.semantic_cache.score_threshold
+        ignore_system_messages = tostring(var.semantic_cache.ignore_system_messages)
+        max_message_count      = var.semantic_cache.max_message_count
+      }) : local.semantic_cache_off_xml
+    }
+    "semantic-cache-store" = {
+      description = "Semantic cache store (llm-semantic-cache-store) after a lookup miss"
+      xml = local.semantic_cache_enabled ? templatefile("${path.module}/policies/frag-semantic-cache-store.xml.tftpl", {
+        ttl_seconds = var.semantic_cache.ttl_seconds
+      }) : local.semantic_cache_off_xml
+    }
+  }
+}
+
+resource "azapi_resource" "semantic_cache_fragment" {
+  for_each = local.semantic_cache_fragments
+
+  type      = "Microsoft.ApiManagement/service/policyFragments@2024-05-01"
+  name      = each.key
+  parent_id = azurerm_api_management.citadel.id
+
+  body = {
+    properties = {
+      value       = each.value.xml
+      format      = "rawxml"
+      description = each.value.description
+    }
+  }
+
+  timeouts {
+    create = "45m"
+    update = "45m"
+    delete = "30m"
+  }
+
+  depends_on = [
+    azapi_resource.embeddings_backend,
+    azurerm_api_management_redis_cache.default,
+  ]
+
+  lifecycle {
+    precondition {
+      condition     = !local.semantic_cache_enabled || (var.enable_redis_cache && var.enable_embeddings_backend)
+      error_message = "semantic_cache.enabled needs enable_redis_cache (the APIM external cache) and enable_embeddings_backend."
+    }
+  }
+}

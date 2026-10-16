@@ -92,7 +92,8 @@ variable "llm_backend_config" {
     auth_scheme  = optional(string)  # legacy, retained
     auth_type    = optional(string)  # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
     auth_config  = optional(object({
-      named_value_key = optional(string)
+      named_value_key      = optional(string)
+      authorization_scheme = optional(string, "Bearer") # api-key-bearer only; "" = secret holds full header value
     }))
     supported_models = list(object({
       name                = string
@@ -298,4 +299,68 @@ variable "aws_region" {
 variable "key_vault_name" { 
   type = string
   default = ""
+}
+# -----------------------------------------------------------------------------
+# Logger credentials in Key Vault (see logger-credentials.tf)
+# -----------------------------------------------------------------------------
+variable "logger_credentials_in_key_vault" {
+  description = "Store the logger credentials (App Insights connection string, managed identity client ID) in Key Vault (secrets apim-logger-*) and have the loggers reference Key Vault-backed named values, so APIM generates no secret Logger-Credentials--* named values. false = APIM stores them in the secret named values it generates."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "secrets_key_vault" {
+  description = "Key Vault for the secrets APIM reads through Key Vault-backed named values: the logger credentials (logger_credentials_in_key_vault) and the Redis connection string (enable_redis_cache). Written through ARM. managed_identity_client_id needs Key Vault Secrets User on it. public_access_open = APIM can reach it without a VNet (public network access with default action Allow)."
+  type = object({
+    id                 = string
+    uri                = string
+    rbac_enabled       = bool
+    public_access_open = bool
+  })
+  default = null
+}
+
+# -----------------------------------------------------------------------------
+# Redis external cache + semantic cache
+# -----------------------------------------------------------------------------
+variable "enable_redis_cache" {
+  description = "Attach Azure Managed Redis as the APIM external cache (redis_cache_connection_string, stored in secrets_key_vault)."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "redis_cache_id" {
+  description = "Resource ID of the Azure Managed Redis cluster (shown on the APIM external cache)."
+  type        = string
+  default     = ""
+}
+
+variable "redis_public_network_access_enabled" {
+  description = "Whether Azure Managed Redis accepts public traffic (APIM without a VNet can only reach it then)."
+  type        = bool
+  default     = false
+}
+
+variable "semantic_cache" {
+  description = "Semantic cache for the LLM APIs (llm-semantic-cache-lookup / -store). enabled needs enable_redis_cache and the embeddings backend; it also gives APIM a system-assigned identity (the lookup calls the embeddings backend only as that identity). Products opt in by setting semanticCacheEnabled = \"true\" (citadel-access-contracts services[*].semantic_cache)."
+  type = object({
+    enabled                = optional(bool, false)
+    score_threshold        = optional(number, 0.05)
+    ttl_seconds            = optional(number, 300)
+    ignore_system_messages = optional(bool, true)
+    max_message_count      = optional(number, 10)
+  })
+  default  = {}
+  nullable = false
+
+  validation {
+    condition     = var.semantic_cache.score_threshold >= 0 && var.semantic_cache.score_threshold <= 1
+    error_message = "semantic_cache.score_threshold must be between 0.0 and 1.0."
+  }
+  validation {
+    condition     = var.semantic_cache.ttl_seconds >= 1 && floor(var.semantic_cache.ttl_seconds) == var.semantic_cache.ttl_seconds
+    error_message = "semantic_cache.ttl_seconds must be a positive whole number."
+  }
 }
