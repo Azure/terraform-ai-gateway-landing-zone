@@ -13,6 +13,7 @@ The recommended execution order is:
 3. **Access Contracts** — Create per-team access contracts with Key Vault and Foundry integrations ⭐ *strongly recommended*
 4. **Model Aliases** — Validate the shared `resolve-model-alias` policy fragment across the LLM APIs (priority + weighted strategies, RBAC, discovery)
 5. **Acceptance Tests** — Run a customer acceptance catalogue (auth, policies, usage, security) against a deployed environment and export the results
+6. **Backend & Access Contract Tests** — Test any published LLM backend, model, alias, MCP server or access contract by name; the notebook discovers how to call it
 
 Each notebook is self-contained with initialization, deployment, testing, visualization, and cleanup stages, enabling both interactive exploration and repeatable CI/CD validation.
 
@@ -449,6 +450,60 @@ MANDATORY_TAGS = [...]            # PBI-007
 
 ---
 
+### 6. Backend & Access Contract Tests
+
+| | |
+|---|---|
+| **Notebook** | [`citadel-backend-and-contract-tests.ipynb`](citadel-backend-and-contract-tests.ipynb) |
+| **Purpose** | Test one published LLM backend, model, alias, MCP server or access contract by name, with no other configuration |
+| **Run this** | Any time after `task up`, e.g. after onboarding a backend or applying a contract. Only reads and calls the deployment. |
+
+#### What It Does
+
+Set `TARGET` to a name and run all cells. The notebook:
+- **Discovers** the environment: the backend contract (backends, their type and models, aliases, read from the
+  `backend-contract` fragment), the APIM products with their APIs, policies and subscriptions, the MCP
+  servers, and the contract files. The catalogue cell prints all of them.
+- **Resolves** the name (case-insensitive; a unique part of a name is enough): contract file, product,
+  backend ID, model, alias or MCP server.
+- **Chooses the calls** from the model kind (chat, embeddings, image) and the backend type: OpenAI format on
+  the universal, Azure OpenAI and unified (`/v1`) APIs, and the native formats on the unified API for
+  `aws-bedrock` (Converse), `gemini` (`generateContent`) and `anthropic` (Messages). Only APIs the key may call are used.
+- **Uses the right key:** a contract's key from its Key Vault secret (as the consuming team would; APIM as a
+  fallback) plus the Entra test client's token when the product requires a JWT. For backends, models,
+  aliases and MCP servers it uses the all-access subscription, or a product that grants the model.
+- **Guardrails** for contracts: without a key → 401; a model outside `allowed_models` → 403; a required app
+  role the test client lacks → 403.
+- **Backends:** the APIM debug trace confirms which backend answered.
+
+| `TARGET` | Calls |
+|---|---|
+| `team-a-chatbot` (contract) | every allowed model and alias on every LLM API of each product, its MCP servers, guardrails |
+| `foundry-swedencentral-0` (backend) | every model of the backend, with the serving backend from the trace |
+| `gpt-5.4-mini` / `fast` (model / alias) | the model on every API that can serve it |
+| `weather-mcp` (MCP server) | MCP `initialize` |
+
+#### Key Configuration
+
+```python
+ENV = "dev"
+TARGET = "team-a-chatbot"         # or a list of names; "" = catalogue only
+INCLUDE = ("chat", "embeddings", "image")
+GUARDRAILS = True                 # 401 without key, 403 for a model outside allowed_models
+TRACE = None                      # serving backend from the APIM trace (None = backend targets only)
+KEY_SOURCE = "auto"               # contracts: Key Vault secret, else APIM
+BACKEND_KEY = "auto"              # backends / models: all-access subscription, else a granting product
+```
+
+#### Output
+
+- The catalogue (contracts, backends, models, aliases, MCP servers)
+- Per target, one row per call: API, call, model, kind, backend type, HTTP status, latency, serving backend
+  and the answer (or the error), with a ✅ / ❌ / ⏭️ summary
+- Optional detail of one call (request, response and diagnostic headers; never the key)
+
+---
+
 ## Recommended Execution Order
 
 > **Strongly recommended baseline:** run notebooks **1 → 3** in order on every new Citadel Governance Hub deployment. Step **4** is an optional, scenario-specific validation that can be run independently afterwards.
@@ -479,6 +534,8 @@ MANDATORY_TAGS = [...]            # PBI-007
 > **Note:** Notebook 4 creates its own access contract and can be run independently after backend onboarding. It re-applies the LLM backend onboarding stack with `model_aliases` populated (the `resolve-model-alias` fragment is regenerated); full cross-API coverage additionally requires the Unified AI API (`unified-ai`) to be imported into APIM.
 >
 > Notebook 5 (acceptance tests) only reads and calls the deployment: run it on any environment, typically as the sign-off step after the baseline.
+>
+> Notebook 6 (backend & access contract tests) also only reads and calls: use it as a quick check of one backend or contract at any time.
 
 ## Shared Utilities
 
@@ -489,6 +546,7 @@ All notebooks import shared helper modules from the [`shared/`](shared/) directo
 | `utils.py` | CLI command runner, stack helpers (`env_dir`, `write_tfvars`, `run_stack`, `stack_outputs`, `terraform_output_get`, `get_contract_subscription_key`), formatted output helpers (`print_ok`, `print_error`, `print_info`) |
 | `apimtools.py` | `APIMClientTool` class for APIM discovery, API key retrieval, policy fragment parsing, and backend management |
 | `acceptance.py` | Acceptance-test helpers: result registry and CSV export, gateway discovery (products, policies, subscriptions, keys in memory only), authenticated calls, Log Analytics queries, network-access inspection, direct probes, log secret scan. Reuses `scripts/gateway_env.py` and `scripts/jwt_auth_tests.py` |
+| `explorer.py` | Backend & access contract tests: discovery (backend contract, products, contract files, MCP servers), name resolution, request shapes per backend type and model kind, keys and calls. Builds on `acceptance.py` |
 
 ## Cleanup
 
