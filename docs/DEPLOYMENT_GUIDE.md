@@ -332,6 +332,7 @@ Platform-team requests for an ALZ:
 
 | Change | Edit | Command (CI does it on merge) |
 |---|---|---|
+| Update to a newer version of this repository | nothing (pull) | `task up ENV=<env>`: every stack in order, then the contracts. A change can span stacks (e.g. a new gateway-config fragment that the LLM APIs include), so applying one stack alone can fail |
 | Add or change an LLM backend, model alias or credential | `llm-backend-onboarding.tfvars` (`llm_backends`, `foundry_backends`, `model_aliases`, `aws`, `session_affinity`) | `task apply STACK=llm-backend-onboarding ENV=<env>` |
 | See what the gateway routes to right now | nothing: `GET <gateway>/version/backend-contract` (subscription key) returns the live backends, pools, aliases and circuit breakers | |
 | New Foundry model deployment | `platform.tfvars` `foundry.models` | `task apply STACK=platform …`, then `STACK=llm-backend-onboarding` (backends are derived from the deployments) |
@@ -945,7 +946,7 @@ a human, or keep the names and let `recover_soft_deleted_key_vaults` recover.
 | `platform`: `Error: … subnet "snet-pe" … not found` | greenfield, but `stacks/network` hasn't been applied (or the subnet isn't enabled) | apply `network` first; check `subnets_enabled` / `apim_vnet_mode` |
 | `platform`: `network_mode alz_spoke / byo: set network …` | the `network` object is missing | `task output STACK=network NAME=platform_network` |
 | `gateway-config`: `entra_auth.enabled: the gateway app wasn't found` | `stacks/identity` not applied, or no Graph `Application.Read.All` | apply `identity`, grant the permission, or set the Entra values explicitly |
-| `llm-backend-onboarding`: `Missing shared fragments (apply stacks/gateway-config first)` | stacks applied out of order | apply `gateway-config` |
+| `llm-backend-onboarding`: the plan warns `Missing shared fragments (apply stacks/gateway-config first)`, then the apply fails with `400 ValidationError` on `azurerm_api_management_api_policy` | stacks applied out of order: the LLM API policies include fragments that gateway-config hasn't deployed yet (e.g. `semantic-cache-*` after an update). It is a warning, not an error, so a CI plan of a change that spans both stacks still works | apply `gateway-config`, then `llm-backend-onboarding` (or `task up`) |
 | `llm-backend-onboarding` plans no backends | no Foundry deployments yet, or accounts named outside the naming contract | apply `platform` first, or set `foundry_backends.account_names` |
 | `llm-backend-onboarding`: `polling import Api … universal-llm-api … 400 ValidationError`; the Activity Log of the APIM service says `Tag with the same name already exists` | older versions of the stack imported the Universal LLM and Azure OpenAI specs, which share tag names, in parallel; APIM creates import tags service-wide and the two imports raced | pull a version where the Universal LLM API waits for the Azure OpenAI API (`module.llm_api_universal` in [apis.tf](../stacks/llm-backend-onboarding/apis.tf)) and re-apply the stack; the failed API is simply created on the next run |
 | `AuthorizationFailure` / `ForbiddenByFirewall` on Key Vault or the package blob | the machine running Terraform can't reach the private data plane | run from a runner in `snet-cicd`, or `dev_access` (greenfield non-prod); behind a proxy use a runner |
