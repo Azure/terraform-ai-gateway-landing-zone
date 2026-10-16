@@ -352,7 +352,7 @@ APIs whose `features.*` flag is on are in the catalogue.
 | `azure-ai-search-index-api` (`module.api`) | [ai-search-index-api-policy.xml](../stacks/gateway-config/apis/azure-ai-search-index-api/ai-search-index-api-policy.xml) | None (managed-identity auth via `{{uami-client-id}}`) |
 | `document-intelligence-api-legacy` (`module.api`) + `document-intelligence-api` (`module.api_dependent`) | [doc-intelligence-api-policy.xml](../stacks/gateway-config/apis/document-intelligence-api/doc-intelligence-api-policy.xml) | None |
 | `weather-api` (`module.api`) | [policy.xml](../stacks/gateway-config/apis/weather-api/policy.xml) | None (sample) |
-| `weather-mcp` + `ms-learn-mcp` (`module.api_dependent`, `type = "mcp"`) | [mcp-default-policy.xml](../stacks/gateway-config/apis/shared/mcp-default-policy.xml) | MCP default auth |
+| `weather-mcp` + `ms-learn-mcp` (`module.api_dependent`, `type = "mcp"`) | [mcp-default-policy.xml](../stacks/gateway-config/apis/shared/mcp-default-policy.xml) | `mcp-usage` (inbound request count for the usage pipeline) |
 
 Every API requires a subscription key (`subscription_required = true`, also with
 gateway-config `entra_auth` on): the `security-handler` fragment rejects a request

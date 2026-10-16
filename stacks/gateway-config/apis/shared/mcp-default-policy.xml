@@ -1,6 +1,9 @@
 <policies>
 	<inbound>
 		<base />
+		<!-- Usage metric for the usage pipeline (McpRequests -> mcp-usage-ingestion -> mcp-usage-container).
+		     Inbound only: MCP responses stream (SSE), and reading the response would buffer them. -->
+		<include-fragment fragment-id="mcp-usage" />
 		<!-- <trace source="Default MCP" severity="information">
 			<message>Default MCP trace info</message>
 			<metadata name="agent-id" value="@(context.Request.Headers.GetValueOrDefault("application", "n/a"))" />

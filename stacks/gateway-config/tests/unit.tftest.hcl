@@ -147,6 +147,11 @@ run "service_apis" {
     error_message = "Service APIs in two waves."
   }
   assert {
+    condition = alltrue([for n in ["weather-mcp", "ms-learn-mcp"] :
+    strcontains(local.second_wave[n].api.policy_xml, "<include-fragment fragment-id=\"mcp-usage\" />")])
+    error_message = "The MCP servers count their requests for the usage pipeline (mcp-usage)."
+  }
+  assert {
     condition     = length(data.azurerm_cognitive_account.primary) == 0 && !contains(keys(local.plain_named_values), "piiServiceUrl")
     error_message = "No Foundry lookup when PII and Content Safety are off."
   }

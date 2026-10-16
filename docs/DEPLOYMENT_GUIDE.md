@@ -366,7 +366,7 @@ managed identity for Cosmos DB):
 | Workflow | Trigger | Reads | Writes (Cosmos DB `usage-db`) |
 |---|---|---|---|
 | `llm-usage-ingestion` | every 3 hours (GMT) | APIM App Insights token metrics (`llm-usage` namespace, `set-llm-usage`): prompt, completion and total tokens plus cached, audio, reasoning and prediction tokens | `llm-usage-container`, hourly per product, subscription, model and backend |
-| `mcp-usage-ingestion` | every 3 hours | `McpRequests` (`mcp-usage` fragment; include it in your MCP server policies) | `mcp-usage-container`, request counts per product, subscription, MCP server and operation |
+| `mcp-usage-ingestion` | every 3 hours | `McpRequests` (`mcp-usage` fragment: included by the MCP server policy `apis/shared/mcp-default-policy.xml`; include it in your own MCP server policies too) | `mcp-usage-container`, request counts per product, subscription, MCP server and operation |
 | `agent-usage-ingestion` | every 3 hours | `A2ARequests` (`a2a-usage` fragment; include it in your A2A agent API policies) | `agent-usage-container` |
 | `ai-usage-ingestion` | Event Hub `ai-usage` | per-request usage events (`ai-usage` / `openai-usage` fragments, not included by default) | `ai-usage-container` |
 | `pii-usage-ingestion` | Event Hub `pii-usage` | `pii-state-saving` events | `pii-usage-container` |
