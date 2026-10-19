@@ -542,6 +542,9 @@ content_safety_service = { source = "dedicated" }
 
 ### 6.5 Access contract product policy
 
+Everything about access contracts (options, features, custom policies, client usage) is in
+[ACCESS_CONTRACTS_GUIDE.md](ACCESS_CONTRACTS_GUIDE.md); this section summarizes the product policy.
+
 Each service of an access contract gets an APIM product with a policy that the module
 generates from properties, so a contract's tfvars never contains XML:
 
@@ -560,7 +563,7 @@ services = [{
 
 | Property | Default | Generates |
 |---|---|---|
-| `allowed_models` | `[]` (every model) | `allowedModels` and the `validate-model-access` fragment: a model outside the list gets `401`. Entries are model or alias names (letters, digits, `. _ : / -`). |
+| `allowed_models` | `[]` (every model) | `allowedModels` and the `validate-model-access` fragment: a model outside the list gets `403`. Entries are model or alias names (letters, digits, `. _ : / -`). |
 | `token_limit` | `null` (no limit) | an `llm-token-limit` per subscription. Set `tokens_per_minute` and / or `token_quota`; `token_quota_period` is `Hourly`, `Daily`, `Weekly`, `Monthly` (default) or `Yearly`. |
 | `enable_response_headers` | `true` | `enableResponseHeaders`, which makes the `set-response-headers` fragment add the `UAIG-*` headers |
 | `jwt_required` | `false` | `jwtRequired`: a valid JWT next to the key (6.6; a Foundry `ProjectManagedIdentity` contract validates the project identity's token, 6.3) |
@@ -617,8 +620,9 @@ services = [{
 - Common policies for every asset type (for example opt-in content safety) aren't a property:
   use a complete `policy_xml`.
 
-For anything the properties don't cover (PII handling, content safety, app-role
-authorization, per-model limits) set `policy_xml` to a **complete** policy. It replaces
+For anything the properties don't cover (PII handling, content safety, per-model
+limits, alert tuning) set `policy_xml` to a **complete** policy
+([ACCESS_CONTRACTS_GUIDE §7](ACCESS_CONTRACTS_GUIDE.md#7-custom-product-policy-policy_xml)). It replaces
 the generated one, and the properties above are then ignored. The validation notebooks
 do this to test custom policies.
 

@@ -1,5 +1,7 @@
 # access-contracts
 
+Onboards one use case (one state per `environments/<env>/access-contracts/<use-case>.tfvars`). Options, features and examples: [docs/ACCESS_CONTRACTS_GUIDE.md](../../docs/ACCESS_CONTRACTS_GUIDE.md).
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
