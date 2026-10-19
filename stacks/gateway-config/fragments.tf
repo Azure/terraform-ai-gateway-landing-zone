@@ -7,6 +7,7 @@ locals {
 
   shared_fragments = {
     "ai-usage"                 = "Tracks usage of all AI-related APIs"
+    "usage-event"              = "Per-request usage event to the ai-usage Event Hub (access contract services[*].usage_events)"
     "raise-throttling-events"  = "Raises custom events when throttling limits are hit"
     "raise-alert-events"       = "Emits the AI Gateway Alert metric (throttling, quota, backend failures; opt-in auth, content-safety and PII alerts)"
     "throttling-events"        = "Throttling events configuration"
@@ -30,6 +31,7 @@ locals {
     "pii-anonymization"   = "Anonymizes PII in API requests"
     "pii-deanonymization" = "Deanonymizes PII in API responses"
     "pii-state-saving"    = "Saves PII state for testing"
+    "pii-audit"           = "PII processing audit event without the PII (entity counts per category) to the pii-usage Event Hub"
   } : {}
 
   # Semantic cache: always deployed (the LLM API policies include them); with semantic_cache off

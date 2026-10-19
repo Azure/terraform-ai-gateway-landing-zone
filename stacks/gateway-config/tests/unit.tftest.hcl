@@ -71,8 +71,8 @@ run "defaults" {
     error_message = "PII and Content Safety use the primary Foundry endpoint."
   }
   assert {
-    condition     = length(local.shared_fragments) == 17 && length(local.pii_fragments) == 3
-    error_message = "17 shared fragments + 3 PII fragments by default."
+    condition     = length(local.shared_fragments) == 18 && length(local.pii_fragments) == 4 && contains(keys(local.shared_fragments), "usage-event") && contains(keys(local.pii_fragments), "pii-audit")
+    error_message = "18 shared fragments (with usage-event) + 4 PII fragments (with pii-audit) by default."
   }
   assert {
     condition     = length(module.api) == 0 && length(module.api_dependent) == 0 && length(data.azuread_application.gateway) == 0

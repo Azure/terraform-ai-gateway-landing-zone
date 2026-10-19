@@ -21,6 +21,8 @@
                 // Operation metadata
                 eventData["id"] = context.Variables.GetValueOrDefault<string>("piiOperationId");
                 eventData["timestamp"] = context.Variables.GetValueOrDefault<string>("piiOperationTimestamp");
+                // Terraform port: top-level productName, the partition key of the Cosmos pii-usage-container.
+                eventData["productName"] = context.Variables.GetValueOrDefault<string>("piiProductName");
                 eventData["type"] = "PII_Processing";
                 eventData["targetDeployment"] = context.Variables.GetValueOrDefault<string>("targetDeployment");
                 // Enhanced API and subscription context with content
