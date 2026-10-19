@@ -41,6 +41,10 @@ variable "services" {
       enable_response_headers  the UAIG-* debug response headers (set-response-headers fragment)
       semantic_cache           serve similar chat completion prompts from the semantic cache (Azure Managed
                                Redis; needs gateway-config semantic_cache.enabled, which also sets the TTL).
+      usage_events             one usage event per request to the ai-usage Event Hub (usage-event fragment),
+                               stored by the ai-usage-ingestion Logic App in Cosmos DB ai-usage-container:
+                               product, subscription, API, model, backend, status and, for LLM calls, the
+                               tokens. Applies to every API of the product (LLM, service, tool and agent).
                                Partitioned per subscription and model; streamed requests aren't cached.
       jwt_required             also require a valid JWT next to the subscription key (security-handler fragment:
                                Authorization: Bearer <token>; no token or an invalid one -> 401). By default the
@@ -79,6 +83,7 @@ variable "services" {
     }))
     enable_response_headers = optional(bool, true)
     semantic_cache          = optional(bool, false)
+    usage_events            = optional(bool, false)
     jwt_required            = optional(bool, false)
     jwt_audience            = optional(string)
     jwt_issuer              = optional(string)

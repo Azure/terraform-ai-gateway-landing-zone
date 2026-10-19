@@ -24,6 +24,7 @@ services = [
     enable_response_headers = true
     jwt_required            = true # also validate the token the Foundry project identity sends (audience: foundry_config)
     semantic_cache          = true # similar chat prompts are answered from Redis (gateway-config semantic_cache)
+    usage_events            = true # one event per request: Event Hub ai-usage -> Cosmos ai-usage-container
   },
   {
     code                 = "SRCH"

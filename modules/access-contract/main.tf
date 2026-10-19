@@ -29,6 +29,8 @@ locals {
     allowed_models          = join(",", s.allowed_models)
     enable_response_headers = s.enable_response_headers
     semantic_cache          = s.semantic_cache
+    # Streamed responses can't be read: their usage event takes the token limit's count.
+    tokens_consumed_variable = s.usage_events
     token_limit_attributes = s.token_limit == null ? "" : join(" ", compact([
       s.token_limit.tokens_per_minute == null ? "" : "tokens-per-minute=\"${s.token_limit.tokens_per_minute}\"",
       s.token_limit.token_quota == null ? "" : "token-quota=\"${s.token_limit.token_quota}\" token-quota-period=\"${s.token_limit.token_quota_period}\"",
@@ -69,6 +71,7 @@ locals {
       agent_apis   = join(",", s.agent_apis)
       tool_rules   = local.policy_asset_rules[code].tool
       agent_rules  = local.policy_asset_rules[code].agent
+      usage_events = s.usage_events
     }), "/\n([ \t]*\n)+/", "\n")
   }
 

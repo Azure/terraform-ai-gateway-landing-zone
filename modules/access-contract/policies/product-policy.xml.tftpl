@@ -52,6 +52,10 @@
     </backend>
     <outbound>
         <base />
+%{ if usage_events }
+        <!-- One usage event per request to the ai-usage Event Hub (usage-event fragment) -->
+        <include-fragment fragment-id="usage-event" />
+%{ endif }
     </outbound>
     <on-error>
         <base />

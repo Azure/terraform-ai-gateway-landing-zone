@@ -7,7 +7,7 @@
 %{ endif }
 %{ if token_limit_attributes != "" }
 <!-- Capacity management - subscription level -->
-<llm-token-limit counter-key="@(context.Subscription.Id)" ${token_limit_attributes} estimate-prompt-tokens="false" />
+<llm-token-limit counter-key="@(context.Subscription.Id)" ${token_limit_attributes} estimate-prompt-tokens="false"%{ if tokens_consumed_variable } tokens-consumed-variable-name="tokensConsumed"%{ endif } />
 %{ endif }
 %{ if enable_response_headers }
 <!-- Enable advanced response headers offered by set-response-headers fragment -->

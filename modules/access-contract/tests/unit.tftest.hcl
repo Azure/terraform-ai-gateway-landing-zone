@@ -145,7 +145,8 @@ run "default_policy_restricts_nothing" {
       !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "allowedModels") &&
       !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "llm-token-limit") &&
       !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "jwtRequired") &&
-      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "semanticCache")
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "semanticCache") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "usage-event")
     )
     error_message = "With no properties: every model, no token limit, no JWT, no semantic cache, response headers on."
   }
@@ -215,6 +216,48 @@ run "semantic_cache_opt_in" {
       !can(regex("\n[ \t]*\n", azurerm_api_management_product_policy.service["LLM"].xml_content))
     )
     error_message = "semantic_cache only turns the cache on: the lookup and store run in the LLM API policies (the store must be in the lookup's scope)."
+  }
+}
+
+run "usage_events_opt_in" {
+  command = plan
+
+  variables {
+    services = [
+      { code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", usage_events = true, token_limit = { tokens_per_minute = 500 } },
+      { code = "DOC", endpoint_secret_name = "C", api_key_secret_name = "D", usage_events = true },
+    ]
+  }
+
+  assert {
+    condition = (
+      can(regex("<outbound>\\s*<base />\\s*<!--[^>]*-->\\s*<include-fragment fragment-id=\"usage-event\" />\\s*</outbound>", azurerm_api_management_product_policy.service["LLM"].xml_content)) &&
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "tokens-consumed-variable-name=\"tokensConsumed\"")
+    )
+    error_message = "usage_events emits the usage event in the product's outbound section; the token limit exposes its count for streams."
+  }
+  assert {
+    condition = (
+      strcontains(azurerm_api_management_product_policy.service["DOC"].xml_content, "fragment-id=\"usage-event\"") &&
+      !can(regex("\n[ \t]*\n", azurerm_api_management_product_policy.service["DOC"].xml_content))
+    )
+    error_message = "A service without a token limit gets the usage event too, without blank lines."
+  }
+}
+
+run "usage_events_off_keeps_the_token_limit" {
+  command = plan
+
+  variables {
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", token_limit = { tokens_per_minute = 500 } }]
+  }
+
+  assert {
+    condition = (
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "usage-event") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "tokensConsumed")
+    )
+    error_message = "Off by default: no event, and the token limit is unchanged."
   }
 }
 
