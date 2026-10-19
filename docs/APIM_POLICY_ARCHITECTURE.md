@@ -182,8 +182,9 @@ has the same shape, over `local.llm_fragments`.
 
 | Catalogue | Always on? | Fragment IDs |
 |---|---|---|
-| gateway-config `local.shared_fragments` | Yes | `ai-usage`, `usage-event`, `raise-throttling-events`, `raise-alert-events`, `throttling-events`, `security-handler`, `entra-auth`, `aad-auth`, `aad-auth-custom`, `llm-usage`, `openai-usage`, `openai-usage-streaming`, `ai-foundry-compatibility`, `set-response-headers`, `strip-backend-headers`, `set-asset-kind`, `mcp-usage`, `a2a-usage`, `semantic-cache-lookup`, `semantic-cache-store` |
-| gateway-config `local.pii_fragments` | `features.pii_anonymization = true` | `pii-anonymization`, `pii-deanonymization`, `pii-state-saving`, `pii-audit` |
+| gateway-config `local.event_fragments` (`module.event_fragments`, created first) | Yes | `usage-event` (rendered from [modules/apim-policy-fragments/templates/usage-event.xml.tftpl](../modules/apim-policy-fragments/templates/usage-event.xml.tftpl)); `pii-audit` with `features.pii_anonymization` |
+| gateway-config `local.shared_fragments` | Yes | `ai-usage`, `raise-throttling-events`, `raise-alert-events`, `throttling-events`, `security-handler`, `entra-auth`, `aad-auth`, `aad-auth-custom`, `llm-usage`, `openai-usage`, `openai-usage-streaming`, `ai-foundry-compatibility`, `set-response-headers`, `strip-backend-headers`, `set-asset-kind`, `mcp-usage`, `a2a-usage`, `semantic-cache-lookup`, `semantic-cache-store` |
+| gateway-config `local.pii_fragments` | `features.pii_anonymization = true` | `pii-anonymization`, `pii-deanonymization`, `pii-state-saving` |
 | llm-backend-onboarding `local.llm_fragments` | Yes | `set-backend-authorization`, `set-target-backend-pool`, `set-llm-usage`, `set-llm-requested-model`, `validate-model-access`, `responses-id-security`, `responses-id-cache-store`, `ai-foundry-deployments` |
 | llm-backend-onboarding `local.llm_fragments` | `features.unified_ai_api = true` | `central-cache-manager`, `request-processor`, `path-builder` |
 
@@ -614,7 +615,7 @@ The policies, fragments and API specs follow the APIM module of the upstream acc
 `src/usage-ingestion-logicapp`. **Baseline: upstream commit `6b9a9ef` (2026-09-15).**
 
 Every API, backend, named value, logger and fragment that upstream's `apim.bicep` deploys has a
-counterpart here. 48 of its policy, fragment and spec files are byte-identical (apart from line
+counterpart here. 29 of its policy, fragment and spec files are byte-identical (apart from line
 endings). The rest differ on purpose:
 
 | File(s) | Difference |
@@ -629,6 +630,11 @@ endings). The rest differ on purpose:
 | `frag-pii-state-saving.xml` | a top-level `productName` (the partition key of `pii-usage-container`; upstream's event has none) |
 | Logic App `pii-usage-ingestion` | reads its own consumer group `piiUsageIngestion` (upstream: `$Default`) |
 | `usage-event`, `pii-audit` (not upstream) | the per-request usage event (contract `usage_events`) and a PII audit event without the PII; upstream's `ai-usage` / `openai-usage` read routing variables that no longer exist and no upstream policy includes them ([DEPLOYMENT_GUIDE §6.10](DEPLOYMENT_GUIDE.md#610-usage-and-pii-audit-events-event-hubs)) |
+| API policies `ai-model-inference`, `azure-open-ai`, `unified-ai`, `universal-llm-api-v2`, `ai-search-index`, `doc-intelligence`, `mcp-default`, weather `policy.xml` | include `usage-event` in `on-error` (errors, 401 / 429 / quota rejections) |
+| `policy.xml` (weather mock), `unified-ai-api-policy.xml`, `*-deployments-policy.xml`, `*-deployment-by-name-policy.xml`, `unified-ai-product-subscription.xml` | include `usage-event` before each `return-response` (outcome `gateway`) |
+| `frag-security-handler`, `frag-validate-model-access`, `frag-set-llm-requested-model`, `frag-set-target-backend-pool`, `frag-request-processor`, `frag-path-builder`, `frag-responses-id-security`, `frag-ai-foundry-deployments` | a `<!-- usage-event status="…" reason="…" -->` marker before each `return-response`; APIM doesn't allow a fragment to include a fragment, so the `apim-policy-fragments` module expands the marker into the event body |
+| `frag-pii-anonymization.xml` | `piiBlockingEnabled`: rejects a request with PII (400 `pii_detected`, usage and `pii-audit` events) instead of anonymizing it; markers for its own answers |
+| `frag-pii-deanonymization.xml` | also restores `&lt;Person_0&gt;` and the bare `Person_0` (whole word), longest placeholder first; JSON-escapes values written into a JSON body (upstream only replaces `<Person_0>` verbatim) |
 | Release Version API | requires a subscription key (upstream: anonymous) |
 | Logic App `connections.json` | Cosmos DB through the managed identity (upstream: connection string) |
 

@@ -369,8 +369,8 @@ managed identity for Cosmos DB):
 | `llm-usage-ingestion` | every 3 hours (GMT) | APIM App Insights token metrics (`llm-usage` namespace, `set-llm-usage`): prompt, completion and total tokens plus cached, audio, reasoning and prediction tokens | `llm-usage-container`, hourly per product, subscription, model and backend |
 | `mcp-usage-ingestion` | every 3 hours | `McpRequests` (`mcp-usage` fragment: included by the MCP server policy `apis/shared/mcp-default-policy.xml`; include it in your own MCP server policies too) | `mcp-usage-container`, request counts per product, subscription, MCP server and operation |
 | `agent-usage-ingestion` | every 3 hours | `A2ARequests` (`a2a-usage` fragment; include it in your A2A agent API policies) | `agent-usage-container` |
-| `ai-usage-ingestion` | Event Hub `ai-usage` | per-request usage events (`ai-usage` / `openai-usage` fragments, not included by default) | `ai-usage-container` |
-| `pii-usage-ingestion` | Event Hub `pii-usage` | `pii-state-saving` events | `pii-usage-container` |
+| `ai-usage-ingestion` | Event Hub `ai-usage` | per-request usage events (`usage-event` fragment: contract `usage_events`, see [6.10](#610-usage-and-pii-audit-events-event-hubs)) | `ai-usage-container` |
+| `pii-usage-ingestion` | Event Hub `pii-usage` | `pii-audit` events (no PII), `pii-state-saving` (testing only) | `pii-usage-container` |
 
 Each scheduled workflow keeps its last export time in `streaming-export-config` (documents
 `002`, `003`, `004`), so a run picks up where the previous one stopped.
@@ -887,8 +887,9 @@ services = [{
 }]
 ```
 
-The product policy then includes the `usage-event` fragment in its outbound section, so it covers every API
-of the product. Each event:
+The product policy sets `usageEventsEnabled` first in its inbound section and includes the `usage-event`
+fragment in its outbound and on-error sections, so every API of the product and every outcome is recorded
+(one event per request). Each event:
 
 | Field | Value |
 |---|---|
@@ -897,22 +898,66 @@ of the product. Each event:
 | `productName` (partition key), `productId`, `subscriptionId`, `appId` | the caller (`appId` variable, else the subscription) |
 | `apiId`, `apiName`, `operationId`, `operationName`, `assetKind` (`llm`, `service`, `tool`, `agent`), `targetService` | what was called |
 | `model` (the provider's, e.g. `gpt-5.4-mini-2026-03-17`), `deploymentName`, `modelAlias`, `backendId` | LLM routing |
-| `statusCode`, `stream`, `cacheHit`, `durationMs` | the outcome |
+| `outcome`, `statusCode`, `reason`, `errorSource` | see *Outcomes* below |
+| `stream`, `cacheHit`, `durationMs` | the response |
 | `promptTokens`, `responseTokens`, `totalTokens`, `cachedTokens`, `reasoningTokens`, `tokensSource` | see below |
 | `gatewayName`, `gatewayRegion`, `aiGatewayId`, `RequestIp`, `sessionId`, `endUserId` | upstream `ai-usage` fields |
 
 `tokensSource`:
 - `response`: a non-streaming LLM response with a `usage` object (chat completions, Responses API,
   embeddings). The provider's counts.
-- `token-limit`: a streamed response. The total from the contract's token limit (`tokens-consumed`
-  variable); prompt and completion stay 0. Verified equal to the gateway log's count.
-- `none`: streams of a contract without `token_limit`, non-LLM APIs and tool / agent calls. The policy
-  never reads a streamed or tool / agent response body.
+- `token-limit`: a streamed response. The total from the token limit's `tokensConsumed` variable; prompt
+  and completion stay 0. Verified equal to the gateway log's count. A contract with `usage_events` and
+  no `token_limit` gets a metering-only `llm-token-limit` (100,000,000 tokens per minute, LLM requests
+  only) for this count. A higher value fails in APIM at runtime ("Attempted to divide by zero").
+- `none`: non-LLM APIs, tool / agent calls, gateway answers and errors. The policy never reads a
+  streamed or tool / agent response body.
 
-Not recorded:
-- requests the gateway answers in the inbound section: a missing key (401), a model outside
-  `allowed_models` (403), a token limit hit (429), mock APIs;
-- errors handled in `on-error`.
+**Outcomes.**
+
+| `outcome` | When | `statusCode` / `reason` |
+|---|---|---|
+| `response` | the backend answered (outbound) | the response status, `reason` empty |
+| `gateway` | the gateway answered itself (`return-response`): a model outside `allowed_models` (403), PII blocked (400), the deployments list, a mock API (200), routing rejections (400 / 404 / 503) | the status returned; `reason` = the fragment that answered (`validate-model-access`, `pii-detected`, `deployments`, `mock`, …) |
+| `error` | `on-error`: token limit (429) or quota (403) hits, missing / invalid keys (401), backend failures (5xx) | the response status; `reason` = `context.LastError.Reason` (`OpenAITokenLimitExceeded`, `SubscriptionKeyNotFound`, …), `errorSource` = the failing policy |
+
+**Rejected keys.** A request without a valid key matches no product, so no contract records it. To
+record these, set in `gateway-config.tfvars`:
+
+```hcl
+usage_events = { record_key_rejections = true }
+```
+
+They're logged with `productName = "Unauthenticated"`. Unauthenticated callers can then write to the
+Event Hub and Cosmos DB at will, so watch the cost (or keep the default `false` and use the gateway logs).
+
+**Custom `policy_xml`.** A contract with its own product policy records events only if the policy does
+what the generated one does:
+
+```xml
+<inbound>
+    <base />
+    <set-variable name="usageEventsEnabled" value="true" />   <!-- first, before any rejection -->
+    <!-- ... -->
+</inbound>
+<outbound>
+    <base />
+    <include-fragment fragment-id="usage-event" />
+</outbound>
+<on-error>
+    <base />
+    <include-fragment fragment-id="usage-event" />
+</on-error>
+```
+
+A stream is counted only if the policy has an `llm-token-limit` with
+`tokens-consumed-variable-name="tokensConsumed"`.
+
+**How gateway answers are recorded.** APIM doesn't let a policy fragment include another fragment. API
+and operation policies include `usage-event` before a `return-response`. Fragments (`security-handler`,
+`validate-model-access`, the routing fragments, `pii-anonymization`) carry a marker comment instead,
+`<!-- usage-event status="403" reason="validate-model-access" -->`. The `apim-policy-fragments` module
+expands it into the event body when it deploys the fragment.
 
 The client IP is recorded (`RequestIp`), like upstream; remove it from the fragment if that isn't wanted.
 
@@ -935,8 +980,26 @@ events count the same requests.
 
 The event goes to the `pii-usage` Event Hub, and `pii-usage-ingestion` writes it to `pii-usage-container`.
 It holds **no PII**: `entityCount`, `entityCategories` (`{"Email": 1, "PhoneNumber": 1, "Person": 1}`),
-the confidence threshold and exclusions, whether the response was de-anonymized, the product, API, model
-and status. `id` is `pii-<request ID>`.
+the confidence threshold and exclusions, whether the response was de-anonymized or the request
+`blocked`, the product, API, operation, model and status. `id` is `pii-<request ID>`.
+
+**PII blocking.** To reject requests with PII instead of anonymizing them, set `piiBlockingEnabled`
+(instead of `piiAnonymizationEnabled`) before `pii-anonymization`:
+
+```xml
+<set-variable name="piiBlockingEnabled" value="true" />
+<set-variable name="piiInputContent" value="@(context.Request.Body.As<string>(preserveContent: true))" />
+<include-fragment fragment-id="pii-anonymization" />
+```
+
+A request with PII gets `400` `{"error": {"code": "pii_detected", "message": …, "categories":
+{"Person": 1, …}, "requestId": …}}` and never reaches the model. Its usage event has `outcome =
+gateway`, `reason = pii-detected`; with `piiAuditEnabled` set in the inbound section, a `pii-audit` event
+with `blocked = true` is written too. Requests without PII pass unchanged.
+
+**De-anonymization.** Models don't always echo placeholders as sent. `pii-deanonymization` restores
+`<Person_0>`, the HTML-escaped `&lt;Person_0&gt;` and the bare `Person_0` (for example `**Person_0**`,
+as a whole word only), longest placeholder first. Values written into a JSON body are JSON-escaped.
 
 `pii-state-saving` (upstream's "state saving for testing") stores the prompt, the response and every
 detected value with its placeholder. Use it only for testing, never with real data.
