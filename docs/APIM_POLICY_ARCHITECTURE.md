@@ -182,8 +182,8 @@ has the same shape, over `local.llm_fragments`.
 
 | Catalogue | Always on? | Fragment IDs |
 |---|---|---|
-| gateway-config `local.shared_fragments` | Yes | `ai-usage`, `raise-throttling-events`, `raise-alert-events`, `throttling-events`, `security-handler`, `entra-auth`, `aad-auth`, `aad-auth-custom`, `llm-usage`, `openai-usage`, `openai-usage-streaming`, `ai-foundry-compatibility`, `set-response-headers`, `strip-backend-headers`, `set-asset-kind`, `mcp-usage`, `a2a-usage`, `semantic-cache-lookup`, `semantic-cache-store` |
-| gateway-config `local.pii_fragments` | `features.pii_anonymization = true` | `pii-anonymization`, `pii-deanonymization`, `pii-state-saving` |
+| gateway-config `local.shared_fragments` | Yes | `ai-usage`, `usage-event`, `raise-throttling-events`, `raise-alert-events`, `throttling-events`, `security-handler`, `entra-auth`, `aad-auth`, `aad-auth-custom`, `llm-usage`, `openai-usage`, `openai-usage-streaming`, `ai-foundry-compatibility`, `set-response-headers`, `strip-backend-headers`, `set-asset-kind`, `mcp-usage`, `a2a-usage`, `semantic-cache-lookup`, `semantic-cache-store` |
+| gateway-config `local.pii_fragments` | `features.pii_anonymization = true` | `pii-anonymization`, `pii-deanonymization`, `pii-state-saving`, `pii-audit` |
 | llm-backend-onboarding `local.llm_fragments` | Yes | `set-backend-authorization`, `set-target-backend-pool`, `set-llm-usage`, `set-llm-requested-model`, `validate-model-access`, `responses-id-security`, `responses-id-cache-store`, `ai-foundry-deployments` |
 | llm-backend-onboarding `local.llm_fragments` | `features.unified_ai_api = true` | `central-cache-manager`, `request-processor`, `path-builder` |
 
@@ -614,7 +614,7 @@ The policies, fragments and API specs follow the APIM module of the upstream acc
 `src/usage-ingestion-logicapp`. **Baseline: upstream commit `6b9a9ef` (2026-09-15).**
 
 Every API, backend, named value, logger and fragment that upstream's `apim.bicep` deploys has a
-counterpart here. 49 of its policy, fragment and spec files are byte-identical (apart from line
+counterpart here. 48 of its policy, fragment and spec files are byte-identical (apart from line
 endings). The rest differ on purpose:
 
 | File(s) | Difference |
@@ -626,6 +626,9 @@ endings). The rest differ on purpose:
 | `AIFoundryOpenAI.json` | tag names that don't collide when both specs are imported (APIM creates import tags service-wide) |
 | `Universal LLM API v2.openapi.yaml` (the `OpenAIV1` Universal LLM spec) | file identical; imported without its `servers` entry, a sample APIM URL that would become the API's service URL and receive (with the caller's key) any request no policy routes ([apis.tf](../stacks/llm-backend-onboarding/apis.tf)) |
 | `mcp-default-policy.xml` | includes `mcp-usage` (upstream does this only in its publish-contract baseline MCP policy) |
+| `frag-pii-state-saving.xml` | a top-level `productName` (the partition key of `pii-usage-container`; upstream's event has none) |
+| Logic App `pii-usage-ingestion` | reads its own consumer group `piiUsageIngestion` (upstream: `$Default`) |
+| `usage-event`, `pii-audit` (not upstream) | the per-request usage event (contract `usage_events`) and a PII audit event without the PII; upstream's `ai-usage` / `openai-usage` read routing variables that no longer exist and no upstream policy includes them ([DEPLOYMENT_GUIDE §6.10](DEPLOYMENT_GUIDE.md#610-usage-and-pii-audit-events-event-hubs)) |
 | Release Version API | requires a subscription key (upstream: anonymous) |
 | Logic App `connections.json` | Cosmos DB through the managed identity (upstream: connection string) |
 

@@ -493,6 +493,9 @@ required_roles = []   # or app roles, e.g. ["Models.Read"]
     <set-variable name="piiDeanonymizeContentInput" value="@(context.Response.Body.As<string>(preserveContent: true))" />
     <include-fragment fragment-id="pii-deanonymization" />
     <set-body>@(context.Variables.GetValueOrDefault<string>("piiDeanonymizedContentOutput"))</set-body>
+    <!-- audit record without the PII (entity counts per category) to the pii-usage Event Hub -->
+    <set-variable name="piiAuditEnabled" value="true" />
+    <include-fragment fragment-id="pii-audit" />
 </outbound>
 <!-- needs gateway-config features.pii_anonymization = true (deploys the fragments).
      The LLM logs (largeLanguageModel messages = all) still record the prompt as received:

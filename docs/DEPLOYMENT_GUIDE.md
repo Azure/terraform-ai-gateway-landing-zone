@@ -343,6 +343,7 @@ Platform-team requests for an ALZ:
 | Spread APIM / the Logic App over availability zones | `platform.tfvars` `apim.zone_redundant`, `usage_pipeline.logic_app.zone_redundant` (or `usage_pipeline.ase.zone_redundant`) | at creation: see [6.7 Availability zones](#67-availability-zones) |
 | Keep the APIM logger credentials out of APIM's own secrets | `platform.tfvars` `apim_logging.credentials_in_key_vault` (default `true`) | `task apply STACK=platform …`; see [6.8](#68-apim-logger-credentials-in-key-vault) |
 | Answer similar chat prompts from a cache | `platform.tfvars` `features.semantic_cache` + an embeddings model, `gateway-config.tfvars` `semantic_cache`, contract `services[*].semantic_cache` | see [6.9 Semantic cache](#69-semantic-cache) |
+| Record every request of a contract (usage events), audit PII processing | contract `services[*].usage_events = true`; PII contracts include `pii-audit` | see [6.10 Usage and PII audit events](#610-usage-and-pii-audit-events-event-hubs) |
 | Republish only the usage-ingestion workflows | `logicapp-src/usage-ingestion-logicapp/` | `task logic-app-code ENV=<env>` |
 | Add a subnet / DNS zone link (greenfield) | `network.tfvars` | `task apply STACK=network …` |
 
@@ -863,6 +864,87 @@ different questions share an answer.
 before, APIM keeps the secret named value it generated (`cache-Default-connection-…`). Delete
 it once after the platform apply (same loop as in [6.8](#68-apim-logger-credentials-in-key-vault),
 with the prefix `cache-Default-connection-`).
+
+### 6.10 Usage and PII audit events (Event Hubs)
+
+Usage reporting has two paths:
+- **Token metrics (always on).** `set-llm-usage` emits token metrics; `llm-usage-ingestion` writes hourly
+  aggregates per product, subscription and model to `llm-usage-container` ([6.1](#61-usage-ingestion-workflow-code)).
+- **Per-request events (opt-in per contract).** One event per request goes to the `ai-usage` Event Hub, and
+  `ai-usage-ingestion` writes it as is to `ai-usage-container`. Use it for request-level chargeback, non-LLM
+  APIs (Document Intelligence, AI Search, MCP tools) and near-real-time feeds: events land within seconds.
+
+The upstream accelerator ships the Event Hub path but includes it in no policy; this repository adds the
+switch and an up-to-date event (the upstream `ai-usage` / `openai-usage` fragments read routing variables
+that no longer exist).
+
+```hcl
+# access-contracts/<use-case>.tfvars
+services = [{
+  code         = "LLM"
+  # ...
+  usage_events = true
+}]
+```
+
+The product policy then includes the `usage-event` fragment in its outbound section, so it covers every API
+of the product. Each event:
+
+| Field | Value |
+|---|---|
+| `id` | the APIM request ID: also the `UAIG-Request-Id` header and the `CorrelationId` of the gateway logs |
+| `timestamp` | UTC, ISO 8601 |
+| `productName` (partition key), `productId`, `subscriptionId`, `appId` | the caller (`appId` variable, else the subscription) |
+| `apiId`, `apiName`, `operationId`, `operationName`, `assetKind` (`llm`, `service`, `tool`, `agent`), `targetService` | what was called |
+| `model` (the provider's, e.g. `gpt-5.4-mini-2026-03-17`), `deploymentName`, `modelAlias`, `backendId` | LLM routing |
+| `statusCode`, `stream`, `cacheHit`, `durationMs` | the outcome |
+| `promptTokens`, `responseTokens`, `totalTokens`, `cachedTokens`, `reasoningTokens`, `tokensSource` | see below |
+| `gatewayName`, `gatewayRegion`, `aiGatewayId`, `RequestIp`, `sessionId`, `endUserId` | upstream `ai-usage` fields |
+
+`tokensSource`:
+- `response`: a non-streaming LLM response with a `usage` object (chat completions, Responses API,
+  embeddings). The provider's counts.
+- `token-limit`: a streamed response. The total from the contract's token limit (`tokens-consumed`
+  variable); prompt and completion stay 0. Verified equal to the gateway log's count.
+- `none`: streams of a contract without `token_limit`, non-LLM APIs and tool / agent calls. The policy
+  never reads a streamed or tool / agent response body.
+
+Not recorded:
+- requests the gateway answers in the inbound section: a missing key (401), a model outside
+  `allowed_models` (403), a token limit hit (429), mock APIs;
+- errors handled in `on-error`.
+
+The client IP is recorded (`RequestIp`), like upstream; remove it from the fragment if that isn't wanted.
+
+**Don't add both paths in reports.** The token metrics keep running, so aggregates (`llm-…` documents) and
+events count the same requests.
+
+**PII audit.** A contract with PII anonymization (custom `policy_xml`, see the `SNIPPETS["pii"]` example in
+[validation/shared/acceptance.py](../validation/shared/acceptance.py)) records its processing with the
+`pii-audit` fragment (deployed with `features.pii_anonymization`):
+
+```xml
+<outbound>
+    <base />
+    <include-fragment fragment-id="usage-event" />          <!-- optional: the usage event -->
+    <!-- ... pii-deanonymization ... -->
+    <set-variable name="piiAuditEnabled" value="true" />
+    <include-fragment fragment-id="pii-audit" />
+</outbound>
+```
+
+The event goes to the `pii-usage` Event Hub, and `pii-usage-ingestion` writes it to `pii-usage-container`.
+It holds **no PII**: `entityCount`, `entityCategories` (`{"Email": 1, "PhoneNumber": 1, "Person": 1}`),
+the confidence threshold and exclusions, whether the response was de-anonymized, the product, API, model
+and status. `id` is `pii-<request ID>`.
+
+`pii-state-saving` (upstream's "state saving for testing") stores the prompt, the response and every
+detected value with its placeholder. Use it only for testing, never with real data.
+
+**Verify.** Send a request with the contract's key and keep the `UAIG-Request-Id` header. The
+`ai-usage-ingestion` run history (Logic App, *Run history*) shows one run per event, and the
+`Create_Usage_Log` input is the document; the Cosmos DB item has the same `id`. Cosmos DB is private:
+query it from the VNet.
 
 ## 7. CI/CD (GitHub Actions)
 

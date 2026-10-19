@@ -14,7 +14,8 @@ you can copy the parts you need. It is not a recommendation to enable it all:
 The semantic cache needs an embeddings deployment: `platform.tfvars` deploys
 `text-embedding-3-large` on the primary Foundry account and `gateway-config.tfvars`
 points the APIM embeddings backend at it (`semantic_cache.embeddings_deployment`).
-The retail assistant contract opts in (`services[*].semantic_cache`). The Entra auth needs the identity stack, so bootstrap runs with
+The retail assistant contract opts in (`services[*].semantic_cache`), and records every request as a usage
+event (`services[*].usage_events`, Deployment Guide 6.10). The Entra auth needs the identity stack, so bootstrap runs with
 `graph_permissions` on (the default; needs a Privileged Role Administrator).
 
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
