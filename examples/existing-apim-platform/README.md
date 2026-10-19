@@ -1,5 +1,6 @@
 # Gateway on an existing APIM
 
+## Scenario Overview
 You already have an API Management service (and its resource group and
 user-assigned managed identity) and only want this repository's gateway
 configuration on it: the shared policy fragments, named values, service
@@ -35,6 +36,7 @@ here), which is more than the gateway configuration needs if the group is
 shared with other services; review those two assignments before running
 `task bootstrap` against a shared group.
 
+## Deployment Instructions
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
 
@@ -44,4 +46,5 @@ task up ENV=<env>          # every stack that has a <stack>.tfvars here, then ev
 ```
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this
-folder define the topology. See `docs/deployment-scenarios.md`.
+folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

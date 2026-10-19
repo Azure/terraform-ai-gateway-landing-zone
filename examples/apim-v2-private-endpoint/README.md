@@ -1,10 +1,13 @@
 # APIM StandardV2, private endpoint + outbound integration
 
+## Scenario Overview
 StandardV2 with outbound VNet integration (`snet-apim` delegated to
 `Microsoft.Web/serverFarms`) and an inbound private endpoint; public access
 is closed on the second apply (Azure rejects creating it closed). Bicep
 parity for v2 SKUs.
 
+
+## Deployment Instructions
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
 
@@ -14,4 +17,5 @@ task up ENV=<env>          # every stack that has a <stack>.tfvars here, then ev
 ```
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this
-folder define the topology. See `docs/deployment-scenarios.md`.
+folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

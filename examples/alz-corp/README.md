@@ -1,5 +1,6 @@
 # Azure Landing Zone, Corp (production)
 
+## Scenario Overview
 Application landing zone under the Corp management group. Subscription
 vending provides the spoke VNet (peered, UDR to the hub firewall), the
 workload resource group and the two pipeline identities; the hub owns the
@@ -29,6 +30,7 @@ Azure Key Vault").
 A hub-and-spoke that shares DNS takes one scope (the hub's): a second one
 would overwrite the hub's records.
 
+## Deployment Instructions
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
 
@@ -38,4 +40,5 @@ task up ENV=<env>          # every stack that has a <stack>.tfvars here, then ev
 ```
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this
-folder define the topology. See `docs/deployment-scenarios.md`.
+folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

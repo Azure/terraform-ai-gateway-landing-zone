@@ -62,6 +62,19 @@ resource "azapi_resource_action" "app_insights_logger" {
   }
 }
 
+# A PUT action deletes nothing on destroy, so the logger would outlive the named values it
+# references and APIM rejects their deletion ("is used by the following entities:
+# /loggers/appinsights-logger"). This runs only on destroy: it depends on the logger (so it runs
+# before the named values go) and the global diagnostic depends on it (so it runs after the
+# diagnostic that uses the logger is gone).
+resource "azapi_resource_action" "app_insights_logger_delete" {
+  type        = "Microsoft.ApiManagement/service/loggers@2024-05-01"
+  resource_id = azapi_resource_action.app_insights_logger.resource_id
+  method      = "DELETE"
+  headers     = { "If-Match" = "*" }
+  when        = "destroy"
+}
+
 # -----------------------------------------------------------------------------
 # APIM LOGGER: Azure Monitor (required for the `azureMonitor`
 # diagnostic destination on inference APIs). Not exposed by azurerm.
@@ -161,6 +174,9 @@ resource "azurerm_api_management_diagnostic" "global" {
   backend_response {
     body_bytes = var.log_body_bytes
   }
+
+  # Destroyed before the logger is deleted.
+  depends_on = [azapi_resource_action.app_insights_logger_delete]
 }
 
 # -----------------------------------------------------------------------------

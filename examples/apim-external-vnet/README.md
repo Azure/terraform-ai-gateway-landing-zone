@@ -1,5 +1,6 @@
 # APIM Developer, external VNet (classic injection)
 
+## Scenario Overview
 Developer-tier APIM injected into `snet-apim` with a **public** VIP: the
 gateway stays reachable from the internet while its backends (Foundry, Event
 Hub, Key Vault, Cosmos DB) are reached privately through the VNet. This is
@@ -14,6 +15,7 @@ outbound Storage, SQL, Azure Monitor and Key Vault dependencies). Optionally
 bring your own Standard-SKU public IP (`apim.public_ip_address_id`) to keep
 the gateway address stable across re-creations.
 
+## Deployment Instructions
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
 
@@ -24,4 +26,5 @@ task up ENV=<env>          # every stack that has a <stack>.tfvars here, then ev
 
 Classic injection is create-time only, and the first apply takes 30 to 60
 minutes. A stack runs only if its `<stack>.tfvars` exists, so the files in
-this folder define the topology. See `docs/deployment-scenarios.md`.
+this folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

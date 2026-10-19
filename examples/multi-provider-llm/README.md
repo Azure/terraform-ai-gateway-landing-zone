@@ -1,5 +1,6 @@
 # Multi-provider LLM backends
 
+## Scenario Overview
 One gateway in front of Microsoft Foundry, Azure OpenAI, AWS (two ways), Google
 Gemini and an external OpenAI-compatible provider: each **backend type**, how it
 authenticates, which client path reaches it, and how requests are balanced and
@@ -42,10 +43,37 @@ Two access contracts (`access-contracts/`), one state each:
 - `team-b-agents`: a project in the team's own Foundry account and the team's own Key
   Vault, with a ModelGateway connection (API key, static model list).
 
-## Before the first apply of the llm stack
+## Deploy
 
-Create the secrets in the platform Key Vault (the APIM identity reads them with
-`Key Vault Secrets User`, which `stacks/platform` grants, or in any vault it can read):
+Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
+(and `environment` in `common.tfvars`). Leave `<key-vault-name>` in
+`llm-backend-onboarding.tfvars` for now: the vault is created by the platform
+stack. `task up` is not used here because the provider secrets have to be in that
+vault before the llm stack runs. Run the stacks one by one instead.
+
+### 1. Bootstrap
+
+Run once, as Contributor + User Access Administrator. This creates the state
+account, workload RG and pipeline identities, and writes `backend.hcl`.
+
+```bash
+task bootstrap ENV=<env>
+task preflight ENV=<env>   # Azure Policy check (task up would run it for you)
+```
+
+### 2. Network and platform
+
+```bash
+task apply STACK=network ENV=<env>
+task apply STACK=platform ENV=<env>
+```
+
+### 3. Provider secrets
+
+Create the secrets in the platform Key Vault, or in any vault the APIM identity
+can read. APIM reads them with `Key Vault Secrets User`, which `stacks/platform`
+grants. You can write them because you are in `secret_writer_principal_ids` and
+your IP is in `dev_access.allowed_cidrs` (`platform.tfvars`).
 
 ```bash
 KV=$(task output STACK=platform ENV=<env> NAME="-raw key_vault_name")
@@ -56,19 +84,23 @@ az keyvault secret set --vault-name "$KV" -n aws-access-key         --value "<AW
 az keyvault secret set --vault-name "$KV" -n aws-secret-key         --value "<AWS secret access key>"
 ```
 
-Replace `<key-vault-name>` in `llm-backend-onboarding.tfvars` with that vault, the
-`<aoai-resource>` and the endpoints and model names with the ones of your accounts, and
-the `<team-...>` placeholders of `team-b-agents.tfvars` with the team's resources.
+In `llm-backend-onboarding.tfvars`, replace `<key-vault-name>` with that vault
+(`echo $KV`). Also replace `<aoai-resource>`, the endpoints and the model names
+with the ones from your accounts. In `team-b-agents.tfvars`, replace the
+`<team-...>` placeholders with the team's resources.
 
-## Deploy
-
-Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
-(and `environment` in `common.tfvars`), then:
+### 4. Gateway, LLM backends and access contracts
 
 ```bash
-task bootstrap ENV=<env>   # once (Contributor + User Access Administrator): state account, workload RG, pipeline identities; writes backend.hcl
-task up ENV=<env>          # every stack that has a <stack>.tfvars here, then every access contract
+task apply STACK=gateway-config ENV=<env>
+task apply STACK=llm-backend-onboarding ENV=<env>
+task contracts ENV=<env>
 ```
+
+Once the secrets exist, `task up ENV=<env> PREFLIGHT=false` is safe for later
+re-applies of the whole environment. To rotate a provider key, add a new version
+of its secret. The secret URIs have no version, so APIM picks up the new version
+within 4 hours (sooner if you refresh the named value), with no apply.
 
 `task output STACK=llm-backend-onboarding ENV=<env> NAME=llm_backends` lists what
 was deployed: each backend with its source, type, models and circuit breaker.
@@ -119,5 +151,6 @@ curl -s "$UAI/bedrock/model/us.anthropic.claude-3-5-haiku-20241022-v1:0/converse
   The Azure OpenAI, Gemini, AWS and partner endpoints need accounts of yours: nothing
   here was called against them.
 
-A stack runs only if its `<stack>.tfvars` exists, so the files in this folder
-define the topology. See `docs/deployment-scenarios.md`.
+A stack runs only if its `<stack>.tfvars` exists, so the files in this
+folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

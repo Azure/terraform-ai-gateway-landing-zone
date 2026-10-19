@@ -1,5 +1,6 @@
 # Every optional capability
 
+## Scenario Overview
 A reference environment that switches on everything the stacks can deploy, so
 you can copy the parts you need. It is not a recommendation to enable it all:
 
@@ -18,6 +19,7 @@ The retail assistant contract opts in (`services[*].semantic_cache`), and record
 event (`services[*].usage_events`, Deployment Guide 6.10). The Entra auth needs the identity stack, so bootstrap runs with
 `graph_permissions` on (the default; needs a Privileged Role Administrator).
 
+## Deployment Instructions
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
 
@@ -29,4 +31,5 @@ task up ENV=<env>          # every stack that has a <stack>.tfvars here, then ev
 Run from a runner with access to the private endpoints (see
 `dev-greenfield-private`). A stack runs only if its `<stack>.tfvars` exists,
 so the files in this folder define the topology. See
-`docs/deployment-scenarios.md`.
+[`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

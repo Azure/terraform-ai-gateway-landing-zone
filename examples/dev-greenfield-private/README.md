@@ -1,5 +1,7 @@
 # Dev, greenfield, fully private
 
+## Scenario Overview
+
 Everything private in a VNet this repository owns (no platform-team
 dependency): greenfield VNet, subnets and all `privatelink.*` zones; APIM
 StandardV2 with outbound integration and an inbound private endpoint (public
@@ -23,6 +25,8 @@ Portal queries of the closed components work only from a network connected to
 the scope (the runner VNet, or a jump box linked with
 `private_dns.extra_vnet_link_ids`).
 
+
+## Deployment Instructions
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
 
@@ -32,4 +36,5 @@ task up ENV=<env>          # every stack that has a <stack>.tfvars here, then ev
 ```
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this
-folder define the topology. See `docs/deployment-scenarios.md`.
+folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

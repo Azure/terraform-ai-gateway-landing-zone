@@ -3,7 +3,7 @@
 How to deploy and run the gateway: the stack layout, the commands (Task or
 plain Terraform), CI/CD, day-2 operations and troubleshooting. The scenario
 templates are in [examples/](../examples/) and described in
-[deployment-scenarios.md](deployment-scenarios.md).
+[DEPLOYMENT_SCENARIOS.md](DEPLOYMENT_SCENARIOS.md).
 
 ---
 
@@ -15,7 +15,7 @@ planning a higher one, and a policy edit doesn't refresh Cosmos DB.
 
 | # | Stack | Owns | Typical duration (new env) | Runs when |
 |---|---|---|---|---|
-| 0 | [bootstrap](../stacks/bootstrap/) | State account (one container per stack), workload resource group, plan + apply pipeline identities, their RBAC | 2–3 min | once, by a person with Contributor + User Access Administrator (`task bootstrap`) |
+| 0 | [bootstrap](../stacks/bootstrap/) | State account (one container per stack), workload resource group, plan + apply pipeline identities, their RBAC | 2–3 min | once, by a person with Contributor + User Access Administrator on the subscription (`task bootstrap`) |
 | 1 | [identity](../stacks/identity/) | Entra app APIM validates JWTs against (no client secret) | < 1 min | `identity.tfvars` exists |
 | 2 | [network](../stacks/network/) | `greenfield`: VNet, subnets, NSGs, private DNS zones. `alz_spoke`: subnets + NSGs + UDR in the vended VNet | 2–5 min | `network.tfvars` exists (not in `byo`) |
 | 2b | [app-hosting](../stacks/app-hosting/) | ILB App Service Environment v3 + its private DNS zone | **2–4 h** | `app-hosting.tfvars` exists (keyless usage pipeline) |

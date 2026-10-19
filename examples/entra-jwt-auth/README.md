@@ -1,5 +1,7 @@
 # Entra ID JWT authentication
 
+
+## Scenario Overview
 The gateway's two-layer authentication, as in the upstream accelerator's
 [Entra ID / JWT guide](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/main/guides/entraid-auth-validation.md):
 every API requires the **subscription key** (it ties a request to an access
@@ -18,7 +20,7 @@ Base topology: [quickstart](../quickstart/) (public StandardV2, laptop runs), pl
 | `access-contracts/team-b-roles.tfvars` | key + JWT + app role: `MODELS` needs `Models.Read`, `FULL` needs `Task.ReadWrite` (`required_roles`) |
 | `access-contracts/partner-tenant.tfvars` | key + a token of **another** tenant or provider (`jwt_audience`, `jwt_issuer`, `jwt_openid_config_url`); replace the `<partner-...>` placeholders or delete the file |
 
-## Deploy
+## Deployment Instructions
 
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
@@ -80,4 +82,5 @@ secret; give it app roles like the test client. Remove the test client with
 [Deployment Guide, Entra ID JWT authentication](../../docs/DEPLOYMENT_GUIDE.md#66-entra-id-jwt-authentication).
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this
-folder define the topology. See `docs/deployment-scenarios.md`.
+folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

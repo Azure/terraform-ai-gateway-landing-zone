@@ -1,5 +1,6 @@
 # No Foundry: Language and Content Safety only
 
+## Scenario Overview
 For customers that don't want Foundry accounts but still want the gateway's
 PII redaction and content safety. `platform.tfvars` turns Foundry off
 (`foundry = { enabled = false }`) and deploys two **standalone Cognitive
@@ -28,6 +29,7 @@ The Language and Content Safety services must be available in the region you
 choose (`language_service.location` / `content_safety_service.location`
 default to the stack location).
 
+## Deployment Instructions
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
 
@@ -37,5 +39,5 @@ task up ENV=<env>          # every stack that has a <stack>.tfvars here, then ev
 ```
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this
-folder define the topology. See `docs/deployment-scenarios.md` and
-DEPLOYMENT_GUIDE.md section 6.4.
+folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

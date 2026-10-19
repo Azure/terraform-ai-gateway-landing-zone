@@ -1,5 +1,7 @@
 # ASE v3 hosting, every setting explained
 
+
+## Scenario Overview
 The usage pipeline (Event Hub to Logic App to Cosmos DB) runs **keyless** on an
 App Service Environment v3: Isolated v2 plan, internal load balancer, no
 storage account keys. This folder is a reference for how that hosting is
@@ -52,6 +54,8 @@ These files are checked against the stacks with mocked providers
 was deployed live; the sizes, zone redundancy and the alternatives in the
 comments are validated by plan only.
 
+## Deployment Instructions
+
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
 
@@ -61,4 +65,5 @@ task up ENV=<env>          # every stack that has a <stack>.tfvars here, then ev
 ```
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this
-folder define the topology. See `docs/deployment-scenarios.md`.
+folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

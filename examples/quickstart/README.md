@@ -1,10 +1,11 @@
 # Quickstart (Sandbox, public endpoints)
 
+## Scenario Overview
 Fastest end-to-end demo from a laptop: greenfield VNet and private DNS, APIM
-StandardV2 with public access, the usage pipeline on Workflow Standard (the
-documented shared-key exception, so no 2-4 h ASE), one Foundry account with a
+StandardV2 with public access, the usage pipeline on Workflow Standard, one Foundry account with a
 small model, one access contract. Not for Corp landing zones.
 
+## Deployment Instructions
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
 
@@ -14,4 +15,5 @@ task up ENV=<env>          # every stack that has a <stack>.tfvars here, then ev
 ```
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this
-folder define the topology. See `docs/deployment-scenarios.md`.
+folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md).

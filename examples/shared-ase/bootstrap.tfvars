@@ -1,6 +1,6 @@
 # Used once by `task bootstrap` (Contributor + User Access Administrator). Writes backend.hcl next to this file.
-github                 = { repository = "<owner>/<repo>" } # null = local runs only (no OIDC credentials)
-pipeline_identity_mode = "pair"                            # pair (plan + apply) | single (sandbox/dev only)
+github                 = null                              # "{ repository = "<owner>/<repo>" }" or null = local runs only (no OIDC credentials)
+pipeline_identity_mode = "single"                            # pair (plan + apply) | single (sandbox/dev only)
 graph_permissions      = false                             # no identity stack here
 
 # The usage App Service plan joins the shared ASE: the apply identity needs

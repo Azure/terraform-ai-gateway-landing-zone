@@ -1,5 +1,6 @@
 # Dev, greenfield, private (Workflow Standard Logic App)
 
+## Scenario Overview
 The same shape as `dev-greenfield-private`, but the usage pipeline runs on a
 **Workflow Standard** plan instead of an ASE v3 (hours faster to create and no
 ASE cost), reached through a private endpoint:
@@ -13,13 +14,16 @@ ASE cost), reached through a private endpoint:
 - a CI runner subnet (`snet-cicd`) for a GitHub-hosted runner with Azure
   private networking.
 
-Workflow Standard needs shared-key storage. If your tenant enforces
-`allowSharedKeyAccess = false` by policy, use the ASE v3 variant
-(`dev-greenfield-private`) instead. Publishing the workflows goes through the
-private SCM endpoint, so apply from that runner (repository variable
-`RUNNER_<env>`); a laptop can't reach it. Set `public_network_access = true`
-in `platform.tfvars` for the first apply if you must bootstrap from outside.
+> [!IMPORTANT]
+> Workflow Standard needs shared-key storage. If your tenant enforces
+> `allowSharedKeyAccess = false` by policy, use the ASE v3 variant
+> (`dev-greenfield-private`) instead. Publishing the workflows goes through the
+> private SCM endpoint, so apply from that runner (repository variable
+> `RUNNER_<env>`); a laptop can't reach it.  
+> Set `public_network_access = true`
+> in `platform.tfvars` for the first apply if you must bootstrap from outside.
 
+## Deployment Instructions
 Copy this folder to `environments/<env>/`, replace the `<...>` placeholders
 (and `environment` in `common.tfvars`), then:
 
@@ -29,5 +33,5 @@ task up ENV=<env>          # every stack that has a <stack>.tfvars here, then ev
 ```
 
 A stack runs only if its `<stack>.tfvars` exists, so the files in this
-folder define the topology. See `docs/deployment-scenarios.md` and
-DEPLOYMENT_GUIDE.md section 6.2.
+folder define the topology. See [`DEPLOYMENT_SCENARIOS.md`](../../docs/DEPLOYMENT_SCENARIOS.md) and
+[`DEPLOYMENT_GUIDE.md`](../../docs/DEPLOYMENT_GUIDE.md) section 6.2.
