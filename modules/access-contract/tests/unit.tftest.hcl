@@ -238,10 +238,22 @@ run "usage_events_opt_in" {
   }
   assert {
     condition = (
+      can(regex("<inbound>\\s*<base />\\s*<!--[^>]*-->\\s*<set-variable name=\"usageEventsEnabled\" value=\"true\" />", azurerm_api_management_product_policy.service["LLM"].xml_content)) &&
+      can(regex("<on-error>\\s*<base />\\s*<include-fragment fragment-id=\"usage-event\" />", azurerm_api_management_product_policy.service["LLM"].xml_content)) &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "100000000")
+    )
+    error_message = "The opt-in variable is set first (rejections in the product and API policies see it); errors are recorded in on-error; a contract with a token limit needs no metering limit."
+  }
+  assert {
+    condition = (
       strcontains(azurerm_api_management_product_policy.service["DOC"].xml_content, "fragment-id=\"usage-event\"") &&
       !can(regex("\n[ \t]*\n", azurerm_api_management_product_policy.service["DOC"].xml_content))
     )
     error_message = "A service without a token limit gets the usage event too, without blank lines."
+  }
+  assert {
+    condition     = can(regex("<when condition=\"@\\(context.Variables.GetValueOrDefault<string>\\(\"requestedModel\", \"non-llm-request\"\\) != \"non-llm-request\"\\)\">\\s*<llm-token-limit counter-key=\"@\\(context.Subscription.Id\\)\" tokens-per-minute=\"100000000\" estimate-prompt-tokens=\"false\" tokens-consumed-variable-name=\"tokensConsumed\" />", azurerm_api_management_product_policy.service["DOC"].xml_content))
+    error_message = "Without a token limit, LLM requests get a metering-only limit, so streamed responses have a token count."
   }
 }
 
@@ -255,6 +267,7 @@ run "usage_events_off_keeps_the_token_limit" {
   assert {
     condition = (
       !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "usage-event") &&
+      !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "usageEventsEnabled") &&
       !strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "tokensConsumed")
     )
     error_message = "Off by default: no event, and the token limit is unchanged."

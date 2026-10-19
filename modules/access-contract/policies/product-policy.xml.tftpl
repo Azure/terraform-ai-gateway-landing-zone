@@ -1,6 +1,11 @@
 <policies>
     <inbound>
         <base />
+%{ if usage_events }
+        <!-- Usage events (usage-event fragment): every outcome of this product's requests, including the
+             ones the gateway answers itself (rejections) and errors -->
+        <set-variable name="usageEventsEnabled" value="true" />
+%{ endif }
 %{ if jwt_required }
         <!-- Require a valid JWT next to the api-key (read by the security-handler fragment). Unset values fall
              back to the gateway's JWT-* named values (gateway-config entra_auth). -->
@@ -59,6 +64,9 @@
     </outbound>
     <on-error>
         <base />
+%{ if usage_events }
+        <include-fragment fragment-id="usage-event" />
+%{ endif }
         <!-- Raising throttling events (http 429 only) can help in setting up alerts in App Insights -->
         <!-- Set the following variables to customize the throttling event details -->
         <!-- <set-variable name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />

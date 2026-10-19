@@ -9,6 +9,14 @@
 <!-- Capacity management - subscription level -->
 <llm-token-limit counter-key="@(context.Subscription.Id)" ${token_limit_attributes} estimate-prompt-tokens="false"%{ if tokens_consumed_variable } tokens-consumed-variable-name="tokensConsumed"%{ endif } />
 %{ endif }
+%{ if token_limit_attributes == "" && tokens_consumed_variable }
+<!-- Usage events: token count of streamed responses (a metering-only limit, never reached) -->
+<choose>
+    <when condition="@(context.Variables.GetValueOrDefault<string>("requestedModel", "non-llm-request") != "non-llm-request")">
+        <llm-token-limit counter-key="@(context.Subscription.Id)" tokens-per-minute="100000000" estimate-prompt-tokens="false" tokens-consumed-variable-name="tokensConsumed" />
+    </when>
+</choose>
+%{ endif }
 %{ if enable_response_headers }
 <!-- Enable advanced response headers offered by set-response-headers fragment -->
 <set-variable name="enableResponseHeaders" value="@(true)" />
