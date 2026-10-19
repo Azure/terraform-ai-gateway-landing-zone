@@ -212,6 +212,7 @@
             <!-- Alias name was matched but every member was filtered out by compatiblePoolTypes.
                  Return a useful 400 so the caller knows the alias exists but isn't routable from
                  this API surface (e.g. calling `/claude/v1/messages` with a Bedrock-only alias). -->
+            <!-- usage-event status="400" reason="set-target-backend-pool" -->
             <return-response>
                 <set-status code="400" reason="Bad Request" />
                 <set-header name="Content-Type" exists-action="override">
@@ -356,6 +357,7 @@
         <when condition="@(((string)context.Variables["targetBackendPool"]).StartsWith("ERROR_"))">
             <choose>
                 <when condition="@(((string)context.Variables["targetBackendPool"]) == "ERROR_NO_MODEL")">
+                    <!-- usage-event status="400" reason="set-target-backend-pool" -->
                     <return-response>
                         <set-status code="400" reason="Bad Request" />
                         <set-header name="Content-Type" exists-action="override">
@@ -373,6 +375,7 @@
                     </return-response>
                 </when>
                 <when condition="@(((string)context.Variables["targetBackendPool"]) == "ERROR_MODEL_NOT_SUPPORTED")">
+                    <!-- usage-event status="400" reason="set-target-backend-pool" -->
                     <return-response>
                         <set-status code="400" reason="Bad Request" />
                         <set-header name="Content-Type" exists-action="override">
@@ -484,6 +487,7 @@
                     </return-response>
                 </when>
                 <when condition="@(((string)context.Variables["targetBackendPool"]) == "ERROR_NO_ALLOWED_POOLS")">
+                    <!-- usage-event status="403" reason="set-target-backend-pool" -->
                     <return-response>
                         <set-status code="403" reason="Forbidden" />
                         <set-header name="Content-Type" exists-action="override">

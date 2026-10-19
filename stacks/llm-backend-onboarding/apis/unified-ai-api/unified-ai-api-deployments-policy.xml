@@ -8,6 +8,10 @@
         <include-fragment fragment-id="get-available-models" />
 
         <!-- Return filtered list of available models -->
+        <!-- usage event of a request the gateway answers itself (usage-event fragment) -->
+        <set-variable name="usageEventStatus" value="200" />
+        <set-variable name="usageEventReason" value="deployments" />
+        <include-fragment fragment-id="usage-event" />
         <return-response>
             <set-status code="200" reason="OK" />
             <set-header name="Content-Type" exists-action="override">

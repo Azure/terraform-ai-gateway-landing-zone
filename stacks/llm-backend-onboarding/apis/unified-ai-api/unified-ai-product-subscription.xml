@@ -5,6 +5,10 @@
         <!-- Product access validation - ensure access is through valid product -->
         <choose>
             <when condition="@(context.Product == null)">
+                <!-- usage event of a request the gateway answers itself (usage-event fragment) -->
+                <set-variable name="usageEventStatus" value="401" />
+                <set-variable name="usageEventReason" value="unified-ai-product-subscription" />
+                <include-fragment fragment-id="usage-event" />
                 <return-response>
                     <set-status code="401" reason="Unauthorized" />
                     <set-header name="Content-Type" exists-action="override">

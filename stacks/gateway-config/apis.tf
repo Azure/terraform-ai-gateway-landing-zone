@@ -186,6 +186,7 @@ locals {
   # APIM validates fragment / named-value references when a policy is saved.
   api_policy_depends_on = concat(
     values(module.shared_fragments.ids),
+    values(module.event_fragments.ids),
     [for nv in azurerm_api_management_named_value.plain : nv.id],
   )
 }

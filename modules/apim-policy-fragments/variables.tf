@@ -31,3 +31,19 @@ variable "depends_on_ids" {
   type        = list(string)
   default     = []
 }
+
+variable "usage_event" {
+  description = <<-EOT
+    Usage events inside fragments. A fragment can't include another fragment, so the module expands
+    every marker comment `<!-- usage-event status="403" reason="validate-model-access" -->` (written
+    right before a `<return-response>`) into the usage event body (templates/usage-event.xml.tftpl, the
+    same body as the usage-event fragment). It's a no-op unless the request belongs to an access contract with
+    usage_events, or record_key_rejections is on and the request has no subscription.
+      record_key_rejections  also record rejections without a subscription key (security-handler)
+  EOT
+  type = object({
+    record_key_rejections = optional(bool, false)
+  })
+  default  = {}
+  nullable = false
+}

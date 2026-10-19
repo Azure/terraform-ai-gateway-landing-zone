@@ -186,6 +186,7 @@
                     <!-- Return 400 if no template found for this backend-type × image operation -->
                     <choose>
                         <when condition="@(String.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("finalPath", String.Empty)))">
+                            <!-- usage-event status="400" reason="path-builder" -->
                             <return-response>
                                 <set-status code="400" reason="Bad Request" />
                                 <set-header name="Content-Type" exists-action="override">
@@ -266,6 +267,7 @@
                     <!-- Return 400 if no template found for this backend-type × operation -->
                     <choose>
                         <when condition="@(String.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("finalPath", String.Empty)))">
+                            <!-- usage-event status="400" reason="path-builder" -->
                             <return-response>
                                 <set-status code="400" reason="Bad Request" />
                                 <set-header name="Content-Type" exists-action="override">
@@ -369,6 +371,7 @@
                     <trace source="Path-Builder-Error" severity="error">
                         <message>@($"Unified AI - Path builder error for API type: {context.Variables.GetValueOrDefault<string>("api-type")}")</message>
                     </trace>
+                    <!-- usage-event status="500" reason="path-builder" -->
                     <return-response>
                         <set-status code="500" reason="Internal Server Error" />
                         <set-header name="Content-Type" exists-action="override">

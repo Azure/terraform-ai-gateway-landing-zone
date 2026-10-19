@@ -54,6 +54,7 @@
                     </emit-metric>
                 </when>
             </choose>
+            <!-- usage-event status="403" reason="validate-model-access" -->
             <return-response>
                 <set-status code="403" reason="Forbidden" />
                 <set-header name="Content-Type" exists-action="override">

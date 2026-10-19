@@ -61,6 +61,7 @@
                     var region = "{{aws-region}}";
                     return accessKey == "NOT_CONFIGURED" || secretKey == "NOT_CONFIGURED" || region == "NOT_CONFIGURED";
                 }">
+                    <!-- usage-event status="500" reason="set-backend-authorization" -->
                     <return-response>
                         <set-status code="500" reason="Internal Server Error" />
                         <set-header name="Content-Type" exists-action="override">

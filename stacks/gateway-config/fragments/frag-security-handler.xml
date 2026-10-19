@@ -67,6 +67,7 @@
                     </emit-metric>
                 </when>
             </choose>
+            <!-- usage-event status="401" reason="security-handler" -->
             <return-response>
                 <set-status code="401" reason="Unauthorized" />
                 <set-header name="Content-Type" exists-action="override">
@@ -118,6 +119,7 @@
                                     </emit-metric>
                                 </when>
                             </choose>
+                            <!-- usage-event status="401" reason="security-handler" -->
                             <return-response>
                                 <set-status code="401" reason="Unauthorized" />
                                 <set-header name="Content-Type" exists-action="override">
@@ -159,6 +161,7 @@
                             var issuer = context.Variables.GetValueOrDefault<string>("jwt-issuer");
                             return string.IsNullOrEmpty(audience) || string.IsNullOrEmpty(openidConfig) || string.IsNullOrEmpty(issuer);
                         }">
+                            <!-- usage-event status="503" reason="security-handler" -->
                             <return-response>
                                 <set-status code="503" reason="Service Unavailable" />
                                 <set-header name="Content-Type" exists-action="override">
@@ -227,6 +230,7 @@
                                     </emit-metric>
                                 </when>
                             </choose>
+                            <!-- usage-event status="403" reason="security-handler" -->
                             <return-response>
                                 <set-status code="403" reason="Forbidden" />
                                 <set-header name="Content-Type" exists-action="override">

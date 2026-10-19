@@ -83,5 +83,8 @@
     </outbound>
     <on-error>
         <base />
+        <!-- usage event of an error: contracts with usage_events, and missing / invalid keys with
+             gateway-config usage_events.record_key_rejections (no-op otherwise; once per request) -->
+        <include-fragment fragment-id="usage-event" />
     </on-error>
 </policies>

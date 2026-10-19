@@ -32,6 +32,10 @@
         <!-- Validate product context -->
         <choose>
             <when condition="@(context.Product == null)">
+                <!-- usage event of a request the gateway answers itself (usage-event fragment) -->
+                <set-variable name="usageEventStatus" value="401" />
+                <set-variable name="usageEventReason" value="unified-ai-api-policy" />
+                <include-fragment fragment-id="usage-event" />
                 <return-response>
                     <set-status code="401" reason="Unauthorized" />
                     <set-header name="Content-Type" exists-action="override">
@@ -247,5 +251,8 @@
              content-safety blocks, and PII failures. Opt-in per category, tailorable per access contract. -->
         <include-fragment fragment-id="raise-alert-events" />
         <include-fragment fragment-id="set-response-headers" />
+        <!-- usage event of an error: contracts with usage_events, and missing / invalid keys with
+             gateway-config usage_events.record_key_rejections (no-op otherwise; once per request) -->
+        <include-fragment fragment-id="usage-event" />
     </on-error>
 </policies>

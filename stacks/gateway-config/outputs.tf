@@ -5,7 +5,7 @@ output "api_names" {
 
 output "fragment_names" {
   description = "Shared policy fragments owned by this stack (llm-backend-onboarding policies reference them)."
-  value       = keys(module.shared_fragments.ids)
+  value       = concat(keys(module.event_fragments.ids), keys(module.shared_fragments.ids))
 }
 
 output "named_value_names" {

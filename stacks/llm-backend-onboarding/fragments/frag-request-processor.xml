@@ -109,6 +109,7 @@
             <trace source="Request-Processor-Blocked" severity="error">
                 <message>@($"Unified AI - Blocked request to {context.Request.Method} {context.Variables.GetValueOrDefault<string>("routing-processed-path", "unknown")} from {context.Request.IpAddress}")</message>
             </trace>
+            <!-- usage-event status="403" reason="request-processor" -->
             <return-response>
                 <set-status code="403" reason="Forbidden" />
                 <set-header name="Content-Type" exists-action="override">
@@ -329,6 +330,7 @@
             <!-- Non-LLM request (e.g., GET operations like listing models) - skip model validation -->
         </when>
         <when condition="@(string.IsNullOrEmpty((string)context.Variables["requestedModel"]))">
+            <!-- usage-event status="400" reason="request-processor" -->
             <return-response>
                 <set-status code="400" reason="Bad Request" />
                 <set-header name="Content-Type" exists-action="override">

@@ -10,6 +10,18 @@
         <!-- Get deployments using Citadel on-boarded backends -->
         <include-fragment fragment-id="get-available-models" />
 
+        <!-- usage event of a request the gateway answers itself (usage-event fragment) -->
+        <set-variable name="usageEventStatus" value="@{
+            string id = context.Request.MatchedParameters.GetValueOrDefault("deployment-id", context.Request.MatchedParameters.GetValueOrDefault("model", ""));
+            foreach (var model in JArray.Parse((string)context.Variables["availableFilteredModels"]))
+            {
+                if (string.Equals(model["name"]?.ToString(), id, StringComparison.OrdinalIgnoreCase)) { return "200"; }
+            }
+            return "404";
+        }" />
+        <set-variable name="usageEventReason" value="deployments" />
+        <include-fragment fragment-id="usage-event" />
+
         <!-- Find deployment by deployment-id URL parameter -->
         <return-response>
             <set-status code="@{

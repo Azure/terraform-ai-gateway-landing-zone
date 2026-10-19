@@ -156,6 +156,7 @@
                             <trace source="Responses-API-Security" severity="error">
                                 <message>@($"Response-id ownership mismatch. responseId={context.Variables.GetValueOrDefault<string>("responseId", string.Empty)} requestSub={context.Subscription?.Id ?? string.Empty} requestProduct={context.Product?.Id ?? "NA"}")</message>
                             </trace>
+                            <!-- usage-event status="403" reason="responses-id-security" -->
                             <return-response>
                                 <set-status code="403" reason="Forbidden" />
                                 <set-header name="Content-Type" exists-action="override">
@@ -206,6 +207,7 @@
                             <trace source="Responses-API-Security" severity="information">
                                 <message>@($"Response-id cache miss on {context.Request.Method} {context.Request.Url.Path}. Returning 404.")</message>
                             </trace>
+                            <!-- usage-event status="404" reason="responses-id-security" -->
                             <return-response>
                                 <set-status code="404" reason="Not Found" />
                                 <set-header name="Content-Type" exists-action="override">

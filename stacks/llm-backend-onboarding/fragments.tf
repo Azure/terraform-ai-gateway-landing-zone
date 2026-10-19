@@ -23,7 +23,7 @@ locals {
   )
 
   # gateway-config fragments the LLM policies include.
-  required_shared_fragments = toset(["security-handler", "raise-alert-events", "set-response-headers", "strip-backend-headers", "ai-foundry-compatibility", "semantic-cache-lookup", "semantic-cache-store"])
+  required_shared_fragments = toset(["security-handler", "raise-alert-events", "set-response-headers", "strip-backend-headers", "ai-foundry-compatibility", "semantic-cache-lookup", "semantic-cache-store", "usage-event"])
 }
 
 module "llm_fragments" {

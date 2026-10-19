@@ -7,7 +7,9 @@ Deploys a map of policy fragments (`rawxml`) to an API Management service, in tw
 
 `depends_on_ids` orders the fragments after the named values and loggers they reference, because APIM validates references when a fragment is saved.
 
-Called by [stacks/gateway-config](../../stacks/gateway-config/fragments.tf) (shared and PII fragments) and [stacks/llm-backend-onboarding](../../stacks/llm-backend-onboarding/fragments.tf) (Unified AI fragments).
+**Usage event markers.** APIM doesn't let a fragment include another fragment. A fragment that answers a request itself records its usage event with a marker comment right before the `<return-response>`, e.g. `<!-- usage-event status="403" reason="validate-model-access" -->`. The module replaces each marker with the `usageEventStatus` / `usageEventReason` variables and the body of [templates/usage-event.xml.tftpl](templates/usage-event.xml.tftpl), the same body as the `usage-event` fragment that gateway-config deploys. The `xml` output shows the expanded XML.
+
+Called by [stacks/gateway-config](../../stacks/gateway-config/fragments.tf) (shared, event and PII fragments) and [stacks/llm-backend-onboarding](../../stacks/llm-backend-onboarding/fragments.tf) (Unified AI fragments).
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
@@ -43,6 +45,7 @@ Called by [stacks/gateway-config](../../stacks/gateway-config/fragments.tf) (sha
 | <a name="input_azapi_fragments"></a> [azapi\_fragments](#input\_azapi\_fragments) | Fragment ID => { xml, description }, managed with azapi\_resource (direct PUT). Use for fragments that hit the azurerm LRO polling bug (404 PolicyFragment not found). | <pre>map(object({<br/>    xml         = string<br/>    description = optional(string, "")<br/>  }))</pre> | `{}` | no |
 | <a name="input_depends_on_ids"></a> [depends\_on\_ids](#input\_depends\_on\_ids) | IDs of objects the fragments reference by name (named values). APIM validates those references when a fragment is saved, so the fragments wait for them. | `list(string)` | `[]` | no |
 | <a name="input_fragments"></a> [fragments](#input\_fragments) | Fragment ID => { xml, description }. Managed with azurerm\_api\_management\_policy\_fragment. | <pre>map(object({<br/>    xml         = string<br/>    description = optional(string, "")<br/>  }))</pre> | `{}` | no |
+| <a name="input_usage_event"></a> [usage\_event](#input\_usage\_event) | Usage events inside fragments. A fragment can't include another fragment, so the module expands<br/>every marker comment `<!-- usage-event status="403" reason="validate-model-access" -->` (written<br/>right before a `<return-response>`) into the usage event body (templates/usage-event.xml.tftpl, the<br/>same body as the usage-event fragment). It's a no-op unless the request belongs to an access contract with<br/>usage\_events, or record\_key\_rejections is on and the request has no subscription.<br/>  record\_key\_rejections  also record rejections without a subscription key (security-handler) | <pre>object({<br/>    record_key_rejections = optional(bool, false)<br/>  })</pre> | `{}` | no |
 
 ## Outputs
 
@@ -50,4 +53,5 @@ Called by [stacks/gateway-config](../../stacks/gateway-config/fragments.tf) (sha
 | ---- | ----------- |
 | <a name="output_ids"></a> [ids](#output\_ids) | Fragment ID => policy fragment resource ID (both azurerm- and azapi-managed fragments). |
 | <a name="output_names"></a> [names](#output\_names) | IDs (names) of all fragments deployed by this module. |
+| <a name="output_xml"></a> [xml](#output\_xml) | Fragment ID => the XML deployed (after the usage event markers are expanded). |
 <!-- END_TF_DOCS -->

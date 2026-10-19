@@ -71,8 +71,8 @@ run "defaults" {
     error_message = "PII and Content Safety use the primary Foundry endpoint."
   }
   assert {
-    condition     = length(local.shared_fragments) == 18 && length(local.pii_fragments) == 4 && contains(keys(local.shared_fragments), "usage-event") && contains(keys(local.pii_fragments), "pii-audit")
-    error_message = "18 shared fragments (with usage-event) + 4 PII fragments (with pii-audit) by default."
+    condition     = length(local.shared_fragments) == 17 && length(local.pii_fragments) == 3 && join(",", keys(local.event_fragments)) == "usage-event" && join(",", keys(local.event_azapi_fragments)) == "pii-audit"
+    error_message = "17 shared fragments + 3 PII fragments by default, and the event fragments (usage-event, pii-audit) that others include."
   }
   assert {
     condition     = length(module.api) == 0 && length(module.api_dependent) == 0 && length(data.azuread_application.gateway) == 0
@@ -311,4 +311,77 @@ run "semantic_cache_rejects_a_query_string" {
     semantic_cache = { enabled = true, embeddings_url = "https://other.openai.azure.com/openai/deployments/emb/embeddings?api-version=2024-02-01" }
   }
   expect_failures = [var.semantic_cache]
+}
+
+# --- usage and PII audit events ----------------------------------------------------------------
+
+run "usage_events_key_rejections_off_by_default" {
+  command = plan
+
+  assert {
+    condition = (
+      strcontains(local.event_fragments["usage-event"].xml, "(false && context.Subscription == null") &&
+      strcontains(local.event_fragments["usage-event"].xml, "usageEventEmitted") &&
+      length(regexall("[$][{]", local.event_fragments["usage-event"].xml)) == 0
+    )
+    error_message = "Key rejections aren't recorded by default; the event is emitted once per request."
+  }
+  assert {
+    condition = (
+      length(regexall("<log-to-eventhub logger-id=\"usage-eventhub-logger\">", module.shared_fragments.xml["security-handler"])) == 4 &&
+      strcontains(module.shared_fragments.xml["security-handler"], "<set-variable name=\"usageEventStatus\" value=\"401\" />") &&
+      !strcontains(module.shared_fragments.xml["security-handler"], "<!-- usage-event status=") &&
+      !strcontains(module.shared_fragments.xml["security-handler"], "include-fragment fragment-id=\"usage-event\"")
+    )
+    error_message = "A fragment can't include a fragment: the 4 usage-event markers of security-handler are expanded into the event body."
+  }
+  assert {
+    condition = (
+      strcontains(module.shared_fragments.xml["pii-anonymization"], "logger-id=\"pii-usage-eventhub-logger\"") &&
+      strcontains(module.shared_fragments.xml["pii-anonymization"], "<set-variable name=\"usageEventReason\" value=\"pii-detected\" />") &&
+      !strcontains(module.shared_fragments.xml["pii-anonymization"], "<!-- pii-audit")
+    )
+    error_message = "The PII block embeds the usage event and the pii-audit body."
+  }
+}
+
+run "usage_events_record_key_rejections" {
+  command = plan
+
+  variables {
+    usage_events = { record_key_rejections = true }
+  }
+
+  assert {
+    condition     = strcontains(local.event_fragments["usage-event"].xml, "(true && context.Subscription == null")
+    error_message = "record_key_rejections turns on the events of missing / invalid keys."
+  }
+}
+
+run "pii_off_has_no_pii_audit" {
+  command = plan
+
+  variables {
+    features = { pii_anonymization = false }
+  }
+
+  assert {
+    condition     = length(local.event_azapi_fragments) == 0 && length(local.pii_fragments) == 0
+    error_message = "pii-audit is deployed with the PII fragments only."
+  }
+}
+
+run "pii_blocking_and_placeholder_variants" {
+  command = plan
+
+  assert {
+    condition = (
+      strcontains(file("${path.module}/fragments/frag-pii-anonymization.xml"), "piiBlockingEnabled") &&
+      strcontains(file("${path.module}/fragments/frag-pii-anonymization.xml"), "pii_detected") &&
+      strcontains(file("${path.module}/fragments/frag-pii-deanonymization.xml"), "@\"(?<![A-Za-z0-9_])\" + bare") &&
+      !strcontains(file("${path.module}/fragments/frag-pii-deanonymization.xml"), "Regex.Escape(") &&
+      !strcontains(file("${path.module}/fragments/frag-pii-deanonymization.xml"), "JsonConvert.ToString(")
+    )
+    error_message = "Blocking mode (400 pii_detected) and de-anonymization of placeholders without angle brackets (no Regex.Escape / JsonConvert: APIM rejects them in expressions)."
+  }
 }

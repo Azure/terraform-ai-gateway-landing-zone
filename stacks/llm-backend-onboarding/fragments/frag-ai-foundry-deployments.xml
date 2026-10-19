@@ -52,6 +52,7 @@
         </when>
         <otherwise>
             <!-- Fallback or error handling -->
+            <!-- usage-event status="400" reason="ai-foundry-deployments" -->
             <return-response>
                 <set-status code="400" reason="Bad Request" />
                 <set-header name="Content-Type" exists-action="override">

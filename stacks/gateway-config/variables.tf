@@ -109,6 +109,23 @@ variable "ai_search_instances" {
   nullable = false
 }
 
+variable "usage_events" {
+  description = <<-EOT
+    Per-request usage events (usage-event fragment; access contracts opt in with
+    services[*].usage_events).
+      record_key_rejections  Also record requests rejected for a missing or invalid subscription
+                             key (401). They belong to no contract (productName "Unauthenticated").
+                             Anyone can send them, so each one costs an Event Hub event, a Logic App
+                             run and a Cosmos DB write: turn it on deliberately (e.g. to audit
+                             access attempts), not by default.
+  EOT
+  type = object({
+    record_key_rejections = optional(bool, false)
+  })
+  default  = {}
+  nullable = false
+}
+
 variable "semantic_cache" {
   description = <<-EOT
     Semantic cache for the LLM APIs (llm-semantic-cache-lookup / -store in Azure Managed Redis).

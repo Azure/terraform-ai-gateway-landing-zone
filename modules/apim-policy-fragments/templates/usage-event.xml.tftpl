@@ -1,0 +1,121 @@
+<!--
+    Fragment: Usage Event (per-request usage to Event Hubs)
+    Purpose:  One event per request on the ai-usage Event Hub (logger usage-eventhub-logger); the
+              ai-usage-ingestion Logic App upserts it as is into the Cosmos DB ai-usage-container
+              (partition key /productName). Complements the token metrics (llm-usage namespace,
+              hourly aggregates); don't add the two in reports.
+    Runs when (once per request, usageEventEmitted guards the other call sites):
+      - usageEventsEnabled = "true": set first in the product policy of an access contract with
+        services[*].usage_events = true (custom policy_xml contracts set it themselves);
+      - or the request was rejected without a valid subscription key (missing or invalid key, no
+        product), when gateway-config usage_events.record_key_rejections is on (now: ${record_key_rejections}).
+    Used as:
+      - the usage-event fragment (gateway-config), included by API and product policies:
+          outbound, after <base />: every response from a backend                      outcome = response
+          on-error: errors, token limit / quota hits (429 / 403), missing or invalid
+          keys (401)                                                                   outcome = error
+          right before a <return-response> of a policy, with usageEventStatus (and
+          usageEventReason)                                                            outcome = gateway
+      - inline, inside other fragments (a fragment can't include a fragment): the fragments
+        module expands a usage-event marker comment (status and reason attributes) written right
+        before a <return-response> into these two variables plus this body.
+    id:       the APIM request ID (also the UAIG-Request-Id header and the CorrelationId of the
+              gateway logs), so a retried delivery upserts the same document.
+    Tokens (tokensSource), outcome = response only:
+      response     non-streaming LLM response with a usage object (chat completions,
+                   Responses API, embeddings): the provider's counts;
+      token-limit  streamed response: the tokens-consumed variable of the product's llm-token-limit
+                   (total only; access contracts with usage_events add a metering-only limit when
+                   they have no token_limit);
+      none         no token information (non-LLM APIs, tool / agent calls, gateway answers, errors).
+    The response body is read only for non-streaming LLM responses (preserveContent: the body
+    still reaches the client); streams (text/event-stream) and tool / agent calls are never read.
+-->
+<choose>
+    <when condition="@(!context.Variables.ContainsKey("usageEventEmitted") && (context.Variables.GetValueOrDefault<string>("usageEventsEnabled", "false") == "true" || (${record_key_rejections} && context.Subscription == null && (context.LastError != null || context.Variables.GetValueOrDefault<string>("usageEventReason", "") == "security-handler"))))">
+        <log-to-eventhub logger-id="usage-eventhub-logger">@{
+            var outcome = context.Variables.ContainsKey("usageEventStatus") ? "gateway" : (context.LastError != null ? "error" : "response");
+            var status = outcome == "gateway"
+                ? Convert.ToInt32(context.Variables["usageEventStatus"])
+                : (context.Response?.StatusCode ?? 0);
+            var requestedModel = context.Variables.GetValueOrDefault<string>("requestedModel", "");
+            var isLlm = !string.IsNullOrEmpty(requestedModel) && requestedModel != "non-llm-request"
+                && context.Variables.GetValueOrDefault<string>("assetKind", "llm") == "llm";
+            var contentType = outcome == "response" ? context.Response.Headers.GetValueOrDefault("Content-Type", "") : "";
+            var stream = contentType.IndexOf("text/event-stream", StringComparison.OrdinalIgnoreCase) >= 0
+                || context.Variables.GetValueOrDefault<string>("is-streaming", "false") == "true";
+
+            long promptTokens = 0, responseTokens = 0, totalTokens = 0, cachedTokens = 0, reasoningTokens = 0;
+            string tokensSource = "none";
+            string responseModel = null;
+            if (outcome == "response" && isLlm && !stream && contentType.IndexOf("json", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                try
+                {
+                    var body = context.Response.Body.As<JObject>(preserveContent: true);
+                    var usage = body?["usage"] as JObject;
+                    responseModel = body?["model"]?.ToString();
+                    if (usage != null)
+                    {
+                        // Chat completions / embeddings: prompt_ / completion_tokens; Responses API: input_ / output_tokens.
+                        promptTokens = usage["prompt_tokens"]?.Value<long>() ?? usage["input_tokens"]?.Value<long>() ?? 0;
+                        responseTokens = usage["completion_tokens"]?.Value<long>() ?? usage["output_tokens"]?.Value<long>() ?? 0;
+                        totalTokens = usage["total_tokens"]?.Value<long>() ?? (promptTokens + responseTokens);
+                        cachedTokens = (usage["prompt_tokens_details"] ?? usage["input_tokens_details"])?["cached_tokens"]?.Value<long>() ?? 0;
+                        reasoningTokens = (usage["completion_tokens_details"] ?? usage["output_tokens_details"])?["reasoning_tokens"]?.Value<long>() ?? 0;
+                        tokensSource = "response";
+                    }
+                }
+                catch (Exception) { }
+            }
+            else if (outcome == "response" && isLlm && stream && context.Variables.ContainsKey("tokensConsumed"))
+            {
+                totalTokens = Convert.ToInt64(context.Variables["tokensConsumed"]);
+                tokensSource = "token-limit";
+            }
+
+            var backendId = context.Variables.GetValueOrDefault<string>("targetBackendPool", "");
+            if (string.IsNullOrEmpty(backendId)) { backendId = context.Variables.GetValueOrDefault<string>("selected-backend", "NA"); }
+            var reason = context.Variables.GetValueOrDefault<string>("usageEventReason", context.LastError?.Reason ?? "");
+
+            return new JObject(
+                new JProperty("id", context.RequestId.ToString()),
+                new JProperty("timestamp", DateTime.UtcNow.ToString("o")),
+                new JProperty("appId", context.Variables.GetValueOrDefault<string>("appId", context.Subscription?.Id ?? "NA")),
+                new JProperty("subscriptionId", context.Subscription?.Id ?? "NA"),
+                new JProperty("productName", context.Product?.Name ?? (context.Subscription == null ? "Unauthenticated" : "NA")),
+                new JProperty("productId", context.Product?.Id ?? "NA"),
+                new JProperty("apiId", context.Api?.Id ?? "NA"),
+                new JProperty("apiName", context.Api?.Name ?? "NA"),
+                new JProperty("operationId", context.Operation?.Id ?? "NA"),
+                new JProperty("operationName", context.Operation?.Name ?? "NA"),
+                new JProperty("assetKind", isLlm ? "llm" : context.Variables.GetValueOrDefault<string>("assetKind", "service")),
+                new JProperty("targetService", isLlm ? "LLM" : (context.Api?.Name ?? "NA")),
+                new JProperty("model", responseModel ?? (isLlm ? requestedModel : "NA")),
+                new JProperty("deploymentName", isLlm ? requestedModel : "NA"),
+                new JProperty("modelAlias", context.Variables.GetValueOrDefault<string>("original-model-alias", "")),
+                new JProperty("backendId", backendId),
+                new JProperty("gatewayName", context.Deployment?.ServiceName ?? "NA"),
+                new JProperty("gatewayRegion", context.Deployment?.Region ?? "NA"),
+                new JProperty("aiGatewayId", context.Deployment?.Gateway?.Id ?? "NA"),
+                new JProperty("RequestIp", context.Request?.IpAddress ?? "NA"),
+                new JProperty("sessionId", context.Variables.GetValueOrDefault<string>("sessionId", "NA")),
+                new JProperty("endUserId", context.Variables.GetValueOrDefault<string>("endUserId", "NA")),
+                new JProperty("outcome", outcome),
+                new JProperty("statusCode", status),
+                new JProperty("reason", reason),
+                new JProperty("errorSource", context.LastError?.Source ?? ""),
+                new JProperty("stream", stream),
+                new JProperty("cacheHit", context.Variables.GetValueOrDefault<string>("semanticCacheLookup", "") == "hit"),
+                new JProperty("tokensSource", tokensSource),
+                new JProperty("promptTokens", promptTokens),
+                new JProperty("responseTokens", responseTokens),
+                new JProperty("totalTokens", totalTokens),
+                new JProperty("cachedTokens", cachedTokens),
+                new JProperty("reasoningTokens", reasoningTokens),
+                new JProperty("durationMs", (long)context.Elapsed.TotalMilliseconds)
+            ).ToString(Newtonsoft.Json.Formatting.None);
+        }</log-to-eventhub>
+        <set-variable name="usageEventEmitted" value="true" />
+    </when>
+</choose>

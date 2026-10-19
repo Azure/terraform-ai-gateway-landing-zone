@@ -7,7 +7,6 @@ locals {
 
   shared_fragments = {
     "ai-usage"                 = "Tracks usage of all AI-related APIs"
-    "usage-event"              = "Per-request usage event to the ai-usage Event Hub (access contract services[*].usage_events)"
     "raise-throttling-events"  = "Raises custom events when throttling limits are hit"
     "raise-alert-events"       = "Emits the AI Gateway Alert metric (throttling, quota, backend failures; opt-in auth, content-safety and PII alerts)"
     "throttling-events"        = "Throttling events configuration"
@@ -31,7 +30,25 @@ locals {
     "pii-anonymization"   = "Anonymizes PII in API requests"
     "pii-deanonymization" = "Deanonymizes PII in API responses"
     "pii-state-saving"    = "Saves PII state for testing"
-    "pii-audit"           = "PII processing audit event without the PII (entity counts per category) to the pii-usage Event Hub"
+  } : {}
+
+  # Event fragments, included by API and product policies (outbound, on-error, before a
+  # <return-response>). A fragment can't include a fragment: inside fragments, the fragments module
+  # expands <!-- usage-event ... --> markers into the same body, and pii-anonymization gets the
+  # pii-audit body below.
+  usage_event_template = "${path.module}/../../modules/apim-policy-fragments/templates/usage-event.xml.tftpl"
+  event_fragments = {
+    "usage-event" = {
+      description = "Per-request usage event to the ai-usage Event Hub (access contract services[*].usage_events; key rejections with usage_events.record_key_rejections)"
+      xml         = "<fragment>\n${templatefile(local.usage_event_template, { record_key_rejections = tostring(var.usage_events.record_key_rejections) })}</fragment>\n"
+    }
+  }
+  pii_audit_body = trimsuffix(trimprefix(trimspace(file("${local.fragments_dir}/frag-pii-audit.xml")), "<fragment>"), "</fragment>")
+  event_azapi_fragments = var.features.pii_anonymization ? {
+    "pii-audit" = {
+      description = "PII processing audit event without the PII (entity counts per category) to the pii-usage Event Hub"
+      xml         = file("${local.fragments_dir}/frag-pii-audit.xml")
+    }
   } : {}
 
   # Semantic cache: always deployed (the LLM API policies include them); with semantic_cache off
@@ -55,10 +72,19 @@ locals {
   semantic_cache_off = "<fragment>\n    <!-- Semantic cache disabled (gateway-config semantic_cache.enabled = false). -->\n    <set-variable name=\"semanticCacheEnabled\" value=\"false\" />\n</fragment>"
 }
 
+module "event_fragments" {
+  source = "../../modules/apim-policy-fragments"
+
+  api_management_id = local.apim_id
+  fragments         = local.event_fragments
+  azapi_fragments   = local.event_azapi_fragments
+}
+
 module "shared_fragments" {
   source = "../../modules/apim-policy-fragments"
 
   api_management_id = local.apim_id
+  usage_event       = var.usage_events
 
   fragments = {
     for k, d in local.shared_fragments : k => {
@@ -70,7 +96,7 @@ module "shared_fragments" {
   azapi_fragments = merge(
     {
       for k, d in local.pii_fragments : k => {
-        xml         = file("${local.fragments_dir}/frag-${k}.xml")
+        xml         = replace(file("${local.fragments_dir}/frag-${k}.xml"), "/<!-- pii-audit [^>]*-->/", local.pii_audit_body)
         description = d
       }
     },
@@ -79,5 +105,9 @@ module "shared_fragments" {
 
   # APIM validates named-value references when a fragment is saved; the semantic cache lookup
   # validates its embeddings backend.
-  depends_on_ids = concat([for nv in azurerm_api_management_named_value.plain : nv.id], azapi_resource.embeddings_backend[*].id)
+  depends_on_ids = concat(
+    [for nv in azurerm_api_management_named_value.plain : nv.id],
+    azapi_resource.embeddings_backend[*].id,
+    values(module.event_fragments.ids),
+  )
 }
