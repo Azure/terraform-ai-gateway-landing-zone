@@ -2,18 +2,34 @@
     <!-- Replace placeholders with original PII -->
     <set-variable name="piiDeanonymizedContentOutput" value="@{
         var content = context.Variables.GetValueOrDefault<string>("piiDeanonymizeContentInput");
-        
         // Pre-process content to replace common encoded symbols
         content = System.Text.RegularExpressions.Regex.Replace(content, @"\\u003c", "<");
         content = System.Text.RegularExpressions.Regex.Replace(content, @"\\u003e", ">");
-        
         var mappings = JArray.Parse(
             context.Variables.GetValueOrDefault<string>("piiMappings"));
-        
-        foreach (var mapping in mappings) {
+        // Terraform port: models don't always echo a placeholder verbatim. Besides <Category_N>, restore
+        // &lt;Category_N&gt; and the bare Category_N (e.g. **Person_0**), as a whole word only. Longest
+        // placeholders first, so <Person_10> isn't taken for <Person_1>. Values that go back into a JSON
+        // body are JSON-escaped, so a quote or backslash in the original can't break the document.
+        var trimmed = content.TrimStart();
+        var isJson = trimmed.StartsWith("{") || trimmed.StartsWith("[");
+        foreach (var mapping in mappings.OrderByDescending(m => m["placeholder"].ToString().Length)) {
             var original = mapping["original"].ToString();
             var placeholder = mapping["placeholder"].ToString();
-            content = content.Replace(placeholder, original);
+            var value = original;
+            if (isJson) {
+                // JsonConvert isn't allowed in policy expressions: escape by hand
+                value = original.Replace("\\", "\\\\").Replace("\"", "\\\"")
+                    .Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
+            }
+            var bare = placeholder.Trim('<', '>');
+            content = content.Replace(placeholder, value).Replace("&lt;" + bare + "&gt;", value);
+            // Regex.Escape isn't allowed in expressions; placeholders are Category_N (word characters only)
+            if (System.Text.RegularExpressions.Regex.IsMatch(bare, @"^[A-Za-z0-9_]+$")) {
+                content = System.Text.RegularExpressions.Regex.Replace(content,
+                    @"(?<![A-Za-z0-9_])" + bare + @"(?![A-Za-z0-9_])",
+                    value.Replace("$", "$$"));
+            }
         }
         return content;
     }" />

@@ -9,11 +9,12 @@
                   the processing settings. Use it for production auditing.
         Include:  in the outbound section, after pii-deanonymization (or anywhere after
                   pii-anonymization when the response isn't de-anonymized). It runs when
-                  piiAuditEnabled = "true" and the request was anonymized (piiMappings is set).
+                  piiAuditEnabled = "true" and the request was analyzed (piiMappings is set).
+                  pii-anonymization includes it itself when it blocks a request (piiBlockingEnabled).
         Fields:   id (pii-<request ID>, the CorrelationId of the gateway logs), timestamp, type
                   PII_Audit, productName / productId, subscriptionId, apiId, operationId, model,
                   entityCount, entityCategories { <category>: count }, confidenceThreshold,
-                  categoryExclusions, analysisFailure, deanonymized, statusCode.
+                  categoryExclusions, analysisFailure, deanonymized, blocked, statusCode.
     -->
     <choose>
         <when condition="@(context.Variables.GetValueOrDefault<string>("piiAuditEnabled", "false") == "true" && context.Variables.ContainsKey("piiMappings"))">
@@ -50,7 +51,8 @@
                     new JProperty("categoryExclusions", context.Variables.GetValueOrDefault<string>("piiEntityCategoryExclusions", "")),
                     new JProperty("analysisFailure", context.Variables.GetValueOrDefault<string>("piiAnalysisFailureReason", "")),
                     new JProperty("deanonymized", context.Variables.ContainsKey("piiDeanonymizedContentOutput")),
-                    new JProperty("statusCode", context.Response?.StatusCode ?? 0)
+                    new JProperty("blocked", context.Variables.GetValueOrDefault<string>("piiBlocked", "false") == "true"),
+                    new JProperty("statusCode", context.Variables.ContainsKey("usageEventStatus") ? Convert.ToInt32(context.Variables["usageEventStatus"]) : (context.Response?.StatusCode ?? 0))
                 ).ToString(Newtonsoft.Json.Formatting.None);
             }</log-to-eventhub>
         </when>

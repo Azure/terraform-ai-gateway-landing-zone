@@ -483,7 +483,9 @@ required_roles = []   # or app roles, e.g. ["Models.Read"]
 <inbound>
     <base />
     <set-variable name="piiAnonymizationEnabled" value="true" />
-    <!-- or block instead of masking: <set-variable name="piiBlockingEnabled" value="true" /> -->
+    <!-- or block instead of masking: replace the line above with
+         <set-variable name="piiBlockingEnabled" value="true" />
+         (a prompt with PII is rejected: 400, error code pii_detected, categories only) -->
     <set-variable name="piiInputContent" value="@(context.Request.Body.As<string>(preserveContent: true))" />
     <include-fragment fragment-id="pii-anonymization" />
     <set-body>@(context.Variables.GetValueOrDefault<string>("piiAnonymizedContent"))</set-body>

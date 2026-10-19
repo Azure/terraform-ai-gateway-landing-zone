@@ -1,6 +1,8 @@
 <fragment>
     <choose>
-        <when condition="@(context.Variables.GetValueOrDefault<string>("piiAnonymizationEnabled") == "true")">
+        <!-- Terraform port: piiBlockingEnabled = "true" detects PII the same way and rejects a request that
+             contains any (400 pii_detected) instead of masking it. -->
+        <when condition="@(context.Variables.GetValueOrDefault<string>("piiAnonymizationEnabled") == "true" || context.Variables.GetValueOrDefault<string>("piiBlockingEnabled") == "true")">
             <!-- Get configuration values -->
             <set-variable name="piiConfidenceThreshold" value="@(double.Parse(context.Variables.GetValueOrDefault<string>("piiConfidenceThreshold", "0.8")))" />
             <set-variable name="piiEntityCategoryExclusions" value="@(context.Variables.GetValueOrDefault<string>("piiEntityCategoryExclusions", ""))" />
@@ -597,6 +599,7 @@
                     <choose>
                         <!-- Fail-closed: return a controlled error to the caller when continueOnNLPError is not enabled -->
                         <when condition="@(context.Variables.GetValueOrDefault<string>("continueOnNLPError", "false").Equals("true", StringComparison.OrdinalIgnoreCase) == false)">
+                            <!-- usage-event status="502" reason="pii-anonymization" -->
                             <return-response>
                                 <set-status code="502" reason="PII Anonymization Service Unavailable" />
                                 <set-header name="Content-Type" exists-action="override">
@@ -689,6 +692,40 @@
                 
                 return apiMappings.ToString();
             }" />
+
+            <!-- Blocking mode: reject a request that contains PII. The response names the categories found,
+                 never the values. Usage and PII audit events record the rejection when enabled. -->
+            <choose>
+                <when condition="@(context.Variables.GetValueOrDefault<string>("piiBlockingEnabled", "false") == "true" && JArray.Parse(context.Variables.GetValueOrDefault<string>("piiMappings") ?? "[]").Count > 0)">
+                    <set-variable name="piiBlocked" value="true" />
+                    <!-- usage-event status="400" reason="pii-detected" -->
+                    <!-- pii-audit (expanded by gateway-config: the pii-audit body, a fragment can't include one) -->
+                    <return-response>
+                        <set-status code="400" reason="Bad Request" />
+                        <set-header name="Content-Type" exists-action="override">
+                            <value>application/json</value>
+                        </set-header>
+                        <set-body>@{
+                            var categories = new JObject();
+                            foreach (var mapping in JArray.Parse(context.Variables.GetValueOrDefault<string>("piiMappings") ?? "[]"))
+                            {
+                                var category = (mapping["placeholder"]?.ToString() ?? "").Trim('<', '>');
+                                var cut = category.LastIndexOf('_');
+                                category = cut > 0 ? category.Substring(0, cut) : category;
+                                categories[category] = (categories[category]?.Value<int>() ?? 0) + 1;
+                            }
+                            return new JObject {
+                                ["error"] = new JObject {
+                                    ["code"] = "pii_detected",
+                                    ["message"] = "The request contains personal data (PII), which this API product doesn't accept. Remove it and try again.",
+                                    ["categories"] = categories,
+                                    ["requestId"] = context.RequestId.ToString()
+                                }
+                            }.ToString();
+                        }</set-body>
+                    </return-response>
+                </when>
+            </choose>
 
             <!-- Replace PII with placeholders and set output variable -->
             <set-variable name="piiAnonymizedContent" value="@{
