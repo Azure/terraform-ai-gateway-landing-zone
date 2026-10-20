@@ -21,6 +21,7 @@ module "language_service" {
   apim_principal_id             = module.identity["apim"].principal_id
 
   subnet_id                        = local.network.subnet_ids.pe
+  private_endpoint_location        = var.location # the VNet's region, also when the account is elsewhere
   dns_zone_id                      = lookup(local.zone_ids, "cognitive_services", "")
   dns_zone_group_managed_by_policy = local.network.dns_zone_groups_managed_by_policy
 
@@ -44,6 +45,7 @@ module "content_safety_service" {
   apim_principal_id             = module.identity["apim"].principal_id
 
   subnet_id                        = local.network.subnet_ids.pe
+  private_endpoint_location        = var.location # the VNet's region, also when the account is elsewhere
   dns_zone_id                      = lookup(local.zone_ids, "cognitive_services", "")
   dns_zone_group_managed_by_policy = local.network.dns_zone_groups_managed_by_policy
 

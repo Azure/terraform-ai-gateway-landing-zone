@@ -31,7 +31,9 @@ network = {
 }
 
 foundry = {
-  instances = [{ location = "swedencentral" }, { location = "eastus2" }]
+  # Agent Service network injection needs a VNet in the account's region: the spoke is in swedencentral,
+  # so the eastus2 instance keeps only its private endpoints (models), without an injected agent runtime.
+  instances = [{ location = "swedencentral" }, { location = "eastus2", network_injection_enabled = false }]
   models = [
     { name = "gpt-5.4", version = "2026-03-05", capacity = 100, ai_service_index = 0 },
     { name = "gpt-5.4-mini", version = "2026-03-17", capacity = 100, ai_service_index = 0 },

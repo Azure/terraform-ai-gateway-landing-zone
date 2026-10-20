@@ -116,6 +116,7 @@ module "account" {
       name                            = "pe-${local.instance_names[count.index]}"
       private_service_connection_name = "psc-${local.instance_names[count.index]}"
       subnet_resource_id              = var.subnet_id
+      location                        = var.private_endpoint_location
       tags                            = var.tags
     }
   }
@@ -253,7 +254,7 @@ resource "azapi_resource" "app_insights_connection" {
         ResourceId = var.app_insights_id
       }
       credentials = {
-        key = var.app_insights_instrumentation_key
+        key = var.app_insights_connection_string
       }
     }
   }

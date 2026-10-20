@@ -617,6 +617,56 @@ run "shared_key_deny_needs_ase" {
 
 # --- Foundry optional; standalone Language and Content Safety ------------------
 
+# --- Foundry instances in other regions ------------------------------------------
+
+run "foundry_injection_outside_the_vnet_region_is_rejected" {
+  command = plan
+  variables {
+    foundry = {
+      instances = [{ location = "swedencentral" }, { location = "eastus2" }]
+      models    = [{ name = "gpt-4o-mini", version = "2024-07-18" }]
+    }
+  }
+  expect_failures = [var.foundry]
+}
+
+run "foundry_instance_in_another_region_without_injection" {
+  command = plan
+  variables {
+    foundry = {
+      instances = [{ location = "swedencentral" }, { location = "eastus2", network_injection_enabled = false }]
+      models    = [{ name = "gpt-4o-mini", version = "2024-07-18" }]
+    }
+  }
+  assert {
+    condition     = length(output.foundry_account_names) == 2
+    error_message = "Accounts in other regions are allowed once their injection is off."
+  }
+}
+
+run "foundry_other_regions_allowed_without_an_agent_subnet" {
+  command = plan
+  variables {
+    network_mode = "alz_spoke"
+    network = {
+      vnet_id = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke"
+      subnet_ids = {
+        pe        = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-pe"
+        apim      = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-apim"
+        logic_app = "/subscriptions/00000000-0000-0000-0000-000000000002/resourceGroups/rg-vended/providers/Microsoft.Network/virtualNetworks/vnet-spoke/subnets/snet-logic"
+      }
+    }
+    foundry = {
+      instances = [{ location = "swedencentral" }, { location = "eastus2" }]
+      models    = [{ name = "gpt-4o-mini", version = "2024-07-18" }]
+    }
+  }
+  assert {
+    condition     = length(output.foundry_account_names) == 2
+    error_message = "No agent subnet = no injection: accounts in any region are allowed."
+  }
+}
+
 run "foundry_can_be_disabled" {
   command = plan
   variables {

@@ -74,6 +74,12 @@ variable "subnet_id" {
   type        = string
 }
 
+variable "private_endpoint_location" {
+  description = "Region of the private endpoint: the region of subnet_id's VNet (a private endpoint must be in its VNet's region, whatever the account's). null = the account's location."
+  type        = string
+  default     = null
+}
+
 variable "dns_zone_id" {
   description = "Resource ID of privatelink.cognitiveservices.azure.com (\"\" = no zone group, e.g. policy-managed)."
   type        = string

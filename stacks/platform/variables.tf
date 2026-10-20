@@ -150,7 +150,10 @@ variable "foundry" {
       instances                  One account (+ default project) per entry; name "" = generated.
       models                     Deployments; ai_service_index selects the instance.
       external_access            Public network access to the accounts.
-      network_injection_enabled  Inject the Agent Service into the agent subnet.
+      network_injection_enabled  Inject the Agent Service into the agent subnet (all instances; per instance:
+                                 instances[*].network_injection_enabled). The agent subnet is in the
+                                 gateway VNet (`location`): an instance in another region must set
+                                 network_injection_enabled = false (Azure rejects a subnet in another region).
       outbound_allowed_fqdns     Restrict the accounts' outbound access to these FQDNs (null = unrestricted).
   EOT
   type = object({
@@ -176,6 +179,18 @@ variable "foundry" {
   })
   default  = {}
   nullable = false
+
+  # Same condition as modules/foundry: injection is used when both flags are on and there is an agent
+  # subnet (greenfield looks it up; alz_spoke / byo pass network.subnet_ids.agent).
+  validation {
+    condition = !(var.foundry.enabled && var.foundry.network_injection_enabled && (
+      var.network_mode == "greenfield" || try(var.network.subnet_ids.agent, null) != null
+      )) || alltrue([
+      for i in var.foundry.instances :
+      !i.network_injection_enabled || lower(replace(i.location, " ", "")) == lower(replace(var.location, " ", ""))
+    ])
+    error_message = "Foundry Agent Service network injection uses the agent subnet of the gateway VNet (location = \"${var.location}\"): set network_injection_enabled = false on the foundry.instances in other regions (${join(", ", distinct([for i in var.foundry.instances : i.location if i.network_injection_enabled && lower(replace(i.location, " ", "")) != lower(replace(var.location, " ", ""))]))})."
+  }
 }
 
 variable "language_service" {

@@ -50,6 +50,7 @@ module "account" {
       name                            = "pe-${var.name}"
       private_service_connection_name = "psc-${var.name}"
       subnet_resource_id              = var.subnet_id
+      location                        = var.private_endpoint_location
       private_dns_zone_resource_ids   = var.dns_zone_group_managed_by_policy || var.dns_zone_id == "" ? [] : [var.dns_zone_id]
       tags                            = var.tags
     }

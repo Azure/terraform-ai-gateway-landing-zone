@@ -35,7 +35,9 @@ api_center = {
 apim_logging = { verbosity = "verbose", body_bytes = 8192, credentials_in_key_vault = true }
 
 foundry = {
-  instances = [{ location = "swedencentral" }, { location = "eastus2" }]
+  # Agent Service network injection needs a VNet in the account's region: the gateway VNet is in
+  # swedencentral, so the eastus2 instance has only its private endpoint (models), no injected agents.
+  instances = [{ location = "swedencentral" }, { location = "eastus2", network_injection_enabled = false }]
   models = [
     { name = "gpt-5.4", version = "2026-03-05", capacity = 100, ai_service_index = 0 },
     { name = "gpt-5.4-mini", version = "2026-03-17", capacity = 100, ai_service_index = 0 },

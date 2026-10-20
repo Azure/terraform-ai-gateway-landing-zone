@@ -20,10 +20,11 @@ module "foundry" {
 
   log_analytics_id = module.monitoring.log_analytics_id
   # Null (no Foundry App Insights) when Foundry is disabled; the module then has no accounts.
-  app_insights_id                  = module.monitoring.foundry_app_insights_id != null ? module.monitoring.foundry_app_insights_id : ""
-  app_insights_instrumentation_key = module.monitoring.foundry_app_insights_instrumentation_key != null ? module.monitoring.foundry_app_insights_instrumentation_key : ""
+  app_insights_id                = module.monitoring.foundry_app_insights_id != null ? module.monitoring.foundry_app_insights_id : ""
+  app_insights_connection_string = module.monitoring.foundry_app_insights_connection_string != null ? module.monitoring.foundry_app_insights_connection_string : ""
 
   subnet_id                         = local.network.subnet_ids.pe
+  private_endpoint_location         = var.location # the gateway VNet's region (greenfield / alz_spoke), also for accounts in other regions
   dns_zone_ids                      = local.zone_ids
   dns_zone_group_managed_by_policy  = local.network.dns_zone_groups_managed_by_policy
   foundry_network_injection_enabled = var.foundry.network_injection_enabled

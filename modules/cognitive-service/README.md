@@ -58,6 +58,7 @@ Called twice by [stacks/platform](../../stacks/platform/ai-services.tf) (`langua
 | <a name="input_enable_diagnostics"></a> [enable\_diagnostics](#input\_enable\_diagnostics) | Create the AllMetrics diagnostic setting (false when Azure Policy owns it). | `bool` | `true` | no |
 | <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
 | <a name="input_log_analytics_id"></a> [log\_analytics\_id](#input\_log\_analytics\_id) | Log Analytics workspace for the diagnostic setting. | `string` | `""` | no |
+| <a name="input_private_endpoint_location"></a> [private\_endpoint\_location](#input\_private\_endpoint\_location) | Region of the private endpoint: the region of subnet\_id's VNet (a private endpoint must be in its VNet's region, whatever the account's). null = the account's location. | `string` | `null` | no |
 | <a name="input_public_network_access_enabled"></a> [public\_network\_access\_enabled](#input\_public\_network\_access\_enabled) | Public network access to the account. false = private endpoint only. | `bool` | `false` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to the account and its private endpoint. | `map(string)` | `{}` | no |
 

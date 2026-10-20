@@ -1,7 +1,7 @@
 # Used once by `task bootstrap` (Contributor + User Access Administrator). Writes backend.hcl next to this file.
-github                 = null                              # "{ repository = "<owner>/<repo>" }" or null = local runs only (no OIDC credentials)
-pipeline_identity_mode = "single"                            # pair (plan + apply) | single (sandbox/dev only)
-graph_permissions      = false                             # no identity stack here
+github                 = null     # "{ repository = "<owner>/<repo>" }" or null = local runs only (no OIDC credentials)
+pipeline_identity_mode = "single" # pair (plan + apply) | single (sandbox/dev only)
+graph_permissions      = false    # no identity stack here
 
 # The usage App Service plan joins the shared ASE: the apply identity needs
 # Microsoft.Web/hostingEnvironments/join/action on it. Contributor scoped to the ASE

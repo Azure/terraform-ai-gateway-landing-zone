@@ -31,10 +31,11 @@ variable "foundry_project_default_name" {
 variable "foundry_instances" {
   description = "List of AI Foundry (AIServices) account definitions."
   type = list(object({
-    name                 = optional(string, "")
-    location             = string
-    custom_subdomain     = optional(string, "")
-    default_project_name = optional(string, "")
+    name                      = optional(string, "")
+    location                  = string
+    custom_subdomain          = optional(string, "")
+    default_project_name      = optional(string, "")
+    network_injection_enabled = optional(bool, true)
   }))
   default = []
 }
@@ -86,8 +87,8 @@ variable "app_insights_id" {
   default     = ""
 }
 
-variable "app_insights_instrumentation_key" {
-  description = "Application Insights instrumentation key used by the Foundry App Insights connection."
+variable "app_insights_connection_string" {
+  description = "Application Insights connection string used by the Foundry App Insights connection (the API rejects a bare instrumentation key)."
   type        = string
   default     = ""
   sensitive   = true
@@ -96,6 +97,12 @@ variable "app_insights_instrumentation_key" {
 variable "subnet_id" {
   description = "Subnet ID for private endpoints."
   type        = string
+}
+
+variable "private_endpoint_location" {
+  description = "Region of the private endpoints: the region of subnet_id's VNet (a private endpoint must be in its VNet's region, whatever the account's). null = each account's own location."
+  type        = string
+  default     = null
 }
 
 variable "dns_zone_ids" {
