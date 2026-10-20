@@ -6,6 +6,13 @@ apim = {
   publisher_email = "ai-gateway@contoso.com"
 }
 
+features = {
+  api_center     = true
+  semantic_cache = true # Azure Managed Redis as the APIM external cache
+}
+
+redis = { sku_name = "Balanced_B10" }
+
 # task output STACK=network NAME=platform_network
 network = {
   vnet_id = "/subscriptions/<sub>/resourceGroups/<rg-vended-net>/providers/Microsoft.Network/virtualNetworks/<vnet-spoke>"
