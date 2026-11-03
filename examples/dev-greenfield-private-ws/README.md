@@ -6,7 +6,8 @@ The same shape as `dev-greenfield-private`, but the usage pipeline runs on a
 ASE cost), reached through a private endpoint:
 
 - greenfield VNet, subnets and every `privatelink.*` zone, including
-  `privatelink.azurewebsites.net` (`network.tfvars` `private_dns.logic_app_zone`);
+  `privatelink.azurewebsites.net` (`network.tfvars` `private_dns.logic_app_zone`)
+  and the Azure Monitor Private Link zones (`private_dns.link_monitor_zone`);
 - APIM StandardV2 with outbound VNet integration and an inbound private
   endpoint (public access off after the second apply);
 - Logic App `sites` private endpoint with the public website/SCM closed
