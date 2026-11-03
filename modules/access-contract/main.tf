@@ -113,6 +113,10 @@ resource "azurerm_api_management_product_policy" "service" {
   resource_group_name = var.api_management.resource_group_name
   product_id          = azurerm_api_management_product.service[each.key].product_id
   xml_content         = local.product_policy_xml[each.key]
+
+  # Classic APIM (Developer/Premium) fails a product policy write that overlaps a write
+  # to the same product's API links with 412 PreconditionFailed.
+  depends_on = [azurerm_api_management_product_api.service]
 }
 
 resource "azapi_resource" "subscription" {

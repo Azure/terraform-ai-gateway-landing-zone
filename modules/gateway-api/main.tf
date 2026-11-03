@@ -294,4 +294,8 @@ resource "azurerm_api_management_product_policy" "this" {
   api_management_name = var.api_management_name
   resource_group_name = var.resource_group_name
   xml_content         = var.product.policy_xml
+
+  # Classic APIM (Developer/Premium) fails a product policy write that overlaps a write
+  # to the same product's API links with 412 PreconditionFailed.
+  depends_on = [azurerm_api_management_product_api.this]
 }
