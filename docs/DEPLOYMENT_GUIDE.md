@@ -45,7 +45,13 @@ group.
 | [Terraform](https://developer.hashicorp.com/terraform/install) | `.terraform-version` (1.16.x) | Stacks pin `~> 1.11`; `tenv`/`tfenv` read the file |
 | [Task](https://taskfile.dev) | ≥ 3.40 | `Taskfile.yml`. Install: `brew install go-task` · `winget install Task.Task` · `npm i -g @go-task/cli` |
 | [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest) | current | Sign-in; `zip_deploy` workflow publishing; `scripts/validate.sh` |
+| [Python](https://www.python.org/downloads/) | ≥ 3.10, as `python3` | `task preflight` (run by `task up`), `task entra-setup`, `task jwt-test` (standard library only); the validation notebooks (`validation/requirements.txt`) |
+| Git | current | Clone; `terraform init` clones the AVM modules with it |
+| Bash, `curl`, POSIX tools (`find`, `sort`, `sed`, `basename`, `seq`, `sleep`) | — | Taskfile commands, `task validate` (`scripts/validate.sh`), the `zip_deploy` provisioner (`bash -c`). Built into macOS and Linux; Windows: [§2.2](#22-deploying-from-windows) |
 | `gh` (optional) | current | GitHub environments and variables (§7) |
+
+**Windows:** deploy from Git Bash or WSL2, not PowerShell or cmd; see
+[§2.2](#22-deploying-from-windows).
 
 ```bash
 az login --tenant <tenant-id>
@@ -81,6 +87,147 @@ Every stack also needs *Storage Blob Data Contributor* on the state account
 (`bootstrap` grants it). The plan identity gets read-only rights only. When a
 platform team issues the rights instead, see
 [operations/platform-team-requests.md](operations/platform-team-requests.md).
+
+### 2.2 Deploying from Windows
+
+**Git Bash works and WSL2 isn't required, but plain PowerShell or cmd doesn't
+work with Task.** Task runs every command through its own POSIX shell
+interpreter, but takes `sort`, `sed`, `basename`, `seq`, `sleep`, `bash` and
+`python3` from `PATH`. `task validate` runs `bash scripts/validate.sh`, and the
+`zip_deploy` workflow publish
+([code-deploy.tf](../modules/logic-app/code-deploy.tf)) runs `bash -c`.
+
+| Shell | Works | Choose it when |
+|---|---|---|
+| **Git Bash** (Git for Windows) with the Windows builds of the tools | yes, with the settings below | the default on a Windows laptop |
+| **WSL2** (Ubuntu) with the Linux builds of the tools | yes, as on Linux; no Windows-specific settings | you want the same environment as CI (`ubuntu` runners), or `tmux` for the 2–4 h `app-hosting` apply |
+| PowerShell / cmd | Task: **no**. Plain Terraform (§4.4): yes, except the `zip_deploy` publish | neither of the above is allowed (see the end of this section) |
+
+#### Git Bash
+
+```powershell
+winget install -e --id Git.Git                       # Git Bash: bash, find, sort, sed, curl
+winget install -e --id Hashicorp.Terraform           # or tenv; match .terraform-version
+winget install -e --id Task.Task
+winget install -e --id Microsoft.AzureCLI            # includes an `az` script for Git Bash
+winget install -e --id Python.PythonInstallManager   # provides `python3`; then: py install 3.13
+```
+
+Then, in a new **Git Bash** window (so it picks up the new `PATH`):
+
+```bash
+git config --global core.longpaths true            # .terraform/modules paths go past 260 characters
+echo 'export TASK_CORE_UTILS=false' >> ~/.bashrc    # Git's find, not Task's built-in one
+source ~/.bashrc
+git clone -c core.autocrlf=false https://github.com/Azure/terraform-ai-hub-gateway-landing-zone.git /c/src/aigw
+cd /c/src/aigw
+command -v terraform task az python3 bash find sort sed   # find, sort, sed: /usr/bin/...
+python3 --version                                        # 3.10+, not a Microsoft Store prompt
+```
+
+Everything in §3 onwards then works unchanged. Why each setting:
+
+- **`TASK_CORE_UTILS=false`.** On Windows, Task replaces `find`, `ls`, `rm`
+  and a few other commands with built-in Go versions by default. Its `find`
+  doesn't support `-maxdepth` or `-exec`, which the Taskfile uses to list
+  `access-contracts/*.tfvars`. The list then comes back empty without failing
+  the task, so `task up`, `task contracts`, `task plan-all` and `task down`
+  **silently skip every access contract**. The only sign is
+  `find: flag provided but not defined: -exec` in the output. With `false`,
+  Task uses Git's `find`.
+- **`core.autocrlf=false`, set for this clone only.** Git for Windows defaults
+  to `true` and checks files out with CRLF line endings; the repository uses
+  LF. With CRLF, `bash scripts/validate.sh` fails with
+  `$'\r': command not found`. The workflow package Terraform zips also gets a
+  different hash than in CI, so every switch between a Windows apply and a CI
+  apply republishes the workflows.
+- **`core.longpaths=true`, global.** Terraform clones the AVM modules with
+  `git` into `stacks/<stack>/.terraform/modules/…`. Paths there reach about 165
+  characters below the repository root, which goes past Windows' 260-character
+  limit when cloned under `C:\Users\<name>\…` (`Filename too long`). It has to
+  be global because Terraform's module clones don't read the repository's
+  config.
+- **A short path without spaces, outside OneDrive** (e.g. `C:\src\aigw`). The
+  Taskfile passes paths unquoted, so a space splits them. Every task then
+  fails; `task bootstrap`, for example, reports
+  `Create environments/<env>/common.tfvars … first` although the files exist.
+  OneDrive would also sync `.terraform/` with its large provider binaries.
+- **`python3`.** The
+  [Python install manager](https://docs.python.org/3/using/windows.html)
+  includes a `python3` command. The older python.org installer only provides
+  `python` and `py`, so `python3` starts the Microsoft Store stub (`Python was
+  not found; run without arguments to install from the Microsoft Store…`) and
+  `task up` stops at the preflight. Use the install manager. Otherwise, run
+  `py scripts/preflight.py <env>` yourself, then `task up ENV=<env>
+  PREFLIGHT=false`.
+- **Typing `az` commands yourself:** Git Bash rewrites arguments that start
+  with `/` into Windows paths (`/subscriptions/…` becomes
+  `C:/Program Files/Git/subscriptions/…`). Prefix such commands with
+  `MSYS_NO_PATHCONV=1`, e.g.
+  `MSYS_NO_PATHCONV=1 az role assignment list --scope /subscriptions/<id>`.
+  The repository's scripts and the Taskfile don't need it.
+- **Long applies:** `platform` (45–90 min) and `app-hosting` (2–4 h) need
+  the window open and the machine awake, and Git Bash has no `tmux`. Run
+  `app-hosting` from WSL2 or CI. An interrupted apply leaves the state lock
+  held; release it with
+  `terraform -chdir=stacks/<stack> force-unlock <lock-id>`.
+
+#### WSL2
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+In Ubuntu, install the **Linux** builds:
+[Terraform](https://developer.hashicorp.com/terraform/install) (or `tenv`),
+[Task](https://taskfile.dev/docs/installation),
+[Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux)
+(`curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash`), and
+`sudo apt install -y git curl python3 python3-venv` (the venv is for the
+validation notebooks). Then deploy as on Linux:
+
+```bash
+mkdir -p ~/src && cd ~/src
+git clone https://github.com/Azure/terraform-ai-hub-gateway-landing-zone.git
+cd terraform-ai-hub-gateway-landing-zone
+command -v terraform task az python3   # every path under /usr or $HOME, none under /mnt/c
+az login                               # or: az login --use-device-code
+```
+
+- **Clone into the Linux file system** (`~/src`), not `/mnt/c/…`. Windows
+  drives are much slower from WSL2, and `terraform init` writes thousands of
+  module files. A clone made by Windows Git also has CRLF line endings.
+- **Linux tools only.** WSL appends the Windows `PATH`, so a tool missing in
+  Linux silently falls back to the Windows one (e.g. `/mnt/c/…/az`).
+  `command -v` shows which one runs.
+- **Private data planes over a corporate VPN** (§4.5). With WSL2's default
+  NAT networking, `privatelink` names may resolve to public addresses or be
+  unreachable. On Windows 11 22H2 and later, add this to
+  `%UserProfile%\.wslconfig`, then run `wsl --shutdown`:
+
+  ```ini
+  [wsl2]
+  networkingMode=mirrored
+  dnsTunneling=true
+  autoProxy=true
+  ```
+
+#### PowerShell only
+
+If neither Git Bash nor WSL2 is allowed, Task isn't usable. Apply the stacks
+with plain Terraform (§4.4), and:
+
+- **Bootstrap:** use the manual steps at the end of §4.4.
+- **Preflight:** run `py scripts/preflight.py <env>` instead of
+  `task preflight`.
+- **Smoke tests:** run `pwsh scripts/validate.ps1 <env>` (PowerShell 7)
+  instead of `task validate`, after `terraform -chdir=stacks/platform init …`.
+- **No `zip_deploy` publish**, i.e. `usage_pipeline.logic_app.code_deploy =
+  true` with `hosting = "workflow_standard"` (the default) or with
+  `deployment = "zip_deploy"`. Terraform runs that publish with `bash -c`, and
+  from PowerShell `bash` is WSL's `bash.exe` launcher, if it exists at all.
+  Apply `platform` from Git Bash or WSL2 for those. `ase_v3` with the default
+  `run_from_package` needs no Bash.
 
 ---
 
@@ -1125,3 +1272,9 @@ a human, or keep the names and let `recover_soft_deleted_key_vaults` recover.
 | Logic App runs but the workflows are empty | code publish skipped or failed | `task logic-app-code ENV=<env>` from a runner that reaches the storage PE; fall back to `deployment = "zip_deploy"` |
 | `llm-usage-ingestion` / `mcp-usage-ingestion` / `agent-usage-ingestion` runs succeed but write no usage records, while the gateway serves traffic | the Log Analytics workspace behind the APIM App Insights component blocks queries from public networks (often a central BYO workspace); the managed connector queries through Resource Manager and gets an empty result, not an error | let the workspace accept public queries (`publicNetworkAccessForQuery = Enabled`); this repository keeps it on for the workspace it creates |
 | `Error acquiring the state lock` in a PR plan | the plan identity can only read state | plans run with `-lock=false` (`LOCK=-lock=false`) |
+| Windows: `task up` / `task contracts` / `task down` finish without touching any access contract; `find: flag provided but not defined: -exec` in the output | Task's built-in `find` (on by default on Windows) doesn't support the Taskfile's `-maxdepth` / `-exec`, so the contract list comes back empty | `export TASK_CORE_UTILS=false` in Git Bash ([§2.2](#22-deploying-from-windows)) and re-run |
+| Windows: every task fails, e.g. `task bootstrap` says `Create environments/<env>/common.tfvars … first` although the files exist | the clone path contains a space (often `OneDrive - <org>`); the Taskfile passes paths unquoted | clone to a short path without spaces, e.g. `C:\src\aigw` |
+| Windows: `$'\r': command not found` from `task validate`, or each switch between a Windows and a CI apply republishes the workflows | CRLF checkout (Git for Windows' default `core.autocrlf=true`) | re-clone with `git clone -c core.autocrlf=false …` |
+| Windows: `Filename too long` during `terraform init` | the AVM module clones under `.terraform/modules` go past the 260-character path limit | `git config --global core.longpaths true`; a shorter clone path |
+| Windows: `Python was not found; run without arguments to install from the Microsoft Store…` from `task preflight` / `task up` | `python3` is the Microsoft Store stub (the older python.org installer doesn't create `python3`) | install Python with the Python install manager, or `py scripts/preflight.py <env>` and `task up ENV=<env> PREFLIGHT=false` |
+| Windows, from PowerShell: the `zip_deploy` publish fails with `ERROR: az CLI not found on PATH` | Terraform's `bash -c` provisioner resolved to WSL's `bash.exe`, which runs it inside the Linux distribution | apply `platform` from Git Bash or WSL2 ([§2.2](#22-deploying-from-windows)) |
