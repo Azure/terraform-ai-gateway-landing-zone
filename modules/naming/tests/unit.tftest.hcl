@@ -28,7 +28,7 @@ run "snapshot" {
       app_service_environment = "ase-aigw-dev-27cbb"
       apim                    = "apim-aigw-dev-27cbb"
       key_vault               = "kv-aigw-dev-27cbb"
-      cosmos                  = "cosno-aigw-dev-27cbb"
+      cosmos                  = "cosmo-aigw-dev-27cbb"
       eventhub_namespace      = "evhns-aigw-dev-27cbb"
       log_analytics           = "log-aigw-dev"
       uami_apim               = "id-aigw-dev-apim"
