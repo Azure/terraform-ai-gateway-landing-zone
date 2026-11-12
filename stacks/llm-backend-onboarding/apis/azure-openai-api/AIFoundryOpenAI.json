@@ -1,8 +1,8 @@
 {
   "openapi": "3.0.1",
   "info": {
-    "title": "Azure OpenAI Service API",
-    "description": "Azure OpenAI APIs for completions and search",
+    "title": "Azure OpenAI API",
+    "description": "Azure OpenAI API to route requests to different LLM providers including Azure OpenAI, AI Foundry and 3rd party models.",
     "version": "2024-05-01-preview"
   },
   "servers": [
@@ -410,7 +410,7 @@
                     "content": "How are you?"
                   }
                 ],
-                "max_tokens": 50
+                "max_completion_tokens": 50
               }
             }
           }
