@@ -288,10 +288,14 @@ get_available_models, metadata_config, backend_contract}` upload.
   bedrock backend on a non-default host (VPC or FIPS endpoint) is not supported
   by this signing.
 - **Release Version API.** [release-version-api.tf](../stacks/llm-backend-onboarding/release-version-api.tf)
-  publishes `GET /version` (release of this deployment) and
-  `GET /version/backend-contract` (the `backend-contract` fragment). The contract
-  lists backend endpoints and the *names* of their key named values, never a
-  value, and the API requires a subscription key.
+  publishes `GET /version`, which returns [release.json](../release.json) as it is
+  (like upstream), and `GET /version/backend-contract` (the `backend-contract`
+  fragment). `release.json` is edited by hand before each release (set
+  `master-version` to the release, bump the tracks that changed) and published by
+  applying this stack; the contract reports its `master-version` and
+  `backend-contract-version`. The contract lists backend endpoints and the
+  *names* of their key named values, never a value, and the API requires a
+  subscription key.
 
 ### 3.3 Named values (variables fragments consume)
 

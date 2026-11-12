@@ -426,8 +426,9 @@ run "the_backend_contract_describes_the_live_routing" {
   command = plan
 
   variables {
-    release_version = "2.3.4"
-    model_aliases   = [{ name = "fast", models = ["m"] }]
+    release_version          = "2.3.4"
+    backend_contract_version = "3.4.5"
+    model_aliases            = [{ name = "fast", models = ["m"] }]
     llm_backend_config = [
       { backend_id = "partner", backend_type = "external", endpoint = "https://p.example.com/v1", auth_type = "api-key-bearer", auth_config = { named_value_key = "partner-key" }, supported_models = [{ name = "m" }], circuit_breaker = { trip_duration = "PT5M" } },
     ]
@@ -436,6 +437,10 @@ run "the_backend_contract_describes_the_live_routing" {
   assert {
     condition     = jsondecode(regex("<set-body>(.*)</set-body>", azurerm_api_management_policy_fragment.backend_contract.value)[0]).masterVersion == "2.3.4"
     error_message = "The contract carries the version of the solution."
+  }
+  assert {
+    condition     = jsondecode(regex("<set-body>(.*)</set-body>", azurerm_api_management_policy_fragment.backend_contract.value)[0]).backendContractVersion == "3.4.5" && output.backend_contract_version == "3.4.5"
+    error_message = "The contract carries the backend contract version it is given."
   }
   assert {
     condition     = jsondecode(regex("<set-body>(.*)</set-body>", azurerm_api_management_policy_fragment.backend_contract.value)[0]).apim == { subscriptionId = "00000000-0000-0000-0000-000000000002", resourceGroupName = "rg-aigw-dev", name = "apim-aigw-dev" }

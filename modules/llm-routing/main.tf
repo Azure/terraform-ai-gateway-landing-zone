@@ -456,14 +456,11 @@ resource "azurerm_api_management_policy_fragment" "resolve_model_alias" {
 # -----------------------------------------------------------------------------
 
 locals {
-  # Version of the contract document itself (bump when its shape changes).
-  backend_contract_version = "1.1.0"
-
   apim_id_parts = split("/", var.api_management_id)
 
   backend_contract = {
     masterVersion          = var.release_version
-    backendContractVersion = local.backend_contract_version
+    backendContractVersion = var.backend_contract_version
     apim = {
       subscriptionId    = local.apim_id_parts[2]
       resourceGroupName = local.apim_id_parts[4]

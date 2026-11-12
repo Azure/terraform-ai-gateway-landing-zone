@@ -300,6 +300,20 @@ run "release_version_api_is_published_with_the_contract" {
   }
 }
 
+# GET /version returns release.json as it is (XML-escaped in the policy); the contract reports its versions.
+run "release_manifest_is_the_version_body_and_feeds_the_contract" {
+  command = plan
+
+  assert {
+    condition     = jsondecode(replace(replace(replace(regex("(?s)<set-body>(.*)</set-body>", local.release_version_policy_xml)[0], "&gt;", ">"), "&lt;", "<"), "&amp;", "&")) == local.release_manifest
+    error_message = "GET /version returns the content of release.json."
+  }
+  assert {
+    condition     = local.release_version == local.release_manifest["master-version"] && module.llm_routing.backend_contract_version == local.release_manifest["backend-contract-version"]
+    error_message = "The backend contract reports the master-version and backend-contract-version of release.json."
+  }
+}
+
 # Stateful Foundry models get session affinity on their pools; the new backend fields pass through.
 run "session_affinity_model_path_and_native_provider_keys_reach_the_module" {
   command = plan

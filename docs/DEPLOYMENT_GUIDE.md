@@ -1170,7 +1170,6 @@ query it from the VNet.
 | [apply.yml](../.github/workflows/apply.yml) | push to main, dispatch | applies the affected stacks in order, dev → test → prod (approvals on the GitHub environments) |
 | [drift.yml](../.github/workflows/drift.yml) | nightly | `plan -detailed-exitcode` for every stack; opens an issue per drifted environment |
 | [e2e.yml](../.github/workflows/e2e.yml) | weekly, dispatch | `examples/quickstart` → bootstrap, `task up`, `task validate`, teardown in a sandbox subscription |
-| [release.yml](../.github/workflows/release.yml) | main | release-please (changelog, tags) |
 
 All of them run Task through [_stack.yml](../.github/workflows/_stack.yml).
 

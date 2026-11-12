@@ -26,5 +26,5 @@ output "pools" {
 
 output "backend_contract_version" {
   description = "Version of the backend contract document served at /version/backend-contract."
-  value       = local.backend_contract_version
+  value       = var.backend_contract_version
 }

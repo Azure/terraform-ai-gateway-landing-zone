@@ -1,10 +1,17 @@
-# Release Version API: the release of this deployment (GET /version) and the live LLM
+# Release Version API: the release manifest of this deployment (GET /version) and the live LLM
 # backend routing contract (GET /version/backend-contract). The contract lists backend
 # endpoints and the names of their key named values, so a subscription key is required.
 
 locals {
-  # version.txt is written by release-please; a checkout without a release has none.
-  release_version = fileexists("${path.module}/../../version.txt") ? trimspace(file("${path.module}/../../version.txt")) : "0.0.0"
+  # release.json (repository root) is the release manifest, edited by hand before every release.
+  # GET /version returns it as it is, like the upstream accelerator; the backend contract reports
+  # its master-version and backend-contract-version.
+  release_manifest_json = trimspace(file("${path.module}/../../release.json"))
+  release_manifest      = jsondecode(local.release_manifest_json)
+  release_version       = local.release_manifest["master-version"]
+
+  # The manifest is the literal body of a return-response policy: escape what XML reserves.
+  release_manifest_xml = replace(replace(replace(local.release_manifest_json, "&", "&amp;"), "<", "&lt;"), ">", "&gt;")
 
   release_version_policy_xml = <<-XML
     <policies>
@@ -15,7 +22,7 @@ locals {
                 <set-header name="Content-Type" exists-action="override">
                     <value>application/json</value>
                 </set-header>
-                <set-body>${jsonencode({ "master-version" = local.release_version, "backend-contract-version" = module.llm_routing.backend_contract_version })}</set-body>
+                <set-body>${local.release_manifest_xml}</set-body>
             </return-response>
         </inbound>
         <backend>

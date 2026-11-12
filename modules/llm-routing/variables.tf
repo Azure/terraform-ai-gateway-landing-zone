@@ -171,7 +171,13 @@ variable "session_affinity" {
   }
 }
 variable "release_version" {
-  description = "Version of this solution reported as masterVersion in the backend contract (the stack reads version.txt of release-please)."
+  description = "Version of this solution reported as masterVersion in the backend contract (master-version of the release.json the stack reads)."
+  type        = string
+  default     = "0.0.0"
+}
+
+variable "backend_contract_version" {
+  description = "Version of the backend contract document reported as backendContractVersion (backend-contract-version of the release.json the stack reads)."
   type        = string
   default     = "0.0.0"
 }

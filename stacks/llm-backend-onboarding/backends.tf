@@ -85,6 +85,7 @@ module "llm_routing" {
   model_aliases              = var.model_aliases
   session_affinity           = var.session_affinity
   release_version            = local.release_version
+  backend_contract_version   = local.release_manifest["backend-contract-version"]
 
   # APIM resolves the {{named values}} of the backend credentials when it saves a backend,
   # and refuses a backend whose named value doesn't exist yet.
