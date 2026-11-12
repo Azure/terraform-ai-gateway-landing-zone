@@ -476,7 +476,7 @@ SNIPPETS = {
     "jwt": """
 # access contract (.tfvars), per service:
 jwt_required   = true
-required_roles = []   # or app roles, e.g. ["Models.Read"]
+required_roles = []   # or app roles, e.g. ["Model.Invoke"]
 """,
     "pii": """
 <!-- access contract service: policy_xml = <custom product policy> (keep the generated rules) -->

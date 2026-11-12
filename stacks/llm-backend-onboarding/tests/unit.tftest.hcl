@@ -372,6 +372,28 @@ run "bedrock_sigv4_does_not_depend_on_the_request_url_host" {
   }
 }
 
+# Regression: the ai-foundry pools use the OpenAI v1 endpoint, which rejects a dated client api-version
+# (Universal LLM API chat and responses with ?api-version=... failed 400/404), so the fragment drops it.
+# The Azure OpenAI API runs the fragment before its own deployments rewrite, which needs the api-version:
+# dropping it there made every Azure OpenAI API call to Foundry a 404, so the Azure OpenAI API must set
+# openAIRewriteTemplate before it includes the fragment (that variable is what the fragment tests).
+run "ai_foundry_v1_drops_the_client_api_version_except_for_the_azure_openai_api" {
+  command = plan
+
+  assert {
+    condition     = strcontains(file("${path.module}/fragments/frag-set-backend-authorization.xml"), "!context.Variables.ContainsKey(\"openAIRewriteTemplate\") && (context.Variables.GetValueOrDefault<string>(\"rewriteTemplate\", \"\")).TrimStart('/').StartsWith(\"openai/v1/\"")
+    error_message = "The api-version is dropped only when the rewrite goes to the v1 endpoint and the Azure OpenAI API will not rewrite again."
+  }
+  assert {
+    condition     = !can(regex("(?m)^\\s+return string\\.Format\\(\"models/\\{0\\}\"", file("${path.module}/fragments/frag-set-backend-authorization.xml")))
+    error_message = "ai-foundry chat/completions goes to the v1 endpoint, not to /models/{path}."
+  }
+  assert {
+    condition     = can(regex("(?s)<set-variable name=\"openAIRewriteTemplate\".*<include-fragment fragment-id=\"set-backend-authorization\"", file("${path.module}/apis/azure-openai-api/azure-open-ai-api-policy.xml")))
+    error_message = "The Azure OpenAI API policy must set openAIRewriteTemplate before it includes set-backend-authorization."
+  }
+}
+
 # Regression: the Universal LLM and Azure OpenAI specs share tag names (Chat, Embeddings, Responses,
 # Vector Stores) and APIM creates import tags service-wide, so importing both in parallel
 # intermittently failed with "Tag with the same name already exists". The Universal LLM API is its own
@@ -420,5 +442,46 @@ run "universal_llm_api_v2_spec" {
       contains(flatten([for p in values(jsondecode(local.universal_llm_spec).paths) : [for m, o in p : try(o.operationId, "")]]), id)
     ])
     error_message = "The operations that carry operation policies keep their operation IDs."
+  }
+}
+
+# The Azure Monitor diagnostic of every LLM API logs the attribution headers clients send, on the
+# frontend request only.
+run "azure_monitor_diagnostics_log_the_attribution_headers" {
+  command = plan
+
+  assert {
+    condition     = length([for a in local.llm_apis : a if a.azure_monitor_diagnostic != null]) >= 2
+    error_message = "The Azure OpenAI and Universal LLM APIs have an Azure Monitor diagnostic."
+  }
+  assert {
+    condition = alltrue([for a in local.llm_apis :
+      a.azure_monitor_diagnostic.properties.frontend.request.headers == tolist(["x-agent-id", "x-cost-center", "x-session-id", "x-traffic-class", "x-user-hash", "x-user-id"])
+      if a.azure_monitor_diagnostic != null
+    ])
+    error_message = "Every LLM API logs x-agent-id, x-cost-center, x-session-id, x-traffic-class, x-user-hash and x-user-id."
+  }
+  assert {
+    condition = alltrue([for a in local.llm_apis :
+      length(a.azure_monitor_diagnostic.properties.backend.request.headers) == 0 && length(a.azure_monitor_diagnostic.properties.frontend.response.headers) == 0
+      if a.azure_monitor_diagnostic != null
+    ])
+    error_message = "Only the frontend request logs headers."
+  }
+}
+
+run "azure_monitor_request_headers_can_be_changed" {
+  command = plan
+
+  variables {
+    azure_monitor_request_headers = ["x-tenant-id"]
+  }
+
+  assert {
+    condition = alltrue([for a in local.llm_apis :
+      a.azure_monitor_diagnostic.properties.frontend.request.headers == tolist(["x-tenant-id"])
+      if a.azure_monitor_diagnostic != null
+    ])
+    error_message = "azure_monitor_request_headers sets the headers logged by every LLM API."
   }
 }

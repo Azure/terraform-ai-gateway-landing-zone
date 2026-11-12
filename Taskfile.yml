@@ -232,7 +232,7 @@ tasks:
       - bash scripts/validate.sh {{.ENV}}
 
   entra-setup:
-    desc: "Gateway Entra app (when stacks/identity doesn't create it) + a JWT test client with a secret in Key Vault: task entra-setup ENV=dev [-- --client-roles Models.Read]"
+    desc: "Gateway Entra app (when stacks/identity doesn't create it) + a JWT test client with a secret in Key Vault: task entra-setup ENV=dev [-- --client-roles Model.Invoke]"
     cmds:
       - python3 scripts/entra_id_setup.py {{.ENV}} {{.CLI_ARGS}}
 

@@ -155,7 +155,7 @@ run "jwt_properties_are_accepted" {
       endpoint_secret_name  = "A"
       api_key_secret_name   = "B"
       jwt_required          = true
-      required_roles        = ["Models.Read", "Task.ReadWrite"]
+      required_roles        = ["Model.Invoke", "Agent.Invoke"]
       jwt_audience          = "https://my-api.example.com"
       jwt_issuer            = "https://my-company.auth0.com/"
       jwt_openid_config_url = "https://my-company.auth0.com/.well-known/openid-configuration"
@@ -177,7 +177,7 @@ run "jwt_roles_need_jwt_required" {
   command = plan
 
   variables {
-    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", required_roles = ["Models.Read"] }]
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", required_roles = ["Model.Invoke"] }]
   }
 
   override_module {

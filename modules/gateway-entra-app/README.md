@@ -1,8 +1,8 @@
 # Gateway Entra app
 
 The Entra application APIM validates JWTs against. It creates the app
-registration (the `access_as_user` scope plus the `Task.ReadWrite`,
-`Models.Read`, `MCP.Read` and `Agent.Read` app roles, and the delegated
+registration (the `access_as_user` scope plus the `Model.Invoke`,
+`MCP.Invoke` and `Agent.Invoke` app roles, and the delegated
 Microsoft Graph `User.Read` permission), the `api://<client_id>`
 identifier URI and the service principal.
 

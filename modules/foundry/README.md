@@ -53,7 +53,7 @@ The Foundry-to-APIM connections are not created here: they are access contracts 
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_account_names"></a> [account\_names](#input\_account\_names) | Foundry (AI Services) account names, one per entry in foundry\_instances (from modules/naming). | `list(string)` | n/a | yes |
 | <a name="input_apim_principal_id"></a> [apim\_principal\_id](#input\_apim\_principal\_id) | Principal ID granted 'Cognitive Services User' on each Foundry (typically APIM UAMI). | `string` | n/a | yes |
-| <a name="input_deployer_object_id"></a> [deployer\_object\_id](#input\_deployer\_object\_id) | Principal ID granted 'Azure AI Project Manager' on each Foundry (matches deployer() in Bicep). | `string` | n/a | yes |
+| <a name="input_deployer_object_id"></a> [deployer\_object\_id](#input\_deployer\_object\_id) | Principal ID granted 'Azure AI Project Manager' on each Foundry. | `string` | n/a | yes |
 | <a name="input_resource_group_id"></a> [resource\_group\_id](#input\_resource\_group\_id) | Resource ID of the resource group the module deploys into. | `string` | n/a | yes |
 | <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id) | Subnet ID for private endpoints. | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |

@@ -344,7 +344,7 @@ run "jwt_overrides_roles_and_partial_override" {
         jwt_audience          = "api://partner-gateway"
         jwt_issuer            = "https://login.microsoftonline.com/99999999-0000-0000-0000-000000000000/v2.0"
         jwt_openid_config_url = "https://login.microsoftonline.com/99999999-0000-0000-0000-000000000000/v2.0/.well-known/openid-configuration"
-        required_roles        = ["Models.Read", "Agent.Read"]
+        required_roles        = ["Model.Invoke", "Agent.Invoke"]
       },
       { code = "DOC", endpoint_secret_name = "C", api_key_secret_name = "D", jwt_required = true, jwt_audience = "api://only-the-audience" },
     ]
@@ -355,7 +355,7 @@ run "jwt_overrides_roles_and_partial_override" {
       strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"jwtAudience\" value=\"api://partner-gateway\" />") &&
       strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"jwtIssuer\" value=\"https://login.microsoftonline.com/99999999-0000-0000-0000-000000000000/v2.0\" />") &&
       strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"jwtOpenIdConfigUrl\" value=\"https://login.microsoftonline.com/99999999-0000-0000-0000-000000000000/v2.0/.well-known/openid-configuration\" />") &&
-      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"requiredRoles\" value=\"Models.Read,Agent.Read\" />")
+      strcontains(azurerm_api_management_product_policy.service["LLM"].xml_content, "<set-variable name=\"requiredRoles\" value=\"Model.Invoke,Agent.Invoke\" />")
     )
     error_message = "Another tenant (all three overrides) and app roles (OR list) reach the product policy."
   }
@@ -373,7 +373,7 @@ run "jwt_options_need_jwt_required" {
   command = plan
 
   variables {
-    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", required_roles = ["Models.Read"] }]
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", required_roles = ["Model.Invoke"] }]
   }
 
   expect_failures = [var.services]
@@ -383,7 +383,7 @@ run "jwt_roles_are_validated" {
   command = plan
 
   variables {
-    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true, required_roles = ["Models.Read,Agent.Read"] }]
+    services = [{ code = "LLM", endpoint_secret_name = "A", api_key_secret_name = "B", jwt_required = true, required_roles = ["Model.Invoke,Agent.Invoke"] }]
   }
 
   expect_failures = [var.services]

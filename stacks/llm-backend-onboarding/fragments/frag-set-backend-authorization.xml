@@ -24,9 +24,11 @@
                  deployments template), so the ai-foundry / azure-openai rewrites below only
                  shape Universal LLM API requests.
 
-                 api-version: the /openai/deployments/{model}/... paths need one, and Universal
-                 LLM API (OpenAI SDK) clients don't send it. Without one, the OpenAI v1 endpoint
-                 family (/openai/v1/..., model in the body) is used instead, which needs none.
+                 api-version: ai-foundry pools always use the OpenAI v1 endpoint family
+                 (/openai/v1/..., model in the body), which rejects a dated api-version, so the
+                 client's is dropped (not for the Azure OpenAI API, which needs it for its own
+                 rewrite). azure-openai pools use /openai/deployments/{model}/... when the client
+                 sends an api-version and the v1 endpoint family when it doesn't.
         
         Expected Input Variables:
         - targetAuthType: The auth type for the target backend
@@ -308,27 +310,28 @@
                 }
 
                 // If path is chat/completions, embeddings, or images/embeddings, use /models/{path}
-                if (lowerPath.Contains("chat/completions"))
-                {
-                    return string.Format("models/{0}", path);
-                }
+                //if (lowerPath.Contains("chat/completions"))
+                //{
+                //    return string.Format("models/{0}", path);
+                //}
 
-                // Embeddings: the Azure OpenAI surface of the account. /openai/deployments/{model}/embeddings
-                // needs an api-version (404 without one), so it's only used when the client sent one;
-                // otherwise /openai/v1/embeddings (model in the body).
-                if (lowerPath.Contains("embeddings"))
-                {
-                    if (string.IsNullOrEmpty(context.Request.OriginalUrl.Query.GetValueOrDefault("api-version", "")))
-                    {
-                        return string.Format("openai/v1/{0}", path);
-                    }
-                    string requestedModel = (string)context.Variables["requestedModel"];
-                    return string.Format("openai/deployments/{0}/{1}", requestedModel, path);
-                }
+                // If embeddings endpoint, route to /openai/deployments/{model}/embeddings to leverage Azure OpenAI backend for embeddings
+                //if (lowerPath.Contains("embeddings"))
+                //{
+                //    string requestedModel = (string)context.Variables["requestedModel"];
+                //    return string.Format("openai/deployments/{0}/{1}", requestedModel, path);
+                //}
 
                 // Catch-all: /openai/v1/{path}
                 return string.Format("openai/v1/{0}", path);
             }" />
+            <choose>
+                <when condition="@(!context.Variables.ContainsKey("openAIRewriteTemplate") && (context.Variables.GetValueOrDefault<string>("rewriteTemplate", "")).TrimStart('/').StartsWith("openai/v1/", StringComparison.OrdinalIgnoreCase))">
+                    <!-- The v1 endpoint must not inherit a dated client api-version. Not for the Azure OpenAI API
+                         (openAIRewriteTemplate is set): its own rewrite follows and needs the api-version. -->
+                    <set-query-parameter name="api-version" exists-action="delete" />
+                </when>
+            </choose>
             <rewrite-uri template="@((string)context.Variables["rewriteTemplate"])" copy-unmatched-params="true" />
         </when>
         <when condition="@(context.Variables.GetValueOrDefault<string>("targetPoolType", "") == "gemini-openai")">

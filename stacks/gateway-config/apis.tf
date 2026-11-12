@@ -14,6 +14,12 @@ locals {
     response = { headers = [], body = { bytes = 0 } }
   }
 
+  # The frontend request also logs the attribution headers clients send (azure_monitor_request_headers).
+  azure_monitor_frontend = {
+    request  = { headers = var.azure_monitor_request_headers, body = { bytes = 0 } }
+    response = { headers = [], body = { bytes = 0 } }
+  }
+
   service_app_insights_diagnostic = var.api_diagnostics.enabled ? {
     logger_id  = local.app_insights_logger_id
     verbosity  = "information"
@@ -29,7 +35,7 @@ locals {
       logClientIp = true
       loggerId    = local.azure_monitor_logger_id
       sampling    = { samplingType = "fixed", percentage = 100 }
-      frontend    = local.azure_monitor_no_body
+      frontend    = local.azure_monitor_frontend
       backend     = local.azure_monitor_no_body
       largeLanguageModel = {
         logs      = "enabled"

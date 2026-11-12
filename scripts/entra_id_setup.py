@@ -7,19 +7,22 @@ bicep/infra/entra-id-setup/setup.ps1), for teams whose pipeline identity has no 
 Idempotent; run it as a person who can register applications (az login). It:
   1. finds the gateway app registration by its naming-contract name (app-<workload>-<env>-<seed>-gateway,
      the one stacks/identity creates) or, when it doesn't exist, creates it exactly like stacks/identity:
-     scope access_as_user, app roles Task.ReadWrite / Models.Read / MCP.Read / Agent.Read, v2 access
-     tokens, identifier URI api://<client-id>, and its service principal. An existing app is not changed.
+     scope access_as_user, app roles Model.Invoke / MCP.Invoke / Agent.Invoke, v2 access tokens,
+     identifier URI api://<client-id>, and its service principal. An existing app keeps everything except
+     its app roles: these three are brought up to date in place (same role IDs, so assignments survive)
+     and the retired Task.ReadWrite role is removed, as stacks/identity does (assignments of it stay
+     behind, no longer tied to a role); any other role is left alone.
   2. creates a test client app (<gateway app>-test-client) and its service principal: the identity a
      client application uses to get gateway tokens (OAuth 2.0 client credentials);
   3. gives it a new client secret (older secrets of this script are removed) and stores the client ID
      and secret in Key Vault as ENTRA-TEST-CLIENT-ID / ENTRA-TEST-CLIENT-SECRET;
-  4. assigns it exactly the gateway app roles of --client-roles (default Models.Read) and removes the
+  4. assigns it exactly the gateway app roles of --client-roles (default Model.Invoke) and removes the
      others, so the roles claim of its tokens is predictable (scripts/jwt_auth_tests.py relies on it);
   5. prints the gateway-config.tfvars `entra_auth` block. Unlike setup.ps1 it doesn't write the APIM JWT-*
      named values: stacks/gateway-config owns them (task apply STACK=gateway-config sets them).
 
 Options:
-  --client-roles R1,R2   gateway app roles of the test client (default Models.Read; "" = none)
+  --client-roles R1,R2   gateway app roles of the test client (default Model.Invoke; "" = none)
   --no-client            only the gateway app (steps 1 and 5)
   --key-vault NAME       vault for the test client's secret (default: the platform Key Vault of the
                          naming contract); "none" = print the secret once instead
@@ -42,19 +45,65 @@ import tempfile
 import gateway_env
 from gateway_env import GRAPH, Az, AzError
 
-# Canonical IDs of modules/gateway-entra-app (stable across re-runs and tools).
+# Canonical IDs of modules/gateway-entra-app (stable across re-runs and tools). The Invoke roles keep the IDs of
+# the Models.Read / MCP.Read / Agent.Read roles they replace, so renaming an existing app keeps its assignments.
 SCOPE_ID = "00000000-0000-0000-0000-000000000001"
 APP_ROLES = [
-    ("00000000-0000-0000-0000-000000000002", "ReadWrite", "Task.ReadWrite", "Full read and write access to all gateway capabilities"),
-    ("00000000-0000-0000-0000-000000000003", "Models.Read", "Models.Read", "Access to LLM model endpoints (chat completions, embeddings)"),
-    ("00000000-0000-0000-0000-000000000004", "MCP.Read", "MCP.Read", "Access to MCP tool endpoints"),
-    ("00000000-0000-0000-0000-000000000005", "Agent.Read", "Agent.Read", "Access to agent endpoints"),
+    ("00000000-0000-0000-0000-000000000003", "Model.Invoke", "Model.Invoke", "Invoke LLM model endpoints (chat completions, embeddings)"),
+    ("00000000-0000-0000-0000-000000000004", "MCP.Invoke", "MCP.Invoke", "Invoke MCP tool endpoints"),
+    ("00000000-0000-0000-0000-000000000005", "Agent.Invoke", "Agent.Invoke", "Invoke agent endpoints"),
 ]
+ROLE_FIELDS = ("displayName", "value", "description")
+# Roles the earlier gateway apps had and no longer exist (role ID -> value).
+RETIRED_ROLES = {"00000000-0000-0000-0000-000000000002": "Task.ReadWrite"}
 MS_GRAPH_APP_ID = "00000003-0000-0000-c000-000000000000"
 USER_READ_SCOPE = "e1fe6dd8-ba31-4d61-89e7-88639da4683d"
 SECRET_NAME = "entra-id-setup"
 KV_CLIENT_ID = "ENTRA-TEST-CLIENT-ID"
 KV_CLIENT_SECRET = "ENTRA-TEST-CLIENT-SECRET"
+
+
+def canonical_roles():
+    """The gateway app roles as Microsoft Graph appRole objects."""
+    return [{"id": rid, "allowedMemberTypes": ["User", "Application"], "displayName": name,
+             "description": desc, "isEnabled": True, "value": value}
+            for rid, name, value, desc in APP_ROLES]
+
+
+def role_update(existing_roles):
+    """Graph `appRoles` payloads that bring the gateway roles of an existing app up to date: (disable, final),
+    or (None, None) when they already are. Entra refuses to change or remove an enabled role, so a role that
+    changes or is retired is disabled first (`disable`, None when no role needs it, like the azuread provider
+    does); `final` then holds every role of the app with the gateway roles as wanted and the retired roles
+    removed. Role IDs, so assignments, and other roles are kept."""
+    wanted = {r["id"]: r for r in canonical_roles()}
+    final, disable, to_disable, changed = [], [], False, False
+    for role in existing_roles:
+        keep = {k: role[k] for k in ("id", "allowedMemberTypes", "displayName", "description", "isEnabled", "value") if k in role}
+        want = wanted.pop(role["id"], None)
+        retired = want is None and RETIRED_ROLES.get(role["id"]) == role.get("value")
+        enabled = role.get("isEnabled", True)
+        if want is not None:
+            differs = (any(role.get(f) != want[f] for f in ROLE_FIELDS)
+                       or sorted(role.get("allowedMemberTypes") or []) != sorted(want["allowedMemberTypes"]))
+            if not differs and enabled:
+                final.append(keep)
+                disable.append(keep)
+                continue
+            final.append(want)
+        elif not retired:
+            final.append(keep)
+            disable.append(keep)
+            continue
+        changed = True
+        if enabled:
+            to_disable = True
+            disable.append({**keep, "isEnabled": False})
+        else:
+            disable.append(keep)
+    final.extend(wanted.values())
+    changed = changed or bool(wanted)
+    return (disable if to_disable else None, final) if changed else (None, None)
 
 
 def gateway_app_body(display_name):
@@ -76,11 +125,7 @@ def gateway_app_body(display_name):
                 "userConsentDescription": "Allow access to AI Hub Gateway API",
             }],
         },
-        "appRoles": [
-            {"id": rid, "allowedMemberTypes": ["User", "Application"], "displayName": name,
-             "description": desc, "isEnabled": True, "value": value}
-            for rid, name, value, desc in APP_ROLES
-        ],
+        "appRoles": canonical_roles(),
         "requiredResourceAccess": [{
             "resourceAppId": MS_GRAPH_APP_ID,
             "resourceAccess": [{"id": USER_READ_SCOPE, "type": "Scope"}],
@@ -128,7 +173,7 @@ def kv_set(az, vault, name, value, expires):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("env")
-    ap.add_argument("--client-roles", default="Models.Read")
+    ap.add_argument("--client-roles", default="Model.Invoke")
     ap.add_argument("--no-client", action="store_true")
     ap.add_argument("--key-vault")
     ap.add_argument("--secret-days", type=int, default=90)
@@ -163,7 +208,30 @@ def main():
     print("[1/5] Gateway app registration")
     app = find_app(az, app_name)
     if app:
-        print(f"[OK]   found {app_name} ({app['appId']}); left unchanged")
+        print(f"[OK]   found {app_name} ({app['appId']})")
+        disable, final = role_update(app.get("appRoles") or [])
+        if final:
+            before = app.get("appRoles") or []
+            retired = [r["value"] for r in before if RETIRED_ROLES.get(r["id"]) == r.get("value")]
+            wanted_values = {r["id"]: r["value"] for r in canonical_roles()}
+            renamed = [r["value"] for r in before if r["id"] in wanted_values and r.get("value") != wanted_values[r["id"]]]
+            try:
+                if disable:
+                    az.rest("PATCH", f"{GRAPH}/applications/{app['id']}", {"appRoles": disable})
+                az.rest("PATCH", f"{GRAPH}/applications/{app['id']}", {"appRoles": final})
+                app["appRoles"] = final
+                print(f"[OK]   app roles up to date: {', '.join(r[2] for r in APP_ROLES)} (role IDs and assignments kept)")
+                if retired:
+                    print(f"[OK]   retired role removed: {', '.join(retired)} (assignments of it stay behind, no longer tied to a role)")
+                if renamed:
+                    print(f"[INFO] renamed {', '.join(renamed)}: Entra can keep putting the old names into new tokens for a long time"
+                          " (over an hour in tests; not documented). Until a fresh token carries the new names, let contracts"
+                          " accept the old ones too (required_roles lists both).")
+            except AzError as e:
+                if "Authorization_RequestDenied" not in str(e):
+                    raise
+                print("[WARN] not allowed to update the app roles of the existing app: you don't own it and hold no Entra"
+                      " admin role. Apply stacks/identity or ask an owner to re-run this script.")
     else:
         app = az.rest("POST", f"{GRAPH}/applications", gateway_app_body(app_name))
         print(f"[OK]   created {app_name} ({app['appId']})")

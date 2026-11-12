@@ -188,3 +188,10 @@ variable "api_diagnostics" {
   default  = {}
   nullable = false
 }
+
+variable "azure_monitor_request_headers" {
+  description = "Request headers the Azure Monitor diagnostic of every service API logs (frontend request; needs api_diagnostics.enabled), e.g. to attribute a call to an agent, user, cost center or session. [] logs none."
+  type        = list(string)
+  default     = ["x-agent-id", "x-cost-center", "x-session-id", "x-traffic-class", "x-user-hash", "x-user-id"]
+  nullable    = false
+}

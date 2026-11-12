@@ -13,11 +13,11 @@ Base topology: [quickstart](../quickstart/) (public StandardV2, laptop runs), pl
 
 | File | What it adds |
 |---|---|
-| `identity.tfvars` | `stacks/identity`: the gateway app registration (audience of the tokens; app roles `Task.ReadWrite`, `Models.Read`, `MCP.Read`, `Agent.Read`; v2 tokens; no secret) |
+| `identity.tfvars` | `stacks/identity`: the gateway app registration (audience of the tokens; app roles `Model.Invoke`, `MCP.Invoke`, `Agent.Invoke`; v2 tokens; no secret) |
 | `gateway-config.tfvars` | `entra_auth = { enabled = true }`: the `JWT-OpenIdConfigUrl`, `JWT-Issuer` and `JWT-AppRegistrationId` named values from that app |
 | `llm-backend-onboarding.tfvars` | the Unified AI API, so all three LLM APIs are covered |
 | `access-contracts/team-a-jwt.tfvars` | key + JWT (`jwt_required = true`) on the three APIs |
-| `access-contracts/team-b-roles.tfvars` | key + JWT + app role: `MODELS` needs `Models.Read`, `FULL` needs `Task.ReadWrite` (`required_roles`) |
+| `access-contracts/team-b-roles.tfvars` | key + JWT + app role: `MODELS` needs `Model.Invoke`, `FULL` needs `Agent.Invoke` (`required_roles`) |
 | `access-contracts/partner-tenant.tfvars` | key + a token of **another** tenant or provider (`jwt_audience`, `jwt_issuer`, `jwt_openid_config_url`); replace the `<partner-...>` placeholders or delete the file |
 
 ## Deployment Instructions
@@ -40,14 +40,15 @@ explicit `entra_auth` values for `gateway-config.tfvars` (remove
 ## A client identity and the tests
 
 ```bash
-task entra-setup ENV=<env>   # test client app + secret (Key Vault: ENTRA-TEST-CLIENT-ID / -SECRET) + app role Models.Read
+task entra-setup ENV=<env>   # test client app + secret (Key Vault: ENTRA-TEST-CLIENT-ID / -SECRET) + app role Model.Invoke
 task jwt-test ENV=<env>      # upstream's 7 test cases on every product that requires a JWT
 ```
 
-`entra_id_setup.py` finds the gateway app by name (it doesn't change an
-existing one), creates `<gateway app>-test-client` with a 90-day secret in the
+`entra_id_setup.py` finds the gateway app by name (it keeps an existing one, only
+bringing its app roles up to date in place and dropping the retired `Task.ReadWrite`),
+creates `<gateway app>-test-client` with a 90-day secret in the
 platform Key Vault, and assigns it exactly the roles of `--client-roles`
-(default `Models.Read`). Assigning a role needs ownership of the gateway app's
+(default `Model.Invoke`). Assigning a role needs ownership of the gateway app's
 service principal (whoever applied `stacks/identity` or ran the script owns it)
 or an Entra admin role; otherwise the script prints the command for an admin.
 `jwt_auth_tests.py` reads every product policy that
@@ -61,8 +62,8 @@ product:
 | every JWT product | T2 / T7 key only | 401 `jwt_required` |
 | every JWT product | T3 key + invalid JWT | 401 |
 | every JWT product | T4 JWT only | 401 |
-| `MODELS-TeamB-RoleAuth-DEV` | T5 key + JWT with `Models.Read` | 200 |
-| `FULL-TeamB-RoleAuth-DEV` | T6 key + JWT without `Task.ReadWrite` | 403 `insufficient_role` |
+| `MODELS-TeamB-RoleAuth-DEV` | T5 key + JWT with `Model.Invoke` | 200 |
+| `FULL-TeamB-RoleAuth-DEV` | T6 key + JWT without `Agent.Invoke` | 403 `insufficient_role` |
 | `LLM-Partner-External-DEV` | T2–T4 only (the test client can't get a partner token) | 401 |
 
 A client application does the same: get a token for

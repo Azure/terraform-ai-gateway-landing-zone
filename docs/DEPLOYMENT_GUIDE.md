@@ -794,9 +794,10 @@ and Unified AI APIs:
 Setup:
 
 1. **The gateway app** (the audience of the tokens): `stacks/identity` creates
-   it (scope `access_as_user`; app roles `Task.ReadWrite`, `Models.Read`,
-   `MCP.Read`, `Agent.Read`; v2 tokens; no secret). It needs Graph rights to
-   register an application: apply it as a person, or with bootstrap
+   it (scope `access_as_user`; app roles `Model.Invoke` for the LLM model
+   endpoints, `MCP.Invoke` for MCP tools and `Agent.Invoke` for agents; v2
+   tokens; no secret). It needs Graph rights to register an application: apply it
+   as a person, or with bootstrap
    `graph_permissions = true`. Without Graph rights on the pipeline,
    [scripts/entra_id_setup.py](../scripts/entra_id_setup.py) (`task entra-setup`,
    the counterpart of upstream's `entra-id-setup/setup.ps1`) creates the same
@@ -815,16 +816,37 @@ services = [{
   endpoint_secret_name = "TEAMA-LLM-ENDPOINT"
   api_key_secret_name  = "TEAMA-LLM-KEY"
   jwt_required         = true
-  required_roles       = ["Models.Read"]   # optional; any one of them (OR)
+  required_roles       = ["Model.Invoke"]   # optional; any one of them (OR)
 }]
 ```
 
 4. **Client identities**: a client gets a token for
    `api://<gateway app client ID>/.default` (client credentials, a managed
-   identity, or a user) and needs the app roles a contract requires, assigned
-   to its service principal (directly or through an Entra group).
+   identity, or a user) and needs the app roles a contract requires. Assign
+   them directly to the service principal of an application or managed
+   identity: one that joins a group with an app-role assignment gets no roles
+   in its tokens (users get roles directly or through a group). There is no
+   umbrella role: a client that needs several capabilities gets each role.
    `task entra-setup ENV=<env>` creates a test client with a secret in Key Vault
-   and the role `Models.Read` (`-- --client-roles ...` to change it).
+   and the role `Model.Invoke` (`-- --client-roles ...` to change it).
+
+**Upgrading a gateway app that has the earlier roles** (`Task.ReadWrite`,
+`Models.Read`, `MCP.Read`, `Agent.Read`). `Model.Invoke`, `MCP.Invoke` and
+`Agent.Invoke` reuse the IDs of the last three, as in upstream: applying
+`stacks/identity` (or re-running `task entra-setup`) renames them in place and
+keeps their assignments. `Task.ReadWrite` is removed; assignments of it stay
+behind, no longer tied to a role, so give those clients the role they need.
+
+Entra puts a renamed role into new tokens late, and Microsoft doesn't document
+when: in our tests, clients that had never requested a token still got
+`Models.Read` more than an hour after the rename, while a role added under a
+new ID showed up within an hour. Tokens already issued keep their claims until
+they expire. A contract that requires only the new names answers these
+requests with `403 insufficient_role`, so avoid a hard cutover: first list both
+names in `required_roles` (`["Model.Invoke", "Models.Read"]`: any one is
+enough), then apply the identity, and drop the old names once a fresh token
+carries only the new ones (decode one, or run `task jwt-test`) and tokens
+issued before have expired (up to about 90 minutes).
 
 **Another identity provider for one contract.** `jwt_audience`, `jwt_issuer`
 and `jwt_openid_config_url` override the named values for that product only

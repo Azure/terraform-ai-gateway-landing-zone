@@ -3,8 +3,8 @@
 # (validate-jwt / validate-azure-ad-token). No client secret: the gateway only
 # needs the tenant ID, client ID and audience.
 #
-# Creates the app registration (access_as_user scope + Task.ReadWrite,
-# Models.Read, MCP.Read, Agent.Read roles), its identifier URI and service
+# Creates the app registration (access_as_user scope + the Model.Invoke,
+# MCP.Invoke and Agent.Invoke roles), its identifier URI and service
 # principal. The identity running Terraform is always an owner, which is what
 # Application.ReadWrite.OwnedBy needs to manage the app later.
 # =============================================================================
@@ -19,12 +19,13 @@ data "azuread_service_principal" "msgraph" {
 }
 
 locals {
-  # Canonical role IDs (mirrors setup.ps1 so re-runs hit the same IDs)
+  # Canonical IDs (mirrors setup.ps1 and scripts/entra_id_setup.py so re-runs hit the same IDs). The Invoke
+  # roles keep the IDs of the Models.Read, MCP.Read and Agent.Read roles they replace, so an existing app is
+  # updated in place and its role assignments survive.
   role_access_as_user = "00000000-0000-0000-0000-000000000001"
-  role_task_readwrite = "00000000-0000-0000-0000-000000000002"
-  role_models_read    = "00000000-0000-0000-0000-000000000003"
-  role_mcp_read       = "00000000-0000-0000-0000-000000000004"
-  role_agent_read     = "00000000-0000-0000-0000-000000000005"
+  role_model_invoke   = "00000000-0000-0000-0000-000000000003"
+  role_mcp_invoke     = "00000000-0000-0000-0000-000000000004"
+  role_agent_invoke   = "00000000-0000-0000-0000-000000000005"
 }
 
 resource "azuread_application" "gateway" {
@@ -49,39 +50,30 @@ resource "azuread_application" "gateway" {
   }
 
   app_role {
-    id                   = local.role_task_readwrite
+    id                   = local.role_model_invoke
     allowed_member_types = ["User", "Application"]
-    display_name         = "ReadWrite"
-    description          = "Full read and write access to all gateway capabilities"
+    display_name         = "Model.Invoke"
+    description          = "Invoke LLM model endpoints (chat completions, embeddings)"
     enabled              = true
-    value                = "Task.ReadWrite"
+    value                = "Model.Invoke"
   }
 
   app_role {
-    id                   = local.role_models_read
+    id                   = local.role_mcp_invoke
     allowed_member_types = ["User", "Application"]
-    display_name         = "Models.Read"
-    description          = "Access to LLM model endpoints (chat completions, embeddings)"
+    display_name         = "MCP.Invoke"
+    description          = "Invoke MCP tool endpoints"
     enabled              = true
-    value                = "Models.Read"
+    value                = "MCP.Invoke"
   }
 
   app_role {
-    id                   = local.role_mcp_read
+    id                   = local.role_agent_invoke
     allowed_member_types = ["User", "Application"]
-    display_name         = "MCP.Read"
-    description          = "Access to MCP tool endpoints"
+    display_name         = "Agent.Invoke"
+    description          = "Invoke agent endpoints"
     enabled              = true
-    value                = "MCP.Read"
-  }
-
-  app_role {
-    id                   = local.role_agent_read
-    allowed_member_types = ["User", "Application"]
-    display_name         = "Agent.Read"
-    description          = "Access to agent endpoints"
-    enabled              = true
-    value                = "Agent.Read"
+    value                = "Agent.Invoke"
   }
 
   required_resource_access {

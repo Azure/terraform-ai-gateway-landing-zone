@@ -432,7 +432,7 @@ It identifies the contract; a token never replaces it.
 
 ```hcl
 jwt_required   = true
-required_roles = ["Models.Read"]     # optional: any one of them
+required_roles = ["Model.Invoke"]     # optional: any one of them
 ```
 
 - `jwt_required = true`: the request also needs `Authorization: Bearer <token>`, validated by the

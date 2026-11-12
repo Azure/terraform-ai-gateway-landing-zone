@@ -1,7 +1,9 @@
 # App role authorization on top of the JWT: the token's roles claim must hold one of required_roles
 # (OR logic), otherwise 403 insufficient_role. Roles are app roles of the gateway app (stacks/identity),
-# assigned to the client's service principal (scripts/entra_id_setup.py --client-roles, or Entra groups).
-# Two products of one use case: model readers, and full access.
+# assigned directly to the client's service principal (scripts/entra_id_setup.py --client-roles); users
+# can also get them through Entra groups.
+# Two products of one use case: model callers (Model.Invoke) and agent callers (Agent.Invoke). There is no
+# umbrella role: a client is assigned the roles it needs.
 use_case = {
   business_unit = "TeamB"
   use_case_name = "RoleAuth"
@@ -20,7 +22,7 @@ services = [
     api_key_secret_name  = "TEAMB-MODELS-KEY"
     allowed_models       = ["gpt-5.4-mini", "fast"]
     jwt_required         = true
-    required_roles       = ["Models.Read"]
+    required_roles       = ["Model.Invoke"]
   },
   {
     code                 = "FULL"
@@ -28,7 +30,7 @@ services = [
     api_key_secret_name  = "TEAMB-FULL-KEY"
     allowed_models       = ["gpt-5.4-mini", "fast"]
     jwt_required         = true
-    required_roles       = ["Task.ReadWrite"]
+    required_roles       = ["Agent.Invoke"]
   },
 ]
 

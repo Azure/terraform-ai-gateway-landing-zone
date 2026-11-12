@@ -385,3 +385,53 @@ run "pii_blocking_and_placeholder_variants" {
     error_message = "Blocking mode (400 pii_detected) and de-anonymization of placeholders without angle brackets (no Regex.Escape / JsonConvert: APIM rejects them in expressions)."
   }
 }
+
+# The Azure Monitor diagnostic of every service API logs the attribution headers clients send, on the
+# frontend request only.
+run "azure_monitor_diagnostics_log_the_attribution_headers" {
+  command = plan
+
+  variables {
+    api_diagnostics     = { enabled = true }
+    features            = { azure_ai_search = true, document_intelligence = true, pii_redaction = false, content_safety = false }
+    ai_search_instances = [{ name = "search-1", endpoint = "https://search-1.search.windows.net" }]
+  }
+
+  assert {
+    condition     = length([for a in merge(local.first_wave, local.second_wave) : a if a.azure_monitor_diagnostic != null]) == 3
+    error_message = "AI Search and both Document Intelligence APIs have an Azure Monitor diagnostic."
+  }
+  assert {
+    condition = alltrue([for a in merge(local.first_wave, local.second_wave) :
+      a.azure_monitor_diagnostic.properties.frontend.request.headers == tolist(["x-agent-id", "x-cost-center", "x-session-id", "x-traffic-class", "x-user-hash", "x-user-id"])
+      if a.azure_monitor_diagnostic != null
+    ])
+    error_message = "Every service API logs x-agent-id, x-cost-center, x-session-id, x-traffic-class, x-user-hash and x-user-id."
+  }
+  assert {
+    condition = alltrue([for a in merge(local.first_wave, local.second_wave) :
+      length(a.azure_monitor_diagnostic.properties.backend.request.headers) == 0 && length(a.azure_monitor_diagnostic.properties.frontend.response.headers) == 0
+      if a.azure_monitor_diagnostic != null
+    ])
+    error_message = "Only the frontend request logs headers."
+  }
+}
+
+run "azure_monitor_request_headers_can_be_changed" {
+  command = plan
+
+  variables {
+    api_diagnostics               = { enabled = true }
+    features                      = { azure_ai_search = true, document_intelligence = false, pii_redaction = false, content_safety = false }
+    ai_search_instances           = [{ name = "search-1", endpoint = "https://search-1.search.windows.net" }]
+    azure_monitor_request_headers = ["x-tenant-id"]
+  }
+
+  assert {
+    condition = alltrue([for a in merge(local.first_wave, local.second_wave) :
+      a.azure_monitor_diagnostic.properties.frontend.request.headers == tolist(["x-tenant-id"])
+      if a.azure_monitor_diagnostic != null
+    ])
+    error_message = "azure_monitor_request_headers sets the headers logged by every service API."
+  }
+}

@@ -38,7 +38,7 @@ variable "services" {
                                override the expected aud claim, iss claim and OpenID Connect discovery URL
                                (another tenant or provider, e.g. a partner tenant or Auth0); unset = default
       required_roles           app roles of which the token must carry at least one (roles claim), e.g.
-                               ["Models.Read"]; missing -> 403. Needs jwt_required
+                               ["Model.Invoke"]; missing -> 403. Needs jwt_required
     One product can grant a mix of asset types (LLM + tools (MCP) + agents (A2A)). List the granted
     tool and agent APIs by APIM API name (they must be in api_name_mapping[code]); every other API of the
     service is an LLM API, and allowed_models, token_limit and enable_response_headers apply to those only:
@@ -137,7 +137,7 @@ variable "services" {
   }
   validation {
     condition     = alltrue([for s in var.services : alltrue([for r in s.required_roles : can(regex("^[A-Za-z0-9][A-Za-z0-9._:-]*$", r))])])
-    error_message = "services[*].required_roles: app role values are letters, digits, '.', '_', ':' and '-' (no commas or spaces), e.g. Models.Read."
+    error_message = "services[*].required_roles: app role values are letters, digits, '.', '_', ':' and '-' (no commas or spaces), e.g. Model.Invoke."
   }
   validation {
     condition = alltrue([for s in var.services : alltrue([

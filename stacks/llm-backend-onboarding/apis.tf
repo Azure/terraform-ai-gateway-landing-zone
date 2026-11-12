@@ -44,6 +44,12 @@ locals {
     response = { headers = [], body = { bytes = 0 } }
   }
 
+  # The frontend request also logs the attribution headers clients send (azure_monitor_request_headers).
+  azure_monitor_frontend = {
+    request  = { headers = var.azure_monitor_request_headers, body = { bytes = 0 } }
+    response = { headers = [], body = { bytes = 0 } }
+  }
+
   llm_azure_monitor_diagnostic = {
     response_export_values = []
     properties = {
@@ -52,7 +58,7 @@ locals {
       logClientIp = true
       loggerId    = local.azure_monitor_logger_id
       sampling    = { samplingType = "fixed", percentage = 100 }
-      frontend    = local.azure_monitor_no_body
+      frontend    = local.azure_monitor_frontend
       backend     = local.azure_monitor_no_body
       largeLanguageModel = {
         logs      = "enabled"
