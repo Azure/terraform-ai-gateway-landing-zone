@@ -1,0 +1,37 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Release Version API",
+    "description": "Release version of the AI Hub Gateway and the live LLM backend routing contract.",
+    "version": "1.0"
+  },
+  "servers": [{ "url": "https://to-be-replaced-by-policy" }],
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "get-version",
+        "summary": "Get Release Version",
+        "description": "Returns the release version of this deployment as JSON.",
+        "responses": {
+          "200": {
+            "description": "The release version.",
+            "content": { "application/json": {} }
+          }
+        }
+      }
+    },
+    "/backend-contract": {
+      "get": {
+        "operationId": "get-backend-contract",
+        "summary": "Get Backend Contract",
+        "description": "Returns the active LLM backend routing contract (version, backends, pools, aliases) deployed on this gateway. The response is produced by the generated backend-contract policy fragment.",
+        "responses": {
+          "200": {
+            "description": "The active backend routing contract.",
+            "content": { "application/json": {} }
+          }
+        }
+      }
+    }
+  }
+}

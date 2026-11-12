@@ -1,191 +1,123 @@
 # =============================================================================
 # MODULE: Cosmos DB
-# Usage analytics store — mirrors Bicep cosmosdb module
+# Usage analytics store
 # =============================================================================
 
-resource "azurerm_cosmosdb_account" "citadel" {
+locals {
+  # Every container: consistent indexing over /*; usage containers never expire items.
+  containers = {
+    usage         = { name = "ai-usage-container", partition_key = "/productName", default_ttl = -1 }    # token/request records from APIM
+    config        = { name = "streaming-export-config", partition_key = "/type", default_ttl = null }    # Logic App configuration documents
+    pii           = { name = "pii-usage-container", partition_key = "/productName", default_ttl = -1 }   # PII anonymization audit records
+    llm_usage     = { name = "llm-usage-container", partition_key = "/productName", default_ttl = -1 }   # LLM token usage records
+    mcp_usage     = { name = "mcp-usage-container", partition_key = "/productName", default_ttl = -1 }   # MCP (tool) request counts
+    agent_usage   = { name = "agent-usage-container", partition_key = "/productName", default_ttl = -1 } # A2A (agent) request counts
+    model_pricing = { name = "model-pricing", partition_key = "/model", default_ttl = null }             # Model pricing reference data
+  }
+}
+
+module "cosmos" {
+  source  = "Azure/avm-res-documentdb-databaseaccount/azurerm"
+  version = "0.11.0"
+
   name                = var.account_name
   location            = var.location
   resource_group_name = var.resource_group_name
-  offer_type          = "Standard"
-  kind                = "GlobalDocumentDB"
   tags                = merge(var.tags, { "azd-service-name" = var.account_name })
+  enable_telemetry    = var.enable_telemetry
 
-  consistency_policy {
-    consistency_level       = "Session"
-    max_interval_in_seconds = 5
-    max_staleness_prefix    = 100
+  consistency_policy = {
+    consistency_level = "Session"
   }
-
-  geo_location {
+  geo_locations = [{
     location          = var.location
     failover_priority = 0
-  }
+    zone_redundant    = false
+  }]
+  capabilities = [{ name = "EnableServerless" }]
 
-  capabilities {
-    name = "EnableServerless"
-  }
+  public_network_access_enabled = var.public_network_access == "Enabled"
+  ip_range_filter               = var.public_network_access == "Enabled" ? ["0.0.0.0"] : []
 
-  public_network_access_enabled = var.public_network_access == "Enabled" ? true : false
+  # enableAutomaticFailover=true, disableKeyBasedMetadataWriteAccess=true
+  automatic_failover_enabled         = true
+  access_key_metadata_writes_enabled = false
 
-  ip_range_filter = var.public_network_access == "Enabled" ? toset(["0.0.0.0"]) : null
-
-  is_virtual_network_filter_enabled = false
-
-  # Bicep parity: enableAutomaticFailover=true, disableKeyBasedMetadataWriteAccess=true
-  automatic_failover_enabled            = true
-  access_key_metadata_writes_enabled    = false
-
-  backup {
+  backup = {
     type                = "Periodic"
     interval_in_minutes = 240
     retention_in_hours  = 8
     storage_redundancy  = "Local"
   }
 
-  local_authentication_enabled = var.local_authentication_enabled
-}
+  # warning: AVM module uses local_authentication_disabled instead of local_authentication_enabled
+  local_authentication_disabled = !var.local_authentication_enabled
 
-# -----------------------------------------------------------------------------
-# DATABASE: usage-db
-# -----------------------------------------------------------------------------
-
-resource "azurerm_cosmosdb_sql_database" "usage" {
-  name                = "usage-db"
-  resource_group_name = var.resource_group_name
-  account_name        = azurerm_cosmosdb_account.citadel.name
-}
-
-# -----------------------------------------------------------------------------
-# CONTAINER: usage  (token/request records from APIM)
-# -----------------------------------------------------------------------------
-
-resource "azurerm_cosmosdb_sql_container" "usage" {
-  name                = "ai-usage-container"
-  resource_group_name = var.resource_group_name
-  account_name        = azurerm_cosmosdb_account.citadel.name
-  database_name       = azurerm_cosmosdb_sql_database.usage.name
-  partition_key_paths = ["/productName"]
-
-  indexing_policy {
-    indexing_mode = "consistent"
-    included_path { path = "/*" }
+  sql_databases = {
+    usage = {
+      name = "usage-db"
+      containers = {
+        for k, c in local.containers : k => {
+          name                = c.name
+          partition_key_paths = [c.partition_key]
+          default_ttl         = c.default_ttl
+          indexing_policy = {
+            indexing_mode  = "consistent"
+            included_paths = [{ path = "/*" }]
+          }
+        }
+      }
+    }
   }
 
-  default_ttl = -1
-}
-
-# -----------------------------------------------------------------------------
-# CONTAINER: config  (Logic App configuration documents)
-# -----------------------------------------------------------------------------
-
-resource "azurerm_cosmosdb_sql_container" "config" {
-  name                = "streaming-export-config"
-  resource_group_name = var.resource_group_name
-  account_name        = azurerm_cosmosdb_account.citadel.name
-  database_name       = azurerm_cosmosdb_sql_database.usage.name
-  partition_key_paths = ["/type"]
-
-  indexing_policy {
-    indexing_mode = "consistent"
-    included_path { path = "/*" }
-  }
-}
-
-# -----------------------------------------------------------------------------
-# CONTAINER: pii  (PII anonymization audit records)
-# -----------------------------------------------------------------------------
-
-resource "azurerm_cosmosdb_sql_container" "pii" {
-  name                = "pii-usage-container"
-  resource_group_name = var.resource_group_name
-  account_name        = azurerm_cosmosdb_account.citadel.name
-  database_name       = azurerm_cosmosdb_sql_database.usage.name
-  partition_key_paths = ["/productName"]
-
-  indexing_policy {
-    indexing_mode = "consistent"
-    included_path { path = "/*" }
-  }
-
-  default_ttl = -1
-}
-
-# -----------------------------------------------------------------------------
-# CONTAINER: llm-usage  (LLM token usage records)
-# -----------------------------------------------------------------------------
-
-resource "azurerm_cosmosdb_sql_container" "llm_usage" {
-  name                = "llm-usage-container"
-  resource_group_name = var.resource_group_name
-  account_name        = azurerm_cosmosdb_account.citadel.name
-  database_name       = azurerm_cosmosdb_sql_database.usage.name
-  partition_key_paths = ["/productName"]
-
-  indexing_policy {
-    indexing_mode = "consistent"
-    included_path { path = "/*" }
-  }
-
-  default_ttl = -1
-}
-
-# -----------------------------------------------------------------------------
-# CONTAINER: model-pricing  (Bicep parity: model pricing reference data)
-# -----------------------------------------------------------------------------
-
-resource "azurerm_cosmosdb_sql_container" "model_pricing" {
-  name                = "model-pricing"
-  resource_group_name = var.resource_group_name
-  account_name        = azurerm_cosmosdb_account.citadel.name
-  database_name       = azurerm_cosmosdb_sql_database.usage.name
-  partition_key_paths = ["/model"]
-
-  indexing_policy {
-    indexing_mode = "consistent"
-    included_path { path = "/*" }
-  }
-}
-
-# -----------------------------------------------------------------------------
-# PRIVATE ENDPOINT
-# -----------------------------------------------------------------------------
-
-resource "azurerm_private_endpoint" "cosmos" {
-  name                = "pe-${var.account_name}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.subnet_id
-  tags                = var.tags
-
-  private_service_connection {
-    name                           = "psc-${var.account_name}"
-    private_connection_resource_id = azurerm_cosmosdb_account.citadel.id
-    subresource_names              = ["Sql"]
-    is_manual_connection           = false
-  }
-
-  dynamic "private_dns_zone_group" {
-    for_each = var.dns_zone_id != "" ? [1] : []
-    content {
-      name                 = "cosmos-dns-group"
-      private_dns_zone_ids = [var.dns_zone_id]
+  private_endpoints_manage_dns_zone_group = !var.dns_zone_group_managed_by_policy
+  private_endpoints = {
+    sql = {
+      name                            = "pe-${var.account_name}"
+      private_service_connection_name = "psc-${var.account_name}"
+      subnet_resource_id              = var.subnet_id
+      subresource_name                = "Sql"
+      private_dns_zone_group_name     = "cosmos-dns-group"
+      private_dns_zone_resource_ids   = var.dns_zone_id != "" && !var.dns_zone_group_managed_by_policy ? [var.dns_zone_id] : []
+      tags                            = var.tags
     }
   }
 }
 
+locals {
+  account_id    = module.cosmos.resource_id
+  account_name  = module.cosmos.name
+  database_name = keys(module.cosmos.sql_databases)[0]
+}
+
 # -----------------------------------------------------------------------------
 # DIAGNOSTIC SETTINGS
+#
+# Azure Policy (DeployIfNotExists) may create a setting with this name first.
+# An ARM PUT is a true create-or-update, so it succeeds whether the setting
+# exists or not (azurerm / azapi_resource would fail with "already exists").
+# Azure deletes the setting together with the account.
 # -----------------------------------------------------------------------------
 
-resource "azurerm_monitor_diagnostic_setting" "cosmos" {
-  name                       = "diag-cosmos-${var.account_name}"
-  target_resource_id         = azurerm_cosmosdb_account.citadel.id
-  log_analytics_workspace_id = var.log_analytics_id
+resource "azapi_resource_action" "cosmos_diagnostics" {
+  count = var.enable_diagnostics ? 1 : 0
 
-  enabled_log { category = "DataPlaneRequests" }
-  enabled_log { category = "QueryRuntimeStatistics" }
-  enabled_metric { category = "Requests" }
+  type        = "Microsoft.Insights/diagnosticSettings@2021-05-01-preview"
+  resource_id = "${local.account_id}/providers/Microsoft.Insights/diagnosticSettings/diag-cosmos-${var.account_name}"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      workspaceId = var.log_analytics_id
+      logs = [
+        { category = "DataPlaneRequests", enabled = true },
+        { category = "QueryRuntimeStatistics", enabled = true },
+      ]
+      metrics = [
+        { category = "Requests", enabled = true },
+      ]
+    }
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -194,8 +126,8 @@ resource "azurerm_monitor_diagnostic_setting" "cosmos" {
 
 resource "azurerm_cosmosdb_sql_role_assignment" "uami_data_contributor" {
   resource_group_name = var.resource_group_name
-  account_name        = azurerm_cosmosdb_account.citadel.name
-  role_definition_id  = "${azurerm_cosmosdb_account.citadel.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
+  account_name        = local.account_name
+  role_definition_id  = "${local.account_id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002"
   principal_id        = var.managed_identity_principal_id
-  scope               = azurerm_cosmosdb_account.citadel.id
+  scope               = local.account_id
 }

@@ -12,6 +12,8 @@ The recommended execution order is:
 2. **Universal LLM API — All-Models Tests** — Validate every gateway-configured model (chat / embeddings / Responses API) through `/models` ⭐ *strongly recommended*
 3. **Access Contracts** — Create per-team access contracts with Key Vault and Foundry integrations ⭐ *strongly recommended*
 4. **Model Aliases** — Validate the shared `resolve-model-alias` policy fragment across the LLM APIs (priority + weighted strategies, RBAC, discovery)
+5. **Acceptance Tests** — Run a customer acceptance catalogue (auth, policies, usage, security) against a deployed environment and export the results
+6. **Backend & Access Contract Tests** — Test any published LLM backend, model, alias, MCP server or access contract by name; the notebook discovers how to call it
 
 Each notebook is self-contained with initialization, deployment, testing, visualization, and cleanup stages, enabling both interactive exploration and repeatable CI/CD validation.
 
@@ -21,14 +23,14 @@ Each notebook is self-contained with initialization, deployment, testing, visual
 
 Before running any notebook, ensure the following are in place:
 
-- **Citadel Governance Hub** deployed (see the [repository README](../README.md#-quick-start) — deploy with `./scripts/bootstrap-state.sh` then `./scripts/deploy.sh dev`)
+- **Citadel Governance Hub** deployed (see the [repository README](../README.md#-quick-start) — `task bootstrap ENV=dev` then `task up ENV=dev`), so `environments/<env>/common.tfvars` and `environments/<env>/backend.hcl` exist
+- **Terraform** installed; [Task](https://taskfile.dev) is used by the notebooks when it is on `PATH` (otherwise they run `terraform -chdir=stacks/<stack>` directly)
 - **Azure CLI** installed and authenticated (`az login`)
 - **Python 3.10+** with a virtual environment activated
 - **Dependencies** installed:
   ```bash
   pip install -r requirements.txt
   ```
-  (or the equivalent comprehensive list in [`../shared/requirements.txt`](../shared/requirements.txt))
 - **VS Code** with the Jupyter extension (recommended for running notebooks)
 
 ### Optional (per notebook)
@@ -38,40 +40,57 @@ Before running any notebook, ensure the following are in place:
 | Universal LLM API (`models`) imported in APIM | Universal LLM All-Models Tests, Model Aliases | Required for `/models` discovery and per-model operation tests |
 | Azure Key Vault | Access Contracts | A Key Vault with secrets for LLM endpoint and API key |
 | Azure AI Foundry | Access Contracts | A Foundry account and project for connection integration |
-| `resolve-model-alias` policy fragment + alias-aware backend onboarding | Model Aliases | Re-deployed by the notebook itself via the LLM backend onboarding Terraform/Bicep with `modelAliases` populated |
+| `resolve-model-alias` policy fragment + alias-aware backend onboarding | Model Aliases | Re-deployed by the notebook itself via the `stacks/llm-backend-onboarding` stack with `model_aliases` populated |
 | Unified AI API (`unified-ai`) imported in APIM | Model Aliases (full cross-API coverage) | Required for the wildcard `/unified-ai/**` routing patterns |
 
 ---
 
 ## Configuring Notebook Variables
 
-Open the init cell, replace the `"REPLACE"` sentinel values (and any inline
-config blocks such as `llm_backends_config` / `model_aliases`) with values that
-match your deployment, then run the cell.
+Open the init cell, set `env` (default `"dev"`, the folder under
+`environments/`) and `repo_root` (default: the repository root), replace any
+`"REPLACE"` sentinel values (and inline config blocks such as
+`llm_backends_config` / `model_aliases`) with values that match your deployment,
+then run the cell.
 
 ### How It Works
 
 Each notebook's init cell follows the same pattern:
 
 ```python
-# Fill these in to match your Citadel Governance Hub deployment.
+env       = "dev"                     # environments/<env>
+repo_root = os.path.abspath("..")     # repository root (Taskfile.yml, stacks/, environments/)
+# Fill these in to match your Citadel Governance Hub deployment ("REPLACE"/"" = read from the stacks).
 governance_hub_resource_group = "REPLACE"   # e.g. "rg-citadel-dev"
 location                      = "REPLACE"   # e.g. "eastus", "swedencentral"
 # ... other notebook-specific values (backends, aliases, Key Vault, Foundry) ...
 ```
 
-Any value left as `"REPLACE"` (or empty) is flagged by a warning when the cell
-runs, so you can tell at a glance what still needs filling in. Notebooks that
-deploy via Terraform (backend onboarding, access contracts, model aliases) read
-their results back with `terraform output -json` from the relevant module after
-the `scripts/deploy.sh` run completes.
+`governance_hub_resource_group` and `location` left as `"REPLACE"` (or empty)
+are read from the `platform` stack outputs and `environments/<env>/common.tfvars`.
 
-> **Tip:** If you deployed the hub with this repo's Terraform flow, you can pull
-> the values you need straight from the state with
-> `terraform output -raw resource_group_name`, `terraform output -raw location`,
-> `terraform output -json llm_backend_config`, etc. Run these from the repo root
-> (or the `llm-backend-onboarding/` module) and paste the results into the init
-> cell.
+Notebooks that deploy (backend onboarding, access contracts, model aliases,
+all-models) write their variable files into the environment folder and deploy
+them with `utils.run_stack(...)` from [`shared/utils.py`](shared/utils.py):
+
+| Stack | Generated file | Equivalent command |
+|---|---|---|
+| `stacks/llm-backend-onboarding` | `environments/<env>/llm-backend-onboarding.tfvars` (or the name in `llm_backend_tfvars_name`; an existing hand-written file is backed up to `.bak` first) | `task apply STACK=llm-backend-onboarding ENV=<env> [VAR_FILE=...]` |
+| `stacks/access-contracts` | `environments/<env>/access-contracts/<use-case>.tfvars` (state key `<use-case>.tfstate`) | `task contract ENV=<env> USE_CASE=<use-case>` |
+
+Without Task the helper runs `terraform -chdir=stacks/<stack> init -reconfigure
+-backend-config=environments/<env>/backend.hcl [-backend-config=key=<use-case>.tfstate]`,
+then `plan -out=tfplan -var-file=environments/<env>/common.tfvars -var-file=<file>`
+and `apply tfplan`. Results are read back with `terraform -chdir=stacks/<stack>
+output -json` (`utils.stack_outputs(...)`). Subscription keys are never in state
+or outputs: they are read from the contract's Key Vault secret (`az keyvault
+secret show`) when `key_vault` is enabled, otherwise with `az rest --method post
+--url "https://management.azure.com<subscription id>/listSecrets?api-version=2024-05-01"`.
+
+> **Tip:** `task output STACK=platform ENV=dev` prints the platform outputs
+> (`resource_group_name`, `apim_name`, `apim_gateway_url`, `key_vault_name`, ...);
+> `task output STACK=llm-backend-onboarding ENV=dev` prints the onboarded
+> `models`, `backend_ids` and `universal_llm_api_url`.
 
 ### Per-Notebook Variable Map
 
@@ -81,14 +100,16 @@ exercises the corresponding integration.
 
 | Notebook | Variables to set manually |
 |---|---|
-| `llm-backend-onboarding-runner` | `governance_hub_resource_group`<br>`location`<br>`llm_backends_config` (inline JSON)<br>*`model_aliases`*<br>*`key_vault_name`* |
-| `citadel-universal-llm-api-all-models-tests` | `governance_hub_resource_group`<br>`location` |
-| `citadel-access-contracts-tests` | `governance_hub_resource_group`<br>`location`<br>*`keyvault_subscription_id` / `keyvault_resource_group` / `keyvault_name`*<br>*`foundry_subscription_id` / `foundry_resource_group` / `foundry_account_name` / `foundry_project_name`* |
-| `citadel-model-aliases-tests` | `governance_hub_resource_group`<br>`location`<br>`llm_backends_config` (inline JSON)<br>`model_aliases`<br>`direct_test_model` |
+| `llm-backend-onboarding-runner` | `env`<br>`backend_mode` (`foundry` \| `extra` \| `override`)<br>`llm_backends_config` (inline JSON, for `extra` / `override`)<br>*`model_aliases`*<br>*`inference_api_type` / `features`*<br>*`aws_*` Key Vault secret URIs + region*<br>*`llm_backend_tfvars_name`* |
+| `citadel-universal-llm-api-all-models-tests` | `env` |
+| `citadel-access-contracts-tests` | `env`<br>*`keyvault_id`* (`""` = platform Key Vault)<br>*`foundry_account_name` / `foundry_project_name` / `foundry_project_id`* (`""` = platform defaults)<br>*`foundry_auth_type`* (`ProjectManagedIdentity` default \| `ApiKey`)<br>*`foundry_managed_identity_audience`* (default `https://cognitiveservices.azure.com`) |
+| `citadel-model-aliases-tests` | `env`<br>`backend_mode`<br>`llm_backends_config` (inline JSON)<br>`model_aliases`<br>`direct_test_model` |
+
+All notebooks also accept `governance_hub_resource_group` / `location` overrides.
 
 > **Multi-environment teams:** To point a notebook at a different deployment,
-> change `governance_hub_resource_group` (and any environment-specific values)
-> in the init cell before running it.
+> change `env` (and any environment-specific values) in the init cell before
+> running it.
 
 ---
 
@@ -104,7 +125,7 @@ exercises the corresponding integration.
 
 #### What It Does
 
-This notebook automates the full lifecycle of registering LLM backends with your APIM gateway. It extracts the current backend configuration, generates a parameter file with per-model metadata (SKU, capacity, model format, version), deploys the backends and policy fragments, and verifies the deployment through multiple API formats.
+This notebook automates the full lifecycle of registering LLM backends with your APIM gateway. It extracts the current backend configuration, generates `environments/<env>/llm-backend-onboarding.tfvars` with per-model metadata (SKU, capacity, model format, version), deploys the backends and policy fragments, and verifies the deployment through multiple API formats.
 
 #### Steps
 
@@ -114,9 +135,9 @@ This notebook automates the full lifecycle of registering LLM backends with your
 | 1 | **Verify Azure CLI** — Confirm authentication and subscription context |
 | 2 | **Initialize APIM Client** — Connect to the existing Governance Hub deployment |
 | 3 | **Extract current backends** — Retrieve existing backend pools and routing configuration |
-| 4 | **Discover managed identity** — Auto-detect the APIM user-assigned managed identity |
-| 5 | **Generate parameter file** — Create a parameter file with full backend definitions |
-| 6 | **Deploy** — Run the deployment to create backends, pools, and policy fragments |
+| 4 | **Discover managed identity** — Display the APIM user-assigned managed identity (informational; the stack finds it by name) |
+| 5 | **Generate variables file** — Write `environments/<env>/llm-backend-onboarding.tfvars` (`foundry_backends` / `llm_backends`, `model_aliases`, `features`, `aws`) |
+| 6 | **Deploy** — Apply `stacks/llm-backend-onboarding` (`task apply STACK=llm-backend-onboarding ENV=<env>`) to create backends, pools, and policy fragments |
 | 7 | **Verify deployment** — Confirm backends and policy fragments were created |
 | 8 | **Verify GET /deployments** — Test the `get-available-models` policy fragment for Foundry integration |
 | Test | **Test models** — Validate via Universal LLM API, Azure OpenAI API, Python SDK, and streaming |
@@ -124,8 +145,12 @@ This notebook automates the full lifecycle of registering LLM backends with your
 #### Key Configuration
 
 ```python
-governance_hub_resource_group = "REPLACE"  # Your Governance Hub resource group
-location = "REPLACE"                       # e.g., "eastus", "swedencentral"
+env = "dev"                                # environments/<env>
+llm_backend_tfvars_name = "llm-backend-onboarding.tfvars"
+
+# "foundry" = derive backends from the platform Foundry accounts,
+# "extra" = Foundry-derived + llm_backends_config, "override" = llm_backends_config only
+backend_mode = "override"
 
 llm_backends_config = [
     {
@@ -178,8 +203,8 @@ This notebook provisions a single access contract with **`allowedModels = ""`** 
 | 0 | **Initialize variables** — Configure resource group, location, API versions, and optional model cap |
 | 1 | **Verify Azure CLI** — Confirm authentication and subscription context |
 | 2 | **Initialize APIM Client** — Discover the Universal LLM API and supported models |
-| 3 | **Provision access contract** — Deploy an APIM product + subscription with `allowedModels = ""` and a generous capacity allocation |
-| 4 | **Retrieve API key** — Get the subscription key for the unrestricted product |
+| 3 | **Provision access contract** — Write `environments/<env>/access-contracts/testing-universalllmallmodels-dev.tfvars` and apply it (`task contract`) — an APIM product + subscription with `allowedModels = ""` and a generous capacity allocation |
+| 4 | **Retrieve API key** — Get the subscription key via APIM `listSecrets` on the subscription ID output |
 | 5 | **Discover models** — Call `GET /models/models` to enumerate the live model catalogue |
 | 6 | **Per-model operation loop** — Auto-classify each model and run chat / embeddings / Responses API operations |
 | 7 | **Summary table** — Aggregate per-model pass/fail across all exercised operations |
@@ -188,8 +213,7 @@ This notebook provisions a single access contract with **`allowedModels = ""`** 
 #### Key Configuration
 
 ```python
-governance_hub_resource_group = "REPLACE"
-location                      = "REPLACE"
+env = "dev"                                    # environments/<env>
 
 targetInferenceApi    = "models"               # Universal LLM API
 inference_api_version = "2024-05-01-preview"
@@ -221,14 +245,14 @@ responses_get_delay_seconds = 0
 
 #### What It Does
 
-This notebook provisions three distinct access contracts, each representing a different integration pattern. It generates the parameter files, deploys the contracts as APIM products with subscriptions, performs load testing, and visualizes throttling behavior and token bucket dynamics across all contracts.
+This notebook provisions three distinct access contracts, each representing a different integration pattern. It generates one `environments/<env>/access-contracts/<use-case>.tfvars` per contract, deploys the contracts (one state each) as APIM products with subscriptions, performs load testing, and visualizes throttling behavior and token bucket dynamics across all contracts.
 
 #### Access Contracts Created
 
 | Contract | Business Unit | Integration | Description |
 |---|---|---|---|
 | **Sales-Assistant** | Sales | Key Vault only | Secrets (endpoint + API key) resolved from Azure Key Vault |
-| **HR-ChatAgent** | HR | Key Vault + Foundry | Optionally creates a Foundry project connection for agent integration |
+| **HR-ChatAgent** | HR | Key Vault + Foundry | Optionally creates a Foundry project connection for agent integration (`ProjectManagedIdentity` by default: project-MI JWT + `api-key` header, with a matching JWT validation policy) |
 | **Support-Bot** | Support | Direct output | No external integrations — uses direct APIM subscription output |
 
 #### Steps
@@ -239,34 +263,57 @@ This notebook provisions three distinct access contracts, each representing a di
 | 1 | **Verify Azure CLI** — Confirm authentication and subscription context |
 | 2 | **Initialize APIM Client** — Discover APIs and supported models |
 | 3 | **Define contracts** — Configure three access contracts with varying integration patterns |
-| 4 | **Create parameter files** — Generate parameter files with policy XML for each contract |
-| 5 | **Deploy contracts** — Run the deployments at subscription scope |
-| 6 | **Retrieve API keys** — Extract subscription keys for each deployed product |
+| 4 | **Create variables files** — Write `environments/<env>/access-contracts/<use-case>.tfvars` (with policy XML) for each contract |
+| 5 | **Deploy contracts** — Apply `stacks/access-contracts` once per use case (state `<use-case>.tfstate`) |
+| 6 | **Retrieve API keys** — Read each key from Key Vault (Key Vault contracts) or APIM `listSecrets` |
 | 7 | **Load test** — Send concurrent API requests to each contract and record metrics |
 | 8 | **Visualize results** — Compare success/throttled/error rates across contracts |
 | 9 | **Token bucket analysis** — Simulate and visualize token bucket refill behavior |
-| Cleanup | **Delete test products** — Optionally remove all created APIM products and subscriptions |
+| Cleanup | **Destroy test contracts** — Optionally destroy each contract's state and remove its variables file |
 
 #### Key Configuration
 
 ```python
-governance_hub_resource_group = "REPLACE"
-location = "REPLACE"
+env = "dev"
 
-# Optional integrations
+# Optional integrations (contract inputs key_vault / foundry)
 use_keyvault_integration = True
-keyvault_name = "REPLACE"
+keyvault_id = ""              # "" = platform Key Vault, or a team-owned vault resource ID
 
 use_foundry_integration = True
-foundry_account_name = "REPLACE"
-foundry_project_name = "REPLACE"
+foundry_account_name = ""     # "" = platform primary Foundry account
+foundry_project_name = ""     # "" = its default project
+foundry_project_id   = ""     # full project resource ID (overrides both names)
+
+# Foundry connection auth -> foundry_config.auth_type / managed_identity_audience in the tfvars
+foundry_auth_type = "ProjectManagedIdentity"                       # or "ApiKey" (subscription key only)
+foundry_managed_identity_audience = "https://cognitiveservices.azure.com"
 ```
+
+#### Foundry Connection Auth (`ProjectManagedIdentity`)
+
+By default, Foundry-targeted contracts (`use_foundry = True`) create the connection with `auth_type = "ProjectManagedIdentity"`:
+the Foundry **project's** managed identity presents an Entra ID JWT for `foundry_managed_identity_audience` and the APIM
+subscription key is sent as the `api-key` custom header (no credential is stored in the connection). The notebook therefore:
+
+- **Generates the product policy with JWT validation** — after `<base />` it sets `jwtRequired = "true"`, `jwtAudience` (the audience),
+  `jwtIssuer = https://sts.windows.net/<tenant>/` and `jwtOpenIdConfigUrl = https://login.microsoftonline.com/<tenant>/v2.0/.well-known/openid-configuration`,
+  consumed by the gateway's `security-handler` fragment. The tenant ID is baked in as a literal (from `az account show`) because the
+  `{{JWT-TenantId}}` named value is `not-configured` unless Entra auth is enabled in `gateway-config`. Model RBAC and capacity policy content is unchanged.
+- **Sends both credentials in the direct tests** — for these contracts the HTTP tests send the subscription key as `api-key` plus
+  `Authorization: Bearer <token>` where the token comes from `az account get-access-token --resource <audience>`. A negative check confirms
+  the key alone (no token) is rejected with `401`.
+- Contracts that are not Foundry-targeted, or `foundry_auth_type = "ApiKey"`, behave exactly as before (api-key only, no JWT policy).
+
+> **Caveat:** when the product policy requires JWT, any app that uses the contract's subscription key directly (for example the key
+> read from Key Vault) must **also** present an Entra ID token for the same audience, otherwise the gateway returns `401`.
+> The Foundry project must have a managed identity enabled (Project → Identity).
 
 #### Output
 
 - Three deployed APIM products with subscription keys
 - Key Vault secrets populated (if enabled)
-- Foundry connection created (if enabled)
+- Foundry connection created (if enabled), with `ProjectManagedIdentity` JWT validation in the product policy
 - Performance charts comparing all contracts
 - Token bucket behavior visualization
 
@@ -282,7 +329,7 @@ foundry_project_name = "REPLACE"
 
 #### What It Does
 
-This notebook re-runs the LLM backend onboarding deployment with a `modelAliases` parameter populated, which (re)deploys the shared `resolve-model-alias` policy fragment with the configured aliases inlined. It then provisions an access contract scoped to **alias names only** (least-privilege RBAC) and exercises the same aliases through the available LLM API surfaces, inspecting the `UAIG-*` debug response headers to verify the gateway's routing decisions end-to-end.
+This notebook re-applies the `stacks/llm-backend-onboarding` stack with `model_aliases` populated, which (re)deploys the shared `resolve-model-alias` policy fragment with the configured aliases inlined. It then provisions an access contract scoped to **alias names only** (least-privilege RBAC) and exercises the same aliases through the available LLM API surfaces, inspecting the `UAIG-*` debug response headers to verify the gateway's routing decisions end-to-end.
 
 Two alias strategies are validated:
 
@@ -295,12 +342,12 @@ Two alias strategies are validated:
 
 | Step | Description |
 |---|---|
-| 0 | **Initialize variables** — Fill in resource group / location, paste `llm_backends_config`, and define the two aliases and a direct-test model |
-| 1 | **Verify Azure CLI & APIM Client** — Confirm subscription context and discover the APIM resource + managed identity |
-| 2 | **Generate parameter file** — Write a parameter file containing the full backend config + the two aliases |
-| 3 | **Deploy onboarding** — Re-run the LLM backend onboarding deployment so the `resolve-model-alias` fragment is regenerated with the aliases inlined |
-| 4 | **Create access contract** — Deploy an APIM product whose `allowedModels` lists ONLY the alias names + `direct_test_model`, with `enableResponseHeaders=true` for `UAIG-*` debug headers |
-| 5 | **Resolve API key** — Pick the subscription created for the contract |
+| 0 | **Initialize variables** — Set `env`, paste `llm_backends_config` (or use `backend_mode = "foundry"`), and define the two aliases and a direct-test model |
+| 1 | **Verify Azure CLI & APIM Client** — Confirm subscription context and discover the APIM resource |
+| 2 | **Generate variables file** — Write `environments/<env>/llm-backend-onboarding.tfvars` with the backends + the two aliases |
+| 3 | **Deploy onboarding** — Re-apply `stacks/llm-backend-onboarding` so the `resolve-model-alias` fragment is regenerated with the aliases inlined |
+| 4 | **Create access contract** — Write `environments/<env>/access-contracts/validation-aliastests-dev.tfvars` and apply it: an APIM product whose `allowedModels` lists ONLY the alias names + `direct_test_model`, with `enableResponseHeaders=true` for `UAIG-*` debug headers |
+| 5 | **Resolve API key** — Read the contract subscription's key via APIM `listSecrets` |
 | 6 | **Discover endpoints** — Universal LLM (`/models`), Azure OpenAI (`/openai`), Unified AI (`/unified-ai`, when imported) |
 | Discovery | **`GET /deployments` honors `allowedModels`** — Aliases appear as `type: "alias"` entries with descriptions; underlying real models that aren't in `allowedModels` are filtered out |
 | 7 | **Direct model control test** — Call `direct_test_model` on the available APIs; resolver should be a no-op (no `UAIG-Alias` header) |
@@ -309,7 +356,7 @@ Two alias strategies are validated:
 | 10 | **Weighted distribution test** — Send N=30 requests through `gpt-blend` and tally `UAIG-Resolved-Model` against configured weights |
 | 11 | **Negative RBAC test** — Send a model NOT in `allowedModels`; expect HTTP 403 `unauthorized_model_access` |
 | Summary | **Results overview** — Cross-API consistency check + alias resolution observations |
-| Cleanup | **Delete access contract** — `do_cleanup` flag (default `False`); LLM backends and the `resolve-model-alias` fragment are intentionally preserved |
+| Cleanup | **Destroy access contract** — `do_cleanup` flag (default `False`) destroys the contract state and removes its variables file; LLM backends and the `resolve-model-alias` fragment are intentionally preserved |
 
 #### `UAIG-*` Response Headers Inspected
 
@@ -328,8 +375,8 @@ Two alias strategies are validated:
 #### Key Configuration
 
 ```python
-governance_hub_resource_group = "REPLACE"
-location                      = "REPLACE"
+env                           = "dev"
+backend_mode                  = "override"  # or "foundry" / "extra"
 llm_backends_config           = []          # paste your backend config inline (see notebook 1)
 
 model_aliases = [
@@ -349,6 +396,135 @@ inference_api_version = "2024-05-01-preview"
 - Distribution table for the weighted alias compared against the configured weights
 - Filtered `GET /deployments` response showing aliases as first-class entries with `properties.capabilities.description`
 - 403 negative-test confirmation that unauthorized models are blocked at the gateway
+
+---
+
+### 5. Citadel Acceptance Tests
+
+| | |
+|---|---|
+| **Notebook** | [`citadel-acceptance-tests.ipynb`](citadel-acceptance-tests.ipynb) |
+| **Purpose** | Run a customer acceptance catalogue (authentication, authorization, MCP, AI policies, circuit breakers, usage / chargeback, token accounting, network security) against a deployed environment and export the results for the test sheet |
+| **Run this** | After `task up` (and the contracts), or on any Citadel deployment (upstream Bicep, older versions of this repository). Doesn't deploy anything; the opt-in cases change a subscription key or trigger the usage workflow. |
+
+#### What It Does
+
+Each test case has a documentation cell and **one code cell**. The documentation cell gives the
+pre-requisites, the customer's steps, test data and expected result, how the notebook verifies the
+case, and how it maps to this deployment.
+- **Records:** every case gets PASS, FAIL, NOT CONFIGURED, SKIPPED, MANUAL or ERROR. A failing case never stops *Run All*.
+- **Export:** the last cell exports a CSV to `validation/results/` (git-ignored).
+- **NOT CONFIGURED:** cases for features the generated product policy doesn't enable (PII, content safety, semantic cache, MCP bearer validation, alert rules) first look for a product whose policy has them; if none does, the cell prints the policy or tfvars to add.
+
+| Group | Cases | Verified through |
+|---|---|---|
+| Authentication | AUTH-001/002/003/004/005/007/009/012, AUTHZ-003 | contracts vs APIM products, Key Vault secrets and readers, `api-key` + Entra JWT calls (test client of `task entra-setup`), APIM trace, key regeneration (opt-in), a managed-identity VM (opt-in) |
+| MCP | MCP-AUTH-002/003/004, MCP-BACKEND-004 | MCP `initialize` calls with / without tokens, direct backend probes |
+| AI policies | POL-002…009 | PII / content-safety / cache detection and calls, token rate and quota limits (429 / 403 + `Retry-After`), fragment drift vs the repository and a second environment |
+| Resilience and usage | CB-001/002, PBI-001/002/003/005/007/010, TOK-001/002 | breaker rules and a failing test backend (opt-in), `ApiManagementGatewayLlmLog` / `ApiManagementGatewayLogs` / `AppMetrics` by correlation ID, usage-ingestion workflow and Cosmos (opt-in), tags |
+| Provisioning and security | PROV-001, SEC-001/002/003 | network settings of every resource, direct unauthenticated probes, diagnostic headers and a local scan of the logs for keys and tokens |
+
+**Recommended:** apply [`acceptance-contract.tfvars`](acceptance-contract.tfvars) first. It adds products
+with small limits (300 tokens/minute; 2,000 tokens/hour) so the rate-limit and quota cases trip after a
+few requests.
+
+#### Target: this repository or any Citadel deployment
+
+| Deployment | Settings | What the notebook finds |
+|---|---|---|
+| An environment of this repository | `ENV = "<env>"` (only `environments/<env>/common.tfvars` is needed) | APIM, Key Vault and resource group from the naming contract; derived names that don't exist fall back to discovery |
+| Upstream Bicep templates, older versions of this repository, any other Citadel gateway | `ENV = None`, `RESOURCE_GROUP` (+ `SUBSCRIPTION_ID`, `APIM_NAME` when ambiguous) | APIM: the only service of the resource group; Key Vault: the one APIM's Key Vault-backed named values use, else the only vault of the resource group (`KEY_VAULT_NAME` overrides); workspace from APIM's diagnostic settings; Logic App and Cosmos DB by resource type |
+
+**Access contracts** (AUTH-001/002, PBI-003): `CONTRACTS` points at a folder or file of contract definitions:
+this repository's `.tfvars` (current or older schema), the upstream `.bicepparam` (compiled with
+`az bicep build-params`, so its `using` template must be at its path) or an ARM parameters `.json`. Files for
+another APIM service are skipped. Without files, the products with a subscription stand in for the contracts
+(AUTH-001 lists them for review) and their key secrets are found in the Key Vaults by value
+(`DISCOVER_KEY_SECRETS`; values are compared in memory, never printed).
+
+**Differences outside this repository:**
+- JWT cases: the test client comes from `JWT_TEST_CLIENT_ID` / `JWT_TEST_CLIENT_SECRET` (environment variables)
+  or the Key Vault secrets `ENTRA-TEST-CLIENT-ID` / `ENTRA-TEST-CLIENT-SECRET`.
+- AUTH-001: only this repository's current contracts generate the product policy from properties, so only
+  they have `allowedModels`, token limits and `jwtRequired` compared; other contracts are checked for name,
+  APIs, publication and subscription.
+- POL-009: the fragment drift against this repository is reported, not checked.
+
+#### Key Configuration
+
+```python
+ENV = "dev"                       # or None with RESOURCE_GROUP / SUBSCRIPTION_ID / APIM_NAME / KEY_VAULT_NAME
+CONTRACTS = None                  # contract files (.tfvars, .bicepparam, ARM .json); None = environments/<ENV>/access-contracts
+DEFAULT_MODEL = None              # model for products that allow every model
+PRODUCTS = {}                     # pin a product per test kind ("jwt", "rate", "quota", "usage", ...)
+ALLOW_KEY_ROTATION = False        # AUTH-009 (regenerates a primary key)
+RUN_LIMIT_TESTS = True            # POL-005/006, TOK-002; MAX_LIMIT_REQUESTS caps the cost
+WAIT_FOR_LOGS = True              # PBI-001, POL-002, TOK-001 wait for Log Analytics ingestion
+RUN_USAGE_INGESTION = False       # PBI-001 runs the llm-usage-ingestion workflow now
+CB_TEST_MODEL = None              # CB-001: model served by a failing test backend
+MI_TEST_VM = None                 # AUTH-012: VM with a managed identity in the gateway's network
+MANDATORY_TAGS = [...]            # PBI-007
+```
+
+#### Output
+
+- A status line per case with its checks, plus evidence tables (products, readers, limit runs, network access, probes)
+- A summary table and `validation/results/<env>-<timestamp>.csv` (status, message, non-secret evidence per case)
+
+---
+
+### 6. Backend & Access Contract Tests
+
+| | |
+|---|---|
+| **Notebook** | [`citadel-backend-and-contract-tests.ipynb`](citadel-backend-and-contract-tests.ipynb) |
+| **Purpose** | Test one published LLM backend, model, alias, MCP server or access contract by name, with no other configuration |
+| **Run this** | Any time after `task up`, e.g. after onboarding a backend or applying a contract. Only reads and calls the deployment. |
+
+#### What It Does
+
+Set `TARGET` to a name and run all cells. The notebook:
+- **Discovers** the environment: the backend contract (backends, their type and models, aliases, read from the
+  `backend-contract` fragment), the APIM products with their APIs, policies and subscriptions, the MCP
+  servers, and the contract files. The catalogue cell prints all of them.
+- **Resolves** the name (case-insensitive; a unique part of a name is enough): contract file, product,
+  backend ID, model, alias or MCP server.
+- **Chooses the calls** from the model kind (chat, embeddings, image) and the backend type: OpenAI format on
+  the universal, Azure OpenAI and unified (`/v1`) APIs, and the native formats on the unified API for
+  `aws-bedrock` (Converse), `gemini` (`generateContent`) and `anthropic` (Messages). Only APIs the key may call are used.
+- **Uses the right key:** a contract's key from its Key Vault secret (as the consuming team would; APIM as a
+  fallback) plus the Entra test client's token when the product requires a JWT. For backends, models,
+  aliases and MCP servers it uses the all-access subscription, or a product that grants the model.
+- **Guardrails** for contracts: without a key → 401; a model outside `allowed_models` → 403; a required app
+  role the test client lacks → 403.
+- **Backends:** the APIM debug trace confirms which backend answered.
+
+| `TARGET` | Calls |
+|---|---|
+| `team-a-chatbot` (contract) | every allowed model and alias on every LLM API of each product, its MCP servers, guardrails |
+| `foundry-swedencentral-0` (backend) | every model of the backend, with the serving backend from the trace |
+| `gpt-5.4-mini` / `fast` (model / alias) | the model on every API that can serve it |
+| `weather-mcp` (MCP server) | MCP `initialize` |
+
+#### Key Configuration
+
+```python
+ENV = "dev"                       # or None with RESOURCE_GROUP (+ SUBSCRIPTION_ID, APIM_NAME, KEY_VAULT_NAME): any Citadel deployment
+CONTRACTS = None                  # contract files (.tfvars, .bicepparam, ARM .json); None = environments/<ENV>/access-contracts
+TARGET = "team-a-chatbot"         # or a list of names; "" = catalogue only
+INCLUDE = ("chat", "embeddings", "image")
+GUARDRAILS = True                 # 401 without key, 403 for a model outside allowed_models
+TRACE = None                      # serving backend from the APIM trace (None = backend targets only)
+KEY_SOURCE = "auto"               # contracts: Key Vault secret, else APIM
+BACKEND_KEY = "auto"              # backends / models: all-access subscription, else a granting product
+```
+
+#### Output
+
+- The catalogue (contracts, backends, models, aliases, MCP servers)
+- Per target, one row per call: API, call, model, kind, backend type, HTTP status, latency, serving backend
+  and the answer (or the error), with a ✅ / ❌ / ⏭️ summary
+- Optional detail of one call (request, response and diagnostic headers; never the key)
 
 ---
 
@@ -379,29 +555,39 @@ inference_api_version = "2024-05-01-preview"
 └──────────────────────────────────────────────┘
 ```
 
-> **Note:** Notebook 4 creates its own access contract and can be run independently after backend onboarding. It re-deploys the LLM backend onboarding with `modelAliases` populated (the `resolve-model-alias` fragment is regenerated); full cross-API coverage additionally requires the Unified AI API (`unified-ai`) to be imported into APIM.
+> **Note:** Notebook 4 creates its own access contract and can be run independently after backend onboarding. It re-applies the LLM backend onboarding stack with `model_aliases` populated (the `resolve-model-alias` fragment is regenerated); full cross-API coverage additionally requires the Unified AI API (`unified-ai`) to be imported into APIM.
+>
+> Notebook 5 (acceptance tests) only reads and calls the deployment: run it on any environment, typically as the sign-off step after the baseline.
+>
+> Notebook 6 (backend & access contract tests) also only reads and calls: use it as a quick check of one backend or contract at any time.
+>
+> Notebooks 5 and 6 also run against Citadel deployments made with the upstream Bicep templates or older
+> versions of this repository: set `ENV = None` and `RESOURCE_GROUP` (see notebook 5, *Target*).
 
 ## Shared Utilities
 
-All notebooks import shared helper modules from the [`../shared/`](../shared/) directory:
+All notebooks import shared helper modules from the [`shared/`](shared/) directory:
 
 | Module | Description |
 |---|---|
-| `utils.py` | CLI command runner, `terraform output` helper, formatted output helpers (`print_ok`, `print_error`, `print_info`) |
+| `utils.py` | CLI command runner, stack helpers (`env_dir`, `write_tfvars`, `run_stack`, `stack_outputs`, `terraform_output_get`, `get_contract_subscription_key`), formatted output helpers (`print_ok`, `print_error`, `print_info`) |
 | `apimtools.py` | `APIMClientTool` class for APIM discovery, API key retrieval, policy fragment parsing, and backend management |
+| `acceptance.py` | Acceptance-test helpers: result registry and CSV export, gateway discovery (from `environments/<env>` or a subscription / resource group; products, policies, subscriptions, keys in memory only), access contracts from `.tfvars` / `.bicepparam` / ARM `.json` or from the products, authenticated calls, Log Analytics queries, network-access inspection, direct probes, log secret scan. Reuses `scripts/gateway_env.py` and `scripts/jwt_auth_tests.py` |
+| `explorer.py` | Backend & access contract tests: discovery (backend contract, or `set-backend-pools` on older gateways; products, contract files, MCP servers), name resolution, request shapes per backend type and model kind, keys and calls. Builds on `acceptance.py` |
 
 ## Cleanup
 
-Each notebook includes an optional cleanup cell at the end that removes the APIM products and subscriptions created during testing. Cleanup is controlled by a per-notebook flag (e.g. `cleanup_enabled` / `do_cleanup`).
+Each notebook that creates access contracts includes an optional cleanup cell at the end that destroys them (`task destroy STACK=access-contracts ENV=<env> STATE_KEY=<use-case>.tfstate`) — including the Key Vault secrets and Foundry connections they created — and deletes their `environments/<env>/access-contracts/<use-case>.tfvars` files so `task up` does not recreate them. Cleanup is controlled by a per-notebook flag (e.g. `cleanup_enabled` / `do_cleanup`).
 
-> **Important:** Cleanup does not remove Azure Key Vault secrets, Foundry connections, or LLM backend configurations. Those resources are managed separately.
+> **Important:** Cleanup does not remove the LLM backend configuration (`stacks/llm-backend-onboarding`); restore or edit `environments/<env>/llm-backend-onboarding.tfvars` (a `.bak` copy is kept of a hand-written file the notebooks replaced) and re-apply the stack to change it.
 
 ## Troubleshooting
 
 | Issue | Resolution |
 |---|---|
 | `az account show` fails | Run `az login` and set the correct subscription with `az account set --subscription <id>` |
-| APIM Client Tool initialization fails | Verify the `governance_hub_resource_group` is correct and your identity has Reader access |
+| APIM Client Tool initialization fails | Verify `env` / `governance_hub_resource_group` are correct (`task output STACK=platform ENV=<env>`) and your identity has Reader access |
+| `Missing environments/<env>/common.tfvars` / `backend.hcl` | Create the environment folder from `examples/quickstart` and run `task bootstrap ENV=<env>` |
 | Model not found in backend pool | Run the backend onboarding notebook to register the model |
 | Key Vault access denied | Ensure your identity has `Key Vault Secrets User` role on the Key Vault |
 | Foundry connection fails | Verify the Foundry account, project, and connection names are correct |

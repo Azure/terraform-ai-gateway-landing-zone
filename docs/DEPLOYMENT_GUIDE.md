@@ -1,0 +1,1302 @@
+# AI Gateway Landing Zone — Deployment Guide
+
+How to deploy and run the gateway: the stack layout, the commands (Task or
+plain Terraform), CI/CD, day-2 operations and troubleshooting. The scenario
+templates are in [examples/](../examples/) and described in
+[DEPLOYMENT_SCENARIOS.md](DEPLOYMENT_SCENARIOS.md).
+
+---
+
+## 1. Mental model
+
+The deployment is split into **stacks**: small root configurations, each with
+its own state, applied in order. A change in a lower layer never requires
+planning a higher one, and a policy edit doesn't refresh Cosmos DB.
+
+| # | Stack | Owns | Typical duration (new env) | Runs when |
+|---|---|---|---|---|
+| 0 | [bootstrap](../stacks/bootstrap/) | State account (one container per stack), workload resource group, plan + apply pipeline identities, their RBAC | 2–3 min | once, by a person with Contributor + User Access Administrator on the subscription (`task bootstrap`) |
+| 1 | [identity](../stacks/identity/) | Entra app APIM validates JWTs against (no client secret) | < 1 min | `identity.tfvars` exists |
+| 2 | [network](../stacks/network/) | `greenfield`: VNet, subnets, NSGs, private DNS zones. `alz_spoke`: subnets + NSGs + UDR in the vended VNet | 2–5 min | `network.tfvars` exists (not in `byo`) |
+| 2b | [app-hosting](../stacks/app-hosting/) | ILB App Service Environment v3 + its private DNS zone | **2–4 h** | `app-hosting.tfvars` exists (keyless usage pipeline) |
+| 3 | [platform](../stacks/platform/) | Identities, monitoring, Key Vault, Cosmos DB, Event Hub, Foundry, Redis, API Center, APIM service + telemetry, usage-ingestion Logic App | 45–90 min (APIM) | always |
+| 4 | [gateway-config](../stacks/gateway-config/) | Named values, shared policy fragments, non-LLM backends, service APIs, API Center registrations | 5–10 min | always |
+| 5 | [llm-backend-onboarding](../stacks/llm-backend-onboarding/) | LLM backends and pools (derived from the Foundry deployments), routing and model-aware fragments, LLM APIs, backend credentials | 2–5 min | always |
+| 6 | [access-contracts](../stacks/access-contracts/) | Per use case: products, subscriptions, Key Vault secrets, Foundry connection — **one state per use case** | ~1 min each | one file per use case |
+
+**How stacks find each other.** Every stack computes the same names from
+`workload`, `environment` and `subscription_id` ([modules/naming](../modules/naming/)),
+and looks up what other stacks own with data sources. There's no
+`terraform_remote_state` and nothing to copy between stacks. Only things that
+can't be found by name come from tfvars: hub-provided IDs in an ALZ, or the
+Entra app values when Graph permissions are kept off the pipeline.
+
+**Two resource groups per environment:** `rg-<workload>-<env>-tfstate` (state
+and pipeline identities) and `rg-<workload>-<env>` (everything else). Both are
+created by `bootstrap`, so the apply identity's rights stop at the workload
+group.
+
+---
+
+## 2. Prerequisites
+
+| Tool | Version | Why |
+|---|---|---|
+| [Terraform](https://developer.hashicorp.com/terraform/install) | `.terraform-version` (1.16.x) | Stacks pin `~> 1.11`; `tenv`/`tfenv` read the file |
+| [Task](https://taskfile.dev) | ≥ 3.40 | `Taskfile.yml`. Install: `brew install go-task` · `winget install Task.Task` · `npm i -g @go-task/cli` |
+| [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli?view=azure-cli-latest) | current | Sign-in; `zip_deploy` workflow publishing; `scripts/validate.sh` |
+| [Python](https://www.python.org/downloads/) | ≥ 3.10, as `python3` | `task preflight` (run by `task up`), `task entra-setup`, `task jwt-test` (standard library only); the validation notebooks (`validation/requirements.txt`) |
+| Git | current | Clone; `terraform init` clones the AVM modules with it |
+| Bash, `curl`, POSIX tools (`find`, `sort`, `sed`, `basename`, `seq`, `sleep`) | — | Taskfile commands, `task validate` (`scripts/validate.sh`), the `zip_deploy` provisioner (`bash -c`). Built into macOS and Linux; Windows: [§2.2](#22-deploying-from-windows) |
+| `gh` (optional) | current | GitHub environments and variables (§7) |
+
+**Windows:** deploy from Git Bash or WSL2, not PowerShell or cmd; see
+[§2.2](#22-deploying-from-windows).
+
+```bash
+az login --tenant <tenant-id>
+az account set --subscription <workload-subscription-id>
+```
+
+Providers use the CLI token locally and OIDC in CI. The state backend uses
+Entra ID (`use_azuread_auth = true`), never storage keys.
+
+### 2.1 Permissions
+
+**Owner is not needed.** Contributor can't write role assignments or role
+definitions, so the person running `bootstrap` needs **User Access
+Administrator** next to it; nothing else in Owner is used.
+
+Running everything from a laptop (as the [Quick Start](QUICK_START.md) does)
+needs only the two subscription roles in the first row: they cover every other
+row. In CI, `bootstrap` gives the apply identity the "workload resource group"
+rights below, so the pipeline never holds subscription-wide rights.
+
+| Stack | Run by | Azure rights | Entra ID |
+|---|---|---|---|
+| `bootstrap` | a person, once | **Contributor + User Access Administrator** on the subscription (creates the two resource groups, registers resource providers, assigns roles, creates the plan role) | Only with `graph_permissions = true`: Privileged Role Administrator (grants the Graph app roles); the quickstart sets it to `false` |
+| `identity` | apply identity | none | Graph `Application.ReadWrite.OwnedBy` (a person: permission to register apps) |
+| `network` | apply identity | Contributor on the workload resource group; `alz_spoke`: Network Contributor on the vended VNet | none |
+| `app-hosting` | apply identity | Contributor on the workload resource group | none |
+| `platform` | apply identity | Contributor, RBAC Administrator (conditioned: no privileged roles) and Resource Policy Contributor on the workload resource group; a shared ASE: `Microsoft.Web/hostingEnvironments/join/action` on it. It becomes *Key Vault Administrator* on the vault it creates, and writes the APIM logger credentials there (§6.8) | none |
+| `gateway-config` | apply identity | Contributor on the workload resource group | Graph `Application.Read.All`, only with `entra_auth` enabled and no explicit `client_id` |
+| `llm-backend-onboarding` | apply identity | Contributor on the workload resource group | none |
+| `access-contracts` | apply identity | Contributor on the workload resource group; *Key Vault Secrets Officer* on the platform Key Vault (granted by `platform` through `secret_writer_principal_ids`) | none |
+
+Every stack also needs *Storage Blob Data Contributor* on the state account
+(`bootstrap` grants it). The plan identity gets read-only rights only. When a
+platform team issues the rights instead, see
+[operations/platform-team-requests.md](operations/platform-team-requests.md).
+
+### 2.2 Deploying from Windows
+
+**Deployment from Git Bash or WSL2 works, but plain PowerShell or cmd doesn't
+work with Task.** WSL2 is recommended. Task runs every command through its own POSIX shell
+interpreter, but takes `sort`, `sed`, `basename`, `seq`, `sleep`, `bash` and
+`python3` from `PATH`. `task validate` runs `bash scripts/validate.sh`, and the
+`zip_deploy` workflow publish
+([code-deploy.tf](../modules/logic-app/code-deploy.tf)) runs `bash -c`.
+
+| Shell | Works | Choose it when |
+|---|---|---|
+| **WSL2** (Ubuntu) with the Linux builds of the tools | yes, as on Linux; no Windows-specific settings | you want the same environment as CI (`ubuntu` runners), or `tmux` for the 2–4 h `app-hosting` apply |
+| **Git Bash** (Git for Windows) with the Windows builds of the tools | yes, with the settings below | the default on a Windows laptop |
+| PowerShell / cmd | Task: **no**. Plain Terraform (§4.4): yes, except the `zip_deploy` publish | neither of the above is allowed (see the end of this section) |
+
+
+#### WSL2
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+In Ubuntu, install the **Linux** builds:
+[Terraform](https://developer.hashicorp.com/terraform/install) (or `tenv`),
+[Task](https://taskfile.dev/docs/installation),
+[Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux)
+(`curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash`), and
+`sudo apt install -y git curl python3 python3-venv` (the venv is for the
+validation notebooks). Then deploy as on Linux:
+
+```bash
+mkdir -p ~/src && cd ~/src
+git clone https://github.com/Azure/terraform-ai-hub-gateway-landing-zone.git
+cd terraform-ai-hub-gateway-landing-zone
+command -v terraform task az python3   # every path under /usr or $HOME, none under /mnt/c
+az login                               # or: az login --use-device-code
+```
+
+- **Clone into the Linux file system** (`~/src`), not `/mnt/c/…`. Windows
+  drives are much slower from WSL2, and `terraform init` writes thousands of
+  module files. A clone made by Windows Git also has CRLF line endings.
+- **Linux tools only.** WSL appends the Windows `PATH`, so a tool missing in
+  Linux silently falls back to the Windows one (e.g. `/mnt/c/…/az`).
+  `command -v` shows which one runs.
+- **Private data planes over a corporate VPN** (§4.5). With WSL2's default
+  NAT networking, `privatelink` names may resolve to public addresses or be
+  unreachable. On Windows 11 22H2 and later, add this to
+  `%UserProfile%\.wslconfig`, then run `wsl --shutdown`:
+
+  ```ini
+  [wsl2]
+  networkingMode=mirrored
+  dnsTunneling=true
+  autoProxy=true
+  ```
+
+#### Git Bash
+
+```powershell
+winget install -e --id Git.Git                       # Git Bash: bash, find, sort, sed, curl
+winget install -e --id Hashicorp.Terraform           # or tenv; match .terraform-version
+winget install -e --id Task.Task
+winget install -e --id Microsoft.AzureCLI            # includes an `az` script for Git Bash
+winget install -e --id Python.PythonInstallManager   # provides `python3`; then: py install 3.13
+```
+
+Then, in a new **Git Bash** window (so it picks up the new `PATH`):
+
+```bash
+git config --global core.longpaths true            # .terraform/modules paths go past 260 characters
+echo 'export TASK_CORE_UTILS=false' >> ~/.bashrc    # Git's find, not Task's built-in one
+source ~/.bashrc
+git clone -c core.autocrlf=false https://github.com/Azure/terraform-ai-hub-gateway-landing-zone.git /c/src/aigw
+cd /c/src/aigw
+command -v terraform task az python3 bash find sort sed   # find, sort, sed: /usr/bin/...
+python3 --version                                        # 3.10+, not a Microsoft Store prompt
+```
+
+Everything in §3 onwards then works unchanged. Why each setting:
+
+- **`TASK_CORE_UTILS=false`.** On Windows, Task replaces `find`, `ls`, `rm`
+  and a few other commands with built-in Go versions by default. Its `find`
+  doesn't support `-maxdepth` or `-exec`, which the Taskfile uses to list
+  `access-contracts/*.tfvars`. The list then comes back empty without failing
+  the task, so `task up`, `task contracts`, `task plan-all` and `task down`
+  **silently skip every access contract**. The only sign is
+  `find: flag provided but not defined: -exec` in the output. With `false`,
+  Task uses Git's `find`.
+- **`core.autocrlf=false`, set for this clone only.** Git for Windows defaults
+  to `true` and checks files out with CRLF line endings; the repository uses
+  LF. With CRLF, `bash scripts/validate.sh` fails with
+  `$'\r': command not found`. The workflow package Terraform zips also gets a
+  different hash than in CI, so every switch between a Windows apply and a CI
+  apply republishes the workflows.
+- **`core.longpaths=true`, global.** Terraform clones the AVM modules with
+  `git` into `stacks/<stack>/.terraform/modules/…`. Paths there reach about 165
+  characters below the repository root, which goes past Windows' 260-character
+  limit when cloned under `C:\Users\<name>\…` (`Filename too long`). It has to
+  be global because Terraform's module clones don't read the repository's
+  config.
+- **A short path without spaces, outside OneDrive** (e.g. `C:\src\aigw`). The
+  Taskfile passes paths unquoted, so a space splits them. Every task then
+  fails; `task bootstrap`, for example, reports
+  `Create environments/<env>/common.tfvars … first` although the files exist.
+  OneDrive would also sync `.terraform/` with its large provider binaries.
+- **`python3`.** The
+  [Python install manager](https://docs.python.org/3/using/windows.html)
+  includes a `python3` command. The older python.org installer only provides
+  `python` and `py`, so `python3` starts the Microsoft Store stub (`Python was
+  not found; run without arguments to install from the Microsoft Store…`) and
+  `task up` stops at the preflight. Use the install manager. Otherwise, run
+  `py scripts/preflight.py <env>` yourself, then `task up ENV=<env>
+  PREFLIGHT=false`.
+- **Typing `az` commands yourself:** Git Bash rewrites arguments that start
+  with `/` into Windows paths (`/subscriptions/…` becomes
+  `C:/Program Files/Git/subscriptions/…`). Prefix such commands with
+  `MSYS_NO_PATHCONV=1`, e.g.
+  `MSYS_NO_PATHCONV=1 az role assignment list --scope /subscriptions/<id>`.
+  The repository's scripts and the Taskfile don't need it.
+- **Long applies:** `platform` (45–90 min) and `app-hosting` (2–4 h) need
+  the window open and the machine awake, and Git Bash has no `tmux`. Run
+  `app-hosting` from WSL2 or CI. An interrupted apply leaves the state lock
+  held; release it with
+  `terraform -chdir=stacks/<stack> force-unlock <lock-id>`.
+
+#### PowerShell only
+
+If neither Git Bash nor WSL2 is allowed, Task isn't usable. Apply the stacks
+with plain Terraform (§4.4), and:
+
+- **Bootstrap:** use the manual steps at the end of §4.4.
+- **Preflight:** run `py scripts/preflight.py <env>` instead of
+  `task preflight`.
+- **Smoke tests:** run `pwsh scripts/validate.ps1 <env>` (PowerShell 7)
+  instead of `task validate`, after `terraform -chdir=stacks/platform init …`.
+- **No `zip_deploy` publish**, i.e. `usage_pipeline.logic_app.code_deploy =
+  true` with `hosting = "workflow_standard"` (the default) or with
+  `deployment = "zip_deploy"`. Terraform runs that publish with `bash -c`, and
+  from PowerShell `bash` is WSL's `bash.exe` launcher, if it exists at all.
+  Apply `platform` from Git Bash or WSL2 for those. `ase_v3` with the default
+  `run_from_package` needs no Bash.
+
+---
+
+## 3. Environment folder
+
+`environments/<env>/` is the only place where environments differ. Start from a
+scenario:
+
+```bash
+cp -r examples/dev-greenfield-private environments/dev
+# edit environments/dev/*.tfvars: replace every <...> placeholder
+```
+
+```text
+environments/dev/
+├── backend.hcl                    # written by task bootstrap
+├── common.tfvars                  # every stack: workload, environment, location, subscription_id, network_mode, naming, tags
+├── bootstrap.tfvars               # task bootstrap only
+├── identity.tfvars                # present => identity stack runs
+├── network.tfvars                 # present => network stack runs (absent for byo)
+├── app-hosting.tfvars             # present => ASE v3 (absent for Workflow Standard or a shared ASE)
+├── platform.tfvars
+├── gateway-config.tfvars
+├── llm-backend-onboarding.tfvars
+└── access-contracts/
+    └── team-a-chatbot.tfvars      # one file = one use case = one state
+```
+
+**A stack runs only if its `<stack>.tfvars` exists**, so the folder defines the
+topology. All environment files, including `backend.hcl`, are gitignored.
+Only `environments/.gitkeep` is checked in. Keep reusable placeholder templates
+in `examples/`; keep deployment-specific values locally, and in the private
+configuration repository that CI reads (§7).
+
+```hcl
+# environments/dev/common.tfvars
+workload        = "aigw"          # 2-8 lowercase letters/digits
+environment     = "dev"
+location        = "swedencentral"
+subscription_id = "<workload-subscription-id>"
+network_mode    = "greenfield"    # greenfield | alz_spoke | byo
+# naming = { unique_seed = "k3x9p", name_overrides = { apim = "apim-contoso-dev" } }
+tags            = { workload = "ai-gateway", environment = "dev" }
+```
+
+Names follow `<prefix>-<workload>-<env>[-<seed>]`, e.g. `apim-aigw-dev-k3x9p`;
+the seed is derived from the subscription, workload and environment unless
+`naming.unique_seed` is set. See [modules/naming](../modules/naming/README.md).
+
+---
+
+## 4. Deploy
+
+### 4.1 Bootstrap (once per environment)
+
+```bash
+task bootstrap ENV=dev
+```
+
+Applies `stacks/bootstrap` with local state, writes
+`environments/dev/backend.hcl`, migrates the state into the account it just
+created, and prints the outputs: `apply_client_id` / `plan_client_id` (for the
+GitHub environments, §7) and `apply_principal_id` / `plan_principal_id` (for
+`secret_writer_principal_ids` / `secret_reader_principal_ids` in
+`platform.tfvars`).
+
+In an ALZ where subscription vending provides the identities and the resource
+group, set `create_pipeline_identities = false`,
+`create_workload_resource_group = false` and `existing_pipeline_identities` —
+bootstrap then only adds the state account and the role assignments.
+
+### 4.2 Whole environment
+
+```bash
+task preflight ENV=dev   # optional, read-only: Azure Policy Deny rules this repo trips over
+task up ENV=dev          # runs the preflight first (PREFLIGHT=false skips it), then every stack
+```
+
+The preflight lists the policy assignments that apply to the workload resource
+group (the subscription while the group doesn't exist yet) and fails when a
+known Deny policy isn't exempted, so you find out before the 30 to 60 minute
+APIM creation instead of after it. It needs only Reader, and only warns if
+Azure Policy can't be queried. Today it knows *API Management calls to API
+backends should be authenticated*; see
+[platform-team-requests.md](operations/platform-team-requests.md#apim-backend-authentication-policy-microsoft-cloud-security-benchmark).
+
+Applies every configured stack in order, then every access contract. Each step
+runs `init` → `plan -out=tfplan` → `apply tfplan`. Check the result:
+
+```bash
+task output STACK=platform ENV=dev NAME=apim_gateway_url
+task validate ENV=dev          # post-deploy smoke tests (scripts/validate.sh)
+task plan-all ENV=dev          # every stack and contract should report "No changes"
+```
+
+### Diagnostic settings that Azure Policy creates
+
+Some subscriptions have a Policy (DeployIfNotExists) that creates a diagnostic
+setting on a resource seconds after it exists. Every module here writes its
+workload diagnostic setting with an ARM **PUT** (`azapi_resource_action`),
+which is a create-or-update: it succeeds whether the setting already exists or
+not, and the deployment never has to import anything. The setting is deleted
+together with its parent resource, so destroy needs no cleanup. If Policy
+created a setting with the same name, the PUT overwrites its destination with
+the workload workspace.
+
+If **Policy must stay the owner**, opt out per service in `platform.tfvars`:
+
+```hcl
+monitoring = {
+  policy_managed_diagnostics = ["cosmosdb", "eventhub", "foundry"]
+}
+```
+
+Supported keys: `apim`, `cosmosdb`, `eventhub`, `foundry`, `logic_app`. These
+only skip the Azure Monitor diagnostic settings; APIM loggers and API
+diagnostics stay enabled.
+
+#### Private Log Analytics and App Insights
+
+Log Analytics and the App Insights components (APIM, Logic App, Foundry) can
+accept telemetry only through an Azure Monitor Private Link Scope (AMPLS), and
+the Logic App and Foundry components queries only through it too:
+
+```hcl
+monitoring = {
+  private_link_scope       = true   # greenfield / isolated DNS: a scope + private endpoint here
+  # existing_private_link_scope_id = "<hub AMPLS ID>"   # ALZ hub-and-spoke: join the hub's scope instead
+  public_ingestion_enabled = false  # every resource
+  public_query_enabled     = false  # the Logic App and Foundry components (see below)
+}
+```
+
+- **One scope per DNS.** A scope's private endpoint writes the global Azure
+  Monitor names into `privatelink.monitor.azure.com` and four more zones; a
+  second scope on networks that share those zones overwrites the first one's
+  records. Greenfield (`private_link_scope = true`) needs
+  `private_dns.link_monitor_zone = true` in `network.tfvars` (the five zones);
+  in an ALZ, join the hub's scope with `existing_private_link_scope_id` (the
+  apply identity needs Monitoring Contributor on it, request P11).
+- **Ingestion.** APIM and the Logic App send App Insights telemetry from
+  their VNet through the private endpoint, so `public_ingestion_enabled =
+  false` needs APIM in a VNet. Diagnostic settings aren't affected
+  (Microsoft's private channel).
+- **Public query stays on the workspace and the APIM component.** The usage
+  pipeline's `llm-usage-ingestion`, `mcp-usage-ingestion` and
+  `agent-usage-ingestion` workflows read the APIM component with the Logic App managed connector,
+  whose queries go through Resource Manager, which can't use private links.
+  The component's data lives in the workspace, and a workspace that blocks
+  public query returns those queries **empty, without an error**: the
+  workflow still succeeds but exports nothing (verified live). So the
+  workspace keeps public query too, and the Logic App and Foundry components'
+  data, stored in the same workspace, stays queryable there (RBAC applies);
+  closing their query only closes their own endpoints. Fully private query
+  needs the two workflows to query through the private endpoint instead of
+  the managed connector.
+- **Portal.** Logs, workbooks, dashboards and transaction search of the closed
+  components work only from a network connected to the scope (a runner or
+  jump-box VNet, or the corporate network in an ALZ).
+- **BYO workspace.** A central workspace (`log_analytics_workspace_id`) keeps
+  its owner's network settings and scope membership, but must accept public
+  queries for the usage export (above).
+- **Access modes** (`private_link_scope_access_mode`, scope created here):
+  `Open` by default; `PrivateOnly` blocks every Azure Monitor resource outside
+  the scope for all networks sharing the DNS, so switch only once everything
+  they need is in it.
+
+`task output STACK=platform ENV=<env> NAME=monitoring_network` shows the scope
+and the public ingestion / query of each resource.
+
+### 4.3 One stack at a time
+
+Useful the first time, or to stop between layers:
+
+```bash
+task apply STACK=identity               ENV=dev
+task apply STACK=network                ENV=dev
+task apply STACK=app-hosting            ENV=dev   # 2-4 h: run in tmux/screen or CI
+task apply STACK=platform               ENV=dev
+task apply STACK=gateway-config         ENV=dev
+task apply STACK=llm-backend-onboarding ENV=dev
+task contract ENV=dev USE_CASE=team-a-chatbot      # or: task contracts ENV=dev
+```
+
+`task plan STACK=<stack> ENV=<env>` plans only (`LOCK=-lock=false` for the
+read-only plan identity).
+
+### 4.4 Without Task (plain Terraform)
+
+```bash
+E=environments/dev
+terraform -chdir=stacks/platform init -reconfigure -backend-config=../../$E/backend.hcl
+terraform -chdir=stacks/platform plan -out=tfplan -var-file=../../$E/common.tfvars -var-file=../../$E/platform.tfvars
+terraform -chdir=stacks/platform apply tfplan
+
+# an access contract: its own state key
+terraform -chdir=stacks/access-contracts init -reconfigure -backend-config=../../$E/backend.hcl -backend-config=key=team-a-chatbot.tfstate
+terraform -chdir=stacks/access-contracts apply -var-file=../../$E/common.tfvars -var-file=../../$E/access-contracts/team-a-chatbot.tfvars
+```
+
+Bootstrap without Task: add a `backend_override.tf` with `backend "local" {}`
+to `stacks/bootstrap`, apply, write `backend.hcl` from `terraform output -raw
+backend_hcl`, delete the override and run `terraform init -migrate-state
+-backend-config=…`.
+
+### 4.5 Reaching private data planes
+
+Some steps talk to private endpoints:
+- the state account (when private);
+- Key Vault secrets: the access contracts' and the platform's APIM logger credentials
+  (`apim_logging.credentials_in_key_vault`, §6.8);
+- the workflow package on the keyless storage account (every plan reads it).
+
+Options:
+
+| Option | How | When |
+|---|---|---|
+| Runner in `snet-cicd` (default) | GitHub-hosted runner with Azure private networking (subnet delegated to `GitHub.Network/networkSettings`), or a self-hosted runner VM (`cicd_subnet_delegation = "none"`) | CI, and every Corp environment |
+| `dev_access` (greenfield, non-prod) | `platform.tfvars`: `dev_access = { allowed_cidrs = ["<your-ip>/32"] }` — Key Vault and storage allow those CIDRs (default action stays Deny). A `check` fails for prod or non-greenfield. | Laptop runs |
+
+Behind proxied egress (secure web gateway / SASE) the services see the proxy's
+address, which can differ per process — IP allow-listing is unreliable there;
+use a runner.
+
+---
+
+## 5. Network modes
+
+The commands are the same in every mode; only the environment folder differs.
+
+| | `greenfield` | `alz_spoke` | `byo` |
+|---|---|---|---|
+| `network.tfvars` | `address_space` (/22), `apim_vnet_mode`, `subnets_enabled` | `alz_spoke = { vended_vnet_id, hub_firewall_ip }`, `address_space` or `subnet_prefixes` from the vending allocation, `apim_vnet_mode` | absent |
+| Private DNS | created by `network` (13 `privatelink.*` zones), looked up by `platform` | hub-owned; DINE binds most zone groups | hub/customer-owned |
+| `app-hosting.tfvars` | `ase = {…}` (subnet and VNet looked up) | `ase.subnet_id`, `dns.vnet_link_ids` (spoke + hub/resolver) | `ase.subnet_id`, `dns.vnet_link_ids` |
+| `platform.tfvars` `network` | omit (looked up) | `task output STACK=network NAME=platform_network` + hub zone IDs Terraform still binds (openai, ai_services, apim_gateway, redis) | every ID |
+
+`apim_vnet_mode` in `network.tfvars` must equal `apim.vnet_mode` in
+`platform.tfvars` (APIM network matrix:
+[operations/apim-network-modes.md](operations/apim-network-modes.md)).
+There's no in-place move from `greenfield` to `alz_spoke`: deploy a new
+`alz_spoke` environment from the same code and move traffic and use cases.
+Platform-team requests for an ALZ:
+[operations/platform-team-requests.md](operations/platform-team-requests.md).
+
+---
+
+## 6. Day-2 operations
+
+| Change | Edit | Command (CI does it on merge) |
+|---|---|---|
+| Update to a newer version of this repository | nothing (pull) | `task up ENV=<env>`: every stack in order, then the contracts. A change can span stacks (e.g. a new gateway-config fragment that the LLM APIs include), so applying one stack alone can fail |
+| Add or change an LLM backend, model alias or credential | `llm-backend-onboarding.tfvars` (`llm_backends`, `foundry_backends`, `model_aliases`, `aws`, `session_affinity`) | `task apply STACK=llm-backend-onboarding ENV=<env>` |
+| See what the gateway routes to right now | nothing: `GET <gateway>/version/backend-contract` (subscription key) returns the live backends, pools, aliases and circuit breakers | |
+| New Foundry model deployment | `platform.tfvars` `foundry.models` | `task apply STACK=platform …`, then `STACK=llm-backend-onboarding` (backends are derived from the deployments) |
+| Onboard a use case | new `access-contracts/<use-case>.tfvars` | `task contract ENV=<env> USE_CASE=<use-case>` |
+| Change a shared fragment or service API | `stacks/gateway-config/fragments/` or `apis/` | `task apply STACK=gateway-config …` |
+| Change an LLM API, routing or model-aware fragment | `stacks/llm-backend-onboarding/apis/` or `fragments/` | `task apply STACK=llm-backend-onboarding …` |
+| Scale APIM, Foundry capacity, Logic App workers | `platform.tfvars` | `task apply STACK=platform …` |
+| Spread APIM / the Logic App over availability zones | `platform.tfvars` `apim.zone_redundant`, `usage_pipeline.logic_app.zone_redundant` (or `usage_pipeline.ase.zone_redundant`) | at creation: see [6.7 Availability zones](#67-availability-zones) |
+| Keep the APIM logger credentials out of APIM's own secrets | `platform.tfvars` `apim_logging.credentials_in_key_vault` (default `true`) | `task apply STACK=platform …`; see [6.8](#68-apim-logger-credentials-in-key-vault) |
+| Answer similar chat prompts from a cache | `platform.tfvars` `features.semantic_cache` + an embeddings model, `gateway-config.tfvars` `semantic_cache`, contract `services[*].semantic_cache` | see [6.9 Semantic cache](#69-semantic-cache) |
+| Record every request of a contract (usage events), audit PII processing | contract `services[*].usage_events = true`; PII contracts include `pii-audit` | see [6.10 Usage and PII audit events](#610-usage-and-pii-audit-events-event-hubs) |
+| Republish only the usage-ingestion workflows | `logicapp-src/usage-ingestion-logicapp/` | `task logic-app-code ENV=<env>` |
+| Add a subnet / DNS zone link (greenfield) | `network.tfvars` | `task apply STACK=network …` |
+
+**Entra JWT auth.** The subscription key is always required; an access
+contract can additionally require an Entra ID (or other OpenID Connect) token
+and app roles. See [6.6 Entra ID JWT authentication](#66-entra-id-jwt-authentication).
+
+**Access contracts and keys.** Subscriptions are created through azapi (APIM
+returns no keys on GET); the key is read with an ephemeral `listSecrets` action
+and written only to write-only arguments — the Key Vault secret's `value_wo`
+and the Foundry connection's `sensitive_body`. Keys are never in state or
+outputs; read one from Key Vault, or
+`az rest --method post --url "https://management.azure.com<subscription id>/listSecrets?api-version=2024-05-01"`.
+They are rewritten every `secret_rotation_days`.
+
+### 6.1 Usage-ingestion workflow code
+
+The workflows (synced with the upstream accelerator, except `connections.json`, which uses the
+managed identity for Cosmos DB):
+
+| Workflow | Trigger | Reads | Writes (Cosmos DB `usage-db`) |
+|---|---|---|---|
+| `llm-usage-ingestion` | every 3 hours (GMT) | APIM App Insights token metrics (`llm-usage` namespace, `set-llm-usage`): prompt, completion and total tokens plus cached, audio, reasoning and prediction tokens | `llm-usage-container`, hourly per product, subscription, model and backend |
+| `mcp-usage-ingestion` | every 3 hours | `McpRequests` (`mcp-usage` fragment: included by the MCP server policy `apis/shared/mcp-default-policy.xml`; include it in your own MCP server policies too) | `mcp-usage-container`, request counts per product, subscription, MCP server and operation |
+| `agent-usage-ingestion` | every 3 hours | `A2ARequests` (`a2a-usage` fragment; include it in your A2A agent API policies) | `agent-usage-container` |
+| `ai-usage-ingestion` | Event Hub `ai-usage` | per-request usage events (`usage-event` fragment: contract `usage_events`, see [6.10](#610-usage-and-pii-audit-events-event-hubs)) | `ai-usage-container` |
+| `pii-usage-ingestion` | Event Hub `pii-usage` | `pii-audit` events (no PII), `pii-state-saving` (testing only) | `pii-usage-container` |
+
+Each scheduled workflow keeps its last export time in `streaming-export-config` (documents
+`002`, `003`, `004`), so a run picks up where the previous one stopped.
+
+`usage_pipeline.logic_app.code_deploy = true` publishes
+`logicapp-src/usage-ingestion-logicapp` (or `code_source_path`) with the
+infrastructure ([modules/logic-app/code-deploy.tf](../modules/logic-app/code-deploy.tf)):
+
+| Method | Used by | What runs | Network access the runner needs |
+|---|---|---|---|
+| `run_from_package` | `ase_v3` default | the zip is uploaded as a content-addressed blob to the keyless account's `deployments` container; the site gets `WEBSITE_RUN_FROM_PACKAGE` + `WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID` (usage identity); restart + `syncfunctiontriggers` per new package | the storage blob private endpoint, on **every plan** (the blob is read on refresh) |
+| `zip_deploy` | `workflow_standard`; `ase_v3` opt-in | `az functionapp deployment source config-zip` | the site's SCM endpoint (inside the VNet for an ILB ASE) |
+
+Verified live (ASE v3, `run_from_package`): the workflows load from the
+managed-identity-fetched package and a usage event lands in Cosmos DB with key
+auth disabled.
+
+### 6.2 Private Logic App (Workflow Standard)
+
+For `hosting = "workflow_standard"` the usage-ingestion Logic App can sit behind a
+private endpoint (ported from upstream accelerator PR
+[#161](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/pull/161)).
+Two independent flags in `platform.tfvars`:
+
+```hcl
+usage_pipeline = {
+  logic_app = {
+    hosting               = "workflow_standard"
+    private_endpoint      = true    # default false
+    public_network_access = false   # default true
+    # private_endpoint_name = "pe-usage-logic"   # default pe-<logic app name>
+  }
+}
+```
+
+| `private_endpoint` | `public_network_access` | Result |
+|---|---|---|
+| `false` | `true` (default) | Unchanged: public website and SCM. |
+| `true` | `true` | Private path added; public access still open (use while migrating or testing). |
+| `true` | `false` | **Private only.** Website and SCM answer only through the endpoint. |
+| `false` | `false` | Public closed and no endpoint here: reachable only through an endpoint someone else manages. A `check` warns. |
+
+One endpoint (subresource `sites`) serves both the website and SCM/Kudu. Its DNS
+zone is `privatelink.azurewebsites.net` (records for `<site>` and `<site>.scm`):
+
+| Network mode | DNS |
+|---|---|
+| `greenfield` | `network.tfvars`: `private_dns = { logic_app_zone = true }` creates and links the zone; `platform` looks it up. Apply `network` first. |
+| `alz_spoke` / `byo` | the hub's zone ID in `platform.tfvars` `network.private_dns_zone_ids.logic_app`, or leave the zone group to Azure Policy (`dns_zone_groups_managed_by_policy = true`; `privatelink.azurewebsites.net` is in the ALZ DINE set). Without either, a `check` warns that the names won't resolve privately. |
+
+Rules and limits:
+
+- **Not for `ase_v3`.** An ILB App Service Environment is already private and
+  doesn't support private endpoints; the input is rejected there (the ASE site
+  always has public access off).
+- **Publishing needs a private path.** With public access off, `zip_deploy`
+  (`task logic-app-code`) reaches SCM only through the endpoint: run it from a
+  runner or VM on the VNet (or a peered one) that resolves
+  `<site>.scm.azurewebsites.net` privately. Ordinary Cloud Shell and
+  GitHub-hosted public runners can't (see [§4.5](#45-reaching-private-data-planes)).
+- **Remove with the flag.** Setting `private_endpoint = false` deletes the
+  endpoint on the next apply (the Bicep version leaves an existing endpoint in
+  place). Converting an existing public app to private-only can interrupt
+  publishing and DNS: do it in a window, endpoint first and `public_network_access = false` second.
+- **Verify:** `nslookup <site>.azurewebsites.net` and `<site>.scm.azurewebsites.net`
+  return the private IP from inside the VNet; `az webapp show -g <rg> -n <site> --query publicNetworkAccess`
+  returns `Disabled`; the workflows list under the site's *Workflows* after a publish.
+
+### 6.3 Foundry connection authentication
+
+An access contract with `foundry = { enabled = true }` creates a Foundry connection
+per service that calls the gateway. `foundry_config.auth_type` (ported from upstream
+accelerator PR [#159](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/pull/159))
+picks how the Foundry project authenticates:
+
+| `auth_type` | What Foundry sends | Stored credential |
+|---|---|---|
+| `ProjectManagedIdentity` (**default**) | an Entra JWT issued to the project's managed identity for `managed_identity_audience` (default `https://cognitiveservices.azure.com`) **and** the subscription key as the `api-key` custom header | none |
+| `ApiKey` | the subscription key only | the key (`credentials.key`) |
+
+Both write the key through the write-only `sensitive_body`, so it is never in
+state. In `ProjectManagedIdentity` mode the key sits in the connection's
+`customHeaders`, and the module tells azapi not to export the API response
+(Foundry echoes the header back), so state stays clean.
+
+**The product policy must validate the JWT**, otherwise it is sent and never
+checked. Set `jwt_required = true` on the service in the contract's tfvars; for a
+contract with a `ProjectManagedIdentity` Foundry connection the module then
+generates these policy variables (instead of the gateway's `JWT-*` named values
+that other contracts use, 6.6):
+
+```hcl
+services = [{
+  code                 = "LLM"
+  endpoint_secret_name = "TEAMA-LLM-ENDPOINT"
+  api_key_secret_name  = "TEAMA-LLM-KEY"
+  jwt_required         = true
+}]
+```
+
+| Variable the module sets | Value | Notes |
+|---|---|---|
+| `jwtRequired` | `true` | |
+| `jwtAudience` | the connection's `foundry_config.managed_identity_audience` | the same input feeds both sides, so they can't differ |
+| `jwtIssuer` | `https://sts.windows.net/<tenant-id>/` | managed identity tokens are v1 tokens |
+| `jwtOpenIdConfigUrl` | `https://login.microsoftonline.com/<tenant-id>/v2.0/.well-known/openid-configuration` | the v2.0 keys validate v1 signatures |
+
+- **The tenant is the deploying identity's**, read from the provider; there is
+  nothing to enter. For a Foundry project in another tenant, set `jwt_issuer` and
+  `jwt_openid_config_url` on the service with that tenant's ID (or bring your own
+  `policy_xml`).
+- A `check` warns on every plan when a Foundry contract uses `ProjectManagedIdentity`
+  and a service has neither `jwt_required = true` nor a custom `policy_xml` that sets
+  `jwtRequired`. Use `auth_type = "ApiKey"` for a key-only connection.
+- **Direct callers are affected too.** With `jwt_required` the product accepts only
+  requests that carry the key **and** a valid token for that audience. Apps that read
+  the same key from Key Vault must send a token as well (for example
+  `az account get-access-token --resource https://cognitiveservices.azure.com`), or
+  use a separate contract without Foundry.
+- Optional hardening: the handler checks audience and issuer only. To pin the
+  caller to the project identity, also check the token's `appid` / `azp` claim.
+- Verified live: key only, a garbage token, or a token only → `401`; key plus valid token → `200`.
+
+### 6.4 Without Foundry: standalone Language and Content Safety
+
+Some customers don't deploy Foundry accounts but still want the gateway's PII
+redaction (Language) and content safety. Foundry is optional in
+`platform.tfvars`, and those two services can be deployed on their own, as the
+same kind of Azure resource (`Microsoft.CognitiveServices/accounts`) with a
+different `kind`:
+
+```hcl
+# platform.tfvars
+foundry                = { enabled = false }  # no accounts, projects, models, Foundry App Insights
+language_service       = { enabled = true }   # kind TextAnalytics, name lang-<workload>-<env>-<seed>
+content_safety_service = { enabled = true }   # kind ContentSafety, name cs-<workload>-<env>-<seed>
+```
+
+```hcl
+# gateway-config.tfvars
+pii_service            = { source = "dedicated" }   # foundry (default) | dedicated | url
+content_safety_service = { source = "dedicated" }
+```
+
+- Each account has a private endpoint (zone `privatelink.cognitiveservices.azure.com`),
+  Entra-only authentication (no keys) and `Cognitive Services User` for the APIM
+  identity. Their location defaults to the stack's; set `location` if the service
+  isn't available there. Content Safety's SKU is `S0`, Language's `S`.
+- The two flags are independent of each other and of Foundry: Foundry plus a
+  dedicated Language account is valid too. With Foundry enabled and both sources
+  left at `foundry`, nothing changes from before.
+- `source = "url"` (with `url = "https://<name>.cognitiveservices.azure.com/"`)
+  points at services you already have; the APIM identity needs `Cognitive Services
+  User` on them. Gateway-config finds the dedicated accounts by name, like every
+  other resource, so apply `platform` first.
+- Without Foundry there are no deployments to derive LLM backends from: list your
+  models in `llm-backend-onboarding.tfvars` `llm_backends` (with `foundry_backends = { enabled = false }`; a `check` warns
+  when there are none). Set `subnets_enabled.agent = false` in `network.tfvars`, and
+  leave `foundry` off in access contracts unless a team brings its own Foundry
+  project (`foundry.project_id`).
+- `monitoring.policy_managed_diagnostics = ["foundry"]` covers all three kinds of
+  account.
+- The `ContentSafety` kind rejects the trusted-service bypass in its network ACLs
+  (`NetworkAclsBypassNotSupported`); the module omits it for that kind.
+- Verified live: both kinds deploy through the module, and APIM's calls work with an
+  Entra token (Language `language/:analyze-text` redacts the entities; Content
+  Safety `contentsafety/text:analyze` scores the text). Example:
+  [examples/no-foundry-ai-services](../examples/no-foundry-ai-services/).
+
+### 6.5 Access contract product policy
+
+Everything about access contracts (options, features, custom policies, client usage) is in
+[ACCESS_CONTRACTS_GUIDE.md](ACCESS_CONTRACTS_GUIDE.md); this section summarizes the product policy.
+
+Each service of an access contract gets an APIM product with a policy that the module
+generates from properties, so a contract's tfvars never contains XML:
+
+```hcl
+services = [{
+  code                 = "LLM"
+  endpoint_secret_name = "TEAMA-LLM-ENDPOINT"
+  api_key_secret_name  = "TEAMA-LLM-KEY"
+
+  allowed_models          = ["gpt-5.4-mini", "fast"]   # models and aliases; [] = every model
+  token_limit             = { tokens_per_minute = 2000, token_quota = 50000, token_quota_period = "Daily" }
+  enable_response_headers = true                       # the UAIG-* debug response headers
+  jwt_required            = false                      # see 6.6 (and 6.3 for Foundry)
+}]
+```
+
+| Property | Default | Generates |
+|---|---|---|
+| `allowed_models` | `[]` (every model) | `allowedModels` and the `validate-model-access` fragment: a model outside the list gets `403`. Entries are model or alias names (letters, digits, `. _ : / -`). |
+| `token_limit` | `null` (no limit) | an `llm-token-limit` per subscription. Set `tokens_per_minute` and / or `token_quota`; `token_quota_period` is `Hourly`, `Daily`, `Weekly`, `Monthly` (default) or `Yearly`. |
+| `enable_response_headers` | `true` | `enableResponseHeaders`, which makes the `set-response-headers` fragment add the `UAIG-*` headers |
+| `jwt_required` | `false` | `jwtRequired`: a valid JWT next to the key (6.6; a Foundry `ProjectManagedIdentity` contract validates the project identity's token, 6.3) |
+| `jwt_audience`, `jwt_issuer`, `jwt_openid_config_url` | `null` (the gateway's `JWT-*` named values) | `jwtAudience`, `jwtIssuer`, `jwtOpenIdConfigUrl`: another identity provider for this product (6.6). Need `jwt_required`. |
+| `required_roles` | `[]` (no role check) | `requiredRoles`: the token must carry one of these app roles, otherwise `403` (6.6). Needs `jwt_required`. |
+
+Every policy also calls `set-llm-requested-model` and carries the commented hint for
+raising throttling events in `on-error`. The template is
+[modules/access-contract/policies/product-policy.xml.tftpl](../modules/access-contract/policies/product-policy.xml.tftpl).
+
+#### One product for several asset types (LLM, tools, agents)
+
+A product can grant LLM APIs together with published **tools (MCP)** and **agents (A2A)**.
+APIM doesn't expose the API type to policy, so the generated policy classifies each
+request with the `set-asset-kind` fragment (gateway-config) and branches with a `<choose>`:
+
+```hcl
+api_name_mapping = {
+  MULTI = ["universal-llm-api", "azure-openai-api", "weather-mcp", "ms-learn-mcp"]   # the LLM API first
+}
+
+services = [{
+  code                 = "MULTI"
+  endpoint_secret_name = "HR-MULTI-ENDPOINT"
+  api_key_secret_name  = "HR-MULTI-KEY"
+
+  allowed_models = ["fast", "balanced"]                      # LLM controls: the LLM APIs only
+  token_limit    = { tokens_per_minute = 20000, token_quota = 2000000, token_quota_period = "Monthly" }
+
+  tool_apis  = ["weather-mcp", "ms-learn-mcp"]               # granted tool APIs, by APIM API name
+  tool_limit = { calls_per_minute = 60, call_quota = 10000, call_quota_period = "Monthly" }
+
+  # agent_apis  = ["hr-chat-agent"]                          # the same for agents (A2A)
+  # agent_limit = { calls_per_minute = 30, call_quota = 5000, call_quota_period = "Monthly" }
+}]
+```
+
+| Property | Meaning |
+|---|---|
+| `tool_apis`, `agent_apis` | the granted tool / agent APIs by APIM API name (the resource name, e.g. `weather-mcp`). They must also be in `api_name_mapping` for the service. Every other API of the service is an LLM API. |
+| `tool_limit`, `agent_limit` | request-count limits: `calls_per_minute` (`rate-limit-by-key`) and / or `call_quota` per `call_quota_period` (`quota-by-key`; Hourly, Daily, Weekly, Monthly or Yearly). They need the matching `*_apis`. Tokens don't exist for a tool call or an agent turn, so `llm-token-limit` can't be used. |
+
+- The LLM controls (`allowed_models`, `token_limit`, `enable_response_headers`) sit in the LLM branch:
+  they never run for tool or agent calls. JWT validation (`jwt_required`) is common and runs first.
+- With `tool_apis` or `agent_apis` set, the policy always classifies, even without limits, so the
+  LLM rules don't run for tool calls. Without them, the policy is the plain LLM one.
+- The product's endpoint secret (and a Foundry connection, if any) point at the **first** API of
+  the mapping, so list the LLM API first. Per-asset endpoint secrets aren't generated.
+- The code is free (`LLM`, `TOOL`, `AGENT`, `MULTI` follow upstream's naming convention). A
+  tools-only contract (`TOOL`) is `examples/all-features/access-contracts/tools-only.tfvars`; the
+  mixed one is `hr-assistant-multi.tfvars`.
+- This repository publishes the MCP sample APIs (`weather-mcp`, `ms-learn-mcp`, with
+  `features.mcp_sample`) but no A2A agent APIs: publish yours to APIM first, then list them.
+- Common policies for every asset type (for example opt-in content safety) aren't a property:
+  use a complete `policy_xml`.
+
+For anything the properties don't cover (PII handling, content safety, per-model
+limits, alert tuning) set `policy_xml` to a **complete** policy
+([ACCESS_CONTRACTS_GUIDE §7](ACCESS_CONTRACTS_GUIDE.md#7-custom-product-policy-policy_xml)). It replaces
+the generated one, and the properties above are then ignored. The validation notebooks
+do this to test custom policies.
+
+---
+
+### 6.6 Entra ID JWT authentication
+
+Two layers, as in the upstream accelerator's
+[JWT guide](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/main/guides/entraid-auth-validation.md),
+enforced by the `security-handler` fragment on the Azure OpenAI, Universal LLM
+and Unified AI APIs:
+
+- **The subscription key is always required** on every API. It ties a request
+  to an access contract (product); a token never replaces it. A request without
+  a key gets `401`.
+- **A JWT is opt-in per access contract** (`jwt_required = true` on a service):
+  the key **and** an `Authorization: Bearer <token>` header are then required.
+  Optionally `required_roles` adds **app role authorization**: the token's
+  `roles` claim must hold at least one of them, otherwise `403 insufficient_role`.
+
+Setup:
+
+1. **The gateway app** (the audience of the tokens): `stacks/identity` creates
+   it (scope `access_as_user`; app roles `Model.Invoke` for the LLM model
+   endpoints, `MCP.Invoke` for MCP tools and `Agent.Invoke` for agents; v2
+   tokens; no secret). It needs Graph rights to register an application: apply it
+   as a person, or with bootstrap
+   `graph_permissions = true`. Without Graph rights on the pipeline,
+   [scripts/entra_id_setup.py](../scripts/entra_id_setup.py) (`task entra-setup`,
+   the counterpart of upstream's `entra-id-setup/setup.ps1`) creates the same
+   app as a person and prints the values for step 2.
+2. **The named values**: `gateway-config.tfvars` `entra_auth = { enabled = true }`
+   finds the app by name (Graph `Application.Read.All`) or takes
+   `tenant_id` / `client_id` / `audience` explicitly, and sets
+   `JWT-OpenIdConfigUrl`, `JWT-Issuer` (`https://login.microsoftonline.com/<tenant>/v2.0`)
+   and `JWT-AppRegistrationId` (the app's client ID: the `aud` of a v2 token).
+   Unlike upstream's script, nothing writes these named values outside Terraform.
+3. **The contract**: `jwt_required = true`, optionally `required_roles`:
+
+```hcl
+services = [{
+  code                 = "LLM"
+  endpoint_secret_name = "TEAMA-LLM-ENDPOINT"
+  api_key_secret_name  = "TEAMA-LLM-KEY"
+  jwt_required         = true
+  required_roles       = ["Model.Invoke"]   # optional; any one of them (OR)
+}]
+```
+
+4. **Client identities**: a client gets a token for
+   `api://<gateway app client ID>/.default` (client credentials, a managed
+   identity, or a user) and needs the app roles a contract requires. Assign
+   them directly to the service principal of an application or managed
+   identity: one that joins a group with an app-role assignment gets no roles
+   in its tokens (users get roles directly or through a group). There is no
+   umbrella role: a client that needs several capabilities gets each role.
+   `task entra-setup ENV=<env>` creates a test client with a secret in Key Vault
+   and the role `Model.Invoke` (`-- --client-roles ...` to change it).
+
+**Upgrading a gateway app that has the earlier roles** (`Task.ReadWrite`,
+`Models.Read`, `MCP.Read`, `Agent.Read`). `Model.Invoke`, `MCP.Invoke` and
+`Agent.Invoke` reuse the IDs of the last three, as in upstream: applying
+`stacks/identity` (or re-running `task entra-setup`) renames them in place and
+keeps their assignments. `Task.ReadWrite` is removed; assignments of it stay
+behind, no longer tied to a role, so give those clients the role they need.
+
+Entra puts a renamed role into new tokens late, and Microsoft doesn't document
+when: in our tests, clients that had never requested a token still got
+`Models.Read` more than an hour after the rename, while a role added under a
+new ID showed up within an hour. Tokens already issued keep their claims until
+they expire. A contract that requires only the new names answers these
+requests with `403 insufficient_role`, so avoid a hard cutover: first list both
+names in `required_roles` (`["Model.Invoke", "Models.Read"]`: any one is
+enough), then apply the identity, and drop the old names once a fresh token
+carries only the new ones (decode one, or run `task jwt-test`) and tokens
+issued before have expired (up to about 90 minutes).
+
+**Another identity provider for one contract.** `jwt_audience`, `jwt_issuer`
+and `jwt_openid_config_url` override the named values for that product only
+(a partner's Entra tenant, Auth0, Okta); unset ones fall back to the named
+values, so `jwt_audience` alone is a partial override:
+
+| Service property | Product policy variable | Falls back to |
+|---|---|---|
+| `jwt_required` | `jwtRequired` | `false`: key only |
+| `jwt_audience` | `jwtAudience` | `JWT-AppRegistrationId` |
+| `jwt_issuer` | `jwtIssuer` | `JWT-Issuer` |
+| `jwt_openid_config_url` | `jwtOpenIdConfigUrl` | `JWT-OpenIdConfigUrl` |
+| `required_roles` | `requiredRoles` | none: no role check |
+
+A contract with a Foundry connection in `ProjectManagedIdentity` mode defaults
+the first three to the project identity's token instead (see 6.3).
+
+**Test it**: `task jwt-test ENV=<env>` ([scripts/jwt_auth_tests.py](../scripts/jwt_auth_tests.py))
+runs upstream's seven test cases on every product that requires a JWT and each
+LLM API it grants: key + JWT → `200`; key only, an invalid token or a token
+only → `401`; key + JWT with a required role → `200`, without it → `403`. The
+[entra-jwt-auth](../examples/entra-jwt-auth/) example deploys contracts for
+each case.
+
+| Response | Cause |
+|---|---|
+| `401` `jwt_required` | the product requires a JWT and the request has none |
+| `401` invalid or expired token | wrong `aud` / `iss`, expired, or signed by another tenant: compare the token's claims with the named values or the contract's overrides |
+| `401` missing subscription key | no `api-key` header (a token alone is never enough) |
+| `403` `insufficient_role` | valid token without any of `required_roles`: assign the role to the client's service principal and get a new token |
+| `503` `jwt_not_configured` | the product requires a JWT but the named values are `not-configured` (`entra_auth.enabled = false`) and the contract sets no overrides |
+
+### 6.7 Availability zones
+
+Adding instances doesn't by itself spread them over availability zones. The
+region must support zones, and for most resources the choice is made when the
+resource is **created**: Azure can't add or remove it later.
+
+| Resource | Setting (`platform.tfvars` unless noted) | Notes |
+|---|---|---|
+| APIM StandardV2 / PremiumV2 | `apim.zone_redundant = true` | Set at creation (ARM `zoneRedundant`, created through azapi). Use `capacity >= 2` so a zone loss keeps capacity. Changing it on an existing instance stops the plan: it needs a new instance. |
+| APIM Premium (classic) | `apim.capacity >= 2` | Automatic: zones 1-2 for 2 units, 1-3 for 3 or more. Changing the zones of an existing instance changes its public (and internal) IP addresses. |
+| APIM Developer | — | No zones. |
+| Logic App, Workflow Standard | `usage_pipeline.logic_app.zone_redundant = true` + `worker_count >= 2` | Zone-redundant WS plan. Needs WS availability-zone quota in the region ("WS1 AZ VMs" for WS1; some subscriptions have 0). |
+| Logic App, ASE v3 | `app-hosting.tfvars` `ase.zone_redundant = true` and `usage_pipeline.ase.zone_redundant = true` + `worker_count >= 2` | The ASE and the plan, both at creation. See [examples/ase-hosting](../examples/ase-hosting/). |
+| Logic App storage | follows the plan | A **new** account is ZRS. An existing LRS account keeps its SKU (ARM rejects the SKU change) and every plan warns with the conversion command: `az storage account migration start --account-name <account> -g <rg> --sku Standard_ZRS --yes` (takes days, can't be stopped). |
+
+**Turning zones on for an existing Logic App plan.** Azure can't change a plan's
+zone redundancy, so the platform plan stops with this error and these commands
+(the usage ingestion pauses between them):
+
+```bash
+# 1. destroy the plan, the Logic App on it and their role assignments
+task apply STACK=platform ENV=<env> PLAN_ARGS="-destroy -target=module.logic_app.module.service_plan.azapi_resource.this"
+# 2. recreate them, zone redundant
+task apply STACK=platform ENV=<env>
+```
+
+**Check a deployment:**
+
+```bash
+az apim show -n <apim> -g <rg> --query "{sku:sku.name, units:sku.capacity, zones:zones}"   # classic Premium
+az rest --method get --url "https://management.azure.com<apim id>?api-version=2025-03-01-preview" --query properties.zoneRedundant   # v2
+az appservice plan show -n <plan> -g <rg> --query "{workers:sku.capacity, zoneRedundant:properties.zoneRedundant}"
+az storage account show -n <logic storage> -g <rg> --query sku.name
+```
+
+### 6.8 APIM logger credentials in Key Vault
+
+APIM stores every credential given to a logger in a secret named value it generates
+(`Logger-Credentials--<id>`). Two kinds are affected:
+- the App Insights logger's connection string;
+- the client ID of the managed identity that the App Insights and Event Hub loggers authenticate
+  with.
+
+The built-in policy **"API Management secret named values should be stored in Azure Key
+Vault"** (Audit / Deny) flags those named values.
+
+With `apim_logging.credentials_in_key_vault = true` (the default), APIM generates no named values:
+
+| Item | Where |
+|---|---|
+| Key Vault secrets `apim-logger-identity-client-id`, `apim-logger-appinsights-connection-string` | the platform Key Vault, written by the platform apply. They expire after 90 days (ALZ guardrail); the expiry is moved forward every 60 days on apply, and reads keep working after it |
+| Named values `logger-identity-client-id`, `logger-appinsights-connection-string` | Key Vault references (versionless), resolved by the APIM identity (*Key Vault Secrets User*) |
+| Loggers `appinsights-logger`, `usage-eventhub-logger`, `pii-usage-eventhub-logger` | credentials are `{{logger-…}}` references |
+
+Requirements:
+- APIM must reach the vault: any VNet mode except `none`, or a vault open to public access. A
+  validation enforces this.
+- The platform apply writes the secrets, so it needs the vault's data plane (§4.5). The CI plan
+  identity reads them during refresh (`secret_reader_principal_ids`).
+
+Notes:
+- The connection string isn't a usable secret once `monitoring.app_insights_entra_ingestion`
+  (the default) turns off local authentication. It is stored in Key Vault only so that APIM
+  generates no named value for it.
+- APIM reads the App Insights logger back with `identityClientId` equal to the connection-string
+  reference. Ingestion still uses the managed identity: verified with local authentication
+  disabled. The logger is therefore written with an idempotent PUT, not diffed.
+
+**Switching an existing APIM from `false` to `true`.** APIM doesn't delete the named values it
+generated. Delete them once after the apply; APIM refuses to delete one that is still in use:
+
+```bash
+S=$(az apim show -n <apim> -g <rg> --query id -o tsv)
+for n in $(az rest --method get --url "https://management.azure.com$S/namedValues?api-version=2024-05-01" \
+    --query "value[?starts_with(properties.displayName, 'Logger-Credentials--')].name" -o tsv); do
+  az rest --method delete --url "https://management.azure.com$S/namedValues/$n?api-version=2024-05-01"
+done
+```
+
+### 6.9 Semantic cache
+
+The LLM APIs can answer a chat completion from Azure Managed Redis when the prompt is close
+enough to an earlier one (`llm-semantic-cache-lookup` / `llm-semantic-cache-store`). APIM turns
+the prompt into a vector through an embeddings deployment and searches the earlier prompts in
+Redis (RediSearch). A hit returns the stored completion without calling the model.
+
+| Stack | Setting | Creates |
+|---|---|---|
+| platform | `features.semantic_cache = true`, an embeddings model in `foundry.models` (e.g. `text-embedding-3-small`) | Azure Managed Redis (RediSearch) with a private endpoint; the APIM external cache `Default`; APIM's system-assigned identity with *Cognitive Services OpenAI User* on each Foundry account |
+| gateway-config | `semantic_cache = { enabled = true }` | backend `embeddings-backend` (the deployment on the primary Foundry account, or `embeddings_url`); the active `semantic-cache-lookup` / `semantic-cache-store` fragments |
+| llm-backend-onboarding | nothing | the universal, Azure OpenAI and unified LLM APIs always include both fragments |
+| access contract | `services[*].semantic_cache = true` | the product sets `semanticCacheEnabled`; other products never use the cache |
+
+```hcl
+# gateway-config.tfvars
+semantic_cache = {
+  enabled               = true
+  embeddings_deployment = "text-embedding-3-small" # on the primary Foundry account
+  score_threshold       = 0.05                     # lower = a closer match is needed
+  ttl_seconds           = 300                      # how long an answer is kept
+}
+```
+
+What is cached:
+- only non-streaming chat completions (the path ends with `chat/completions`);
+- only 200 responses, for `ttl_seconds`. The TTL is gateway-wide: the store must be in the same
+  scope as the lookup (the LLM API policies), and APIM accepts only a literal `duration`;
+- partitioned by subscription and requested model: a contract never gets another contract's
+  answer, and an answer is never served for another model;
+- system messages are left out of the similarity (`ignore_system_messages`), and conversations
+  longer than `max_message_count` messages aren't cached.
+
+The lookup runs after `security-handler` and `validate-model-access`, so a cached answer only goes
+to an authenticated caller that may use the model. A hit returns from the lookup and skips the
+rest of the inbound section:
+- there is no backend call and no `llm-usage` record (`set-llm-usage` comes later);
+- the tokens don't count towards the contract's `token_limit`;
+- the gateway request log still records the call.
+
+With the contract's response headers on (`enable_response_headers`), `UAIG-Semantic-Cache: hit`
+or `miss` shows the result.
+
+**Credentials.**
+- Embeddings: the lookup always calls the embeddings backend as APIM's **system-assigned**
+  identity (the policy has no user-assigned option). The platform stack enables it with the
+  cache and grants it the role. With `embeddings_url` on another account, grant that role there.
+- Redis: APIM can't use Entra ID for Azure Managed Redis, so the cache uses the access key. The
+  platform apply reads the key with an ephemeral `listKeys` (it is never in state) and writes
+  the connection string to the Key Vault secret `apim-redis-cache-connection-string`. The cache
+  references it through the Key Vault-backed named value `redis-cache-connection-string`, so
+  APIM generates no secret named value. The secret is rewritten every 60 days and expires after
+  90. After regenerating the Redis keys, refresh it at once:
+  `task apply STACK=platform ENV=<env> 'PLAN_ARGS=-replace=module.redis[0].time_rotating.connection_string'`.
+- Requirements: APIM must reach the Redis private endpoint and the vault, so it must be in a
+  VNet. A validation enforces this.
+
+**Verify.** Send the same chat completion twice with a contract's key (`$ENDPOINT` = the
+contract's endpoint secret, e.g. `https://<apim>.azure-api.net/models`). The second response
+carries the same `id` as the first and `UAIG-Semantic-Cache: hit`. A different prompt, another
+model or another contract gets a new `id`:
+
+```bash
+for i in 1 2; do
+  curl -s -D - -o /tmp/r.json "$ENDPOINT/chat/completions" \
+    -H "api-key: $KEY" -H "Content-Type: application/json" \
+    -d '{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"What is the capital of France?"}]}' \
+    | grep -i '^UAIG-Semantic-Cache'
+  jq -r .id /tmp/r.json
+done
+```
+
+The default `score_threshold` (0.05) only matches nearly identical prompts: "Name the capital…"
+and "Tell me the capital…" are different entries. Raise it carefully: a higher value lets
+different questions share an answer.
+
+**Switching an existing APIM on.** If the cache was registered with a plain connection string
+before, APIM keeps the secret named value it generated (`cache-Default-connection-…`). Delete
+it once after the platform apply (same loop as in [6.8](#68-apim-logger-credentials-in-key-vault),
+with the prefix `cache-Default-connection-`).
+
+### 6.10 Usage and PII audit events (Event Hubs)
+
+Usage reporting has two paths:
+- **Token metrics (always on).** `set-llm-usage` emits token metrics; `llm-usage-ingestion` writes hourly
+  aggregates per product, subscription and model to `llm-usage-container` ([6.1](#61-usage-ingestion-workflow-code)).
+- **Per-request events (opt-in per contract).** One event per request goes to the `ai-usage` Event Hub, and
+  `ai-usage-ingestion` writes it as is to `ai-usage-container`. Use it for request-level chargeback, non-LLM
+  APIs (Document Intelligence, AI Search, MCP tools) and near-real-time feeds: events land within seconds.
+
+The upstream accelerator ships the Event Hub path but includes it in no policy; this repository adds the
+switch and an up-to-date event (the upstream `ai-usage` / `openai-usage` fragments read routing variables
+that no longer exist).
+
+```hcl
+# access-contracts/<use-case>.tfvars
+services = [{
+  code         = "LLM"
+  # ...
+  usage_events = true
+}]
+```
+
+The product policy sets `usageEventsEnabled` first in its inbound section and includes the `usage-event`
+fragment in its outbound and on-error sections, so every API of the product and every outcome is recorded
+(one event per request). Each event:
+
+| Field | Value |
+|---|---|
+| `id` | the APIM request ID: also the `UAIG-Request-Id` header and the `CorrelationId` of the gateway logs |
+| `timestamp` | UTC, ISO 8601 |
+| `productName` (partition key), `productId`, `subscriptionId`, `appId` | the caller (`appId` variable, else the subscription) |
+| `apiId`, `apiName`, `operationId`, `operationName`, `assetKind` (`llm`, `service`, `tool`, `agent`), `targetService` | what was called |
+| `model` (the provider's, e.g. `gpt-5.4-mini-2026-03-17`), `deploymentName`, `modelAlias`, `backendId` | LLM routing |
+| `outcome`, `statusCode`, `reason`, `errorSource` | see *Outcomes* below |
+| `stream`, `cacheHit`, `durationMs` | the response |
+| `promptTokens`, `responseTokens`, `totalTokens`, `cachedTokens`, `reasoningTokens`, `tokensSource` | see below |
+| `gatewayName`, `gatewayRegion`, `aiGatewayId`, `RequestIp`, `sessionId`, `endUserId` | upstream `ai-usage` fields |
+
+`tokensSource`:
+- `response`: a non-streaming LLM response with a `usage` object (chat completions, Responses API,
+  embeddings). The provider's counts.
+- `token-limit`: a streamed response. The total from the token limit's `tokensConsumed` variable; prompt
+  and completion stay 0. Verified equal to the gateway log's count. A contract with `usage_events` and
+  no `token_limit` gets a metering-only `llm-token-limit` (100,000,000 tokens per minute, LLM requests
+  only) for this count. A higher value fails in APIM at runtime ("Attempted to divide by zero").
+- `none`: non-LLM APIs, tool / agent calls, gateway answers and errors. The policy never reads a
+  streamed or tool / agent response body.
+
+**Outcomes.**
+
+| `outcome` | When | `statusCode` / `reason` |
+|---|---|---|
+| `response` | the backend answered (outbound) | the response status, `reason` empty |
+| `gateway` | the gateway answered itself (`return-response`): a model outside `allowed_models` (403), PII blocked (400), the deployments list, a mock API (200), routing rejections (400 / 404 / 503) | the status returned; `reason` = the fragment that answered (`validate-model-access`, `pii-detected`, `deployments`, `mock`, …) |
+| `error` | `on-error`: token limit (429) or quota (403) hits, missing / invalid keys (401), backend failures (5xx) | the response status; `reason` = `context.LastError.Reason` (`OpenAITokenLimitExceeded`, `SubscriptionKeyNotFound`, …), `errorSource` = the failing policy |
+
+**Rejected keys.** A request without a valid key matches no product, so no contract records it. To
+record these, set in `gateway-config.tfvars`:
+
+```hcl
+usage_events = { record_key_rejections = true }
+```
+
+They're logged with `productName = "Unauthenticated"`. Unauthenticated callers can then write to the
+Event Hub and Cosmos DB at will, so watch the cost (or keep the default `false` and use the gateway logs).
+
+**Custom `policy_xml`.** A contract with its own product policy records events only if the policy does
+what the generated one does:
+
+```xml
+<inbound>
+    <base />
+    <set-variable name="usageEventsEnabled" value="true" />   <!-- first, before any rejection -->
+    <!-- ... -->
+</inbound>
+<outbound>
+    <base />
+    <include-fragment fragment-id="usage-event" />
+</outbound>
+<on-error>
+    <base />
+    <include-fragment fragment-id="usage-event" />
+</on-error>
+```
+
+A stream is counted only if the policy has an `llm-token-limit` with
+`tokens-consumed-variable-name="tokensConsumed"`.
+
+**How gateway answers are recorded.** APIM doesn't let a policy fragment include another fragment. API
+and operation policies include `usage-event` before a `return-response`. Fragments (`security-handler`,
+`validate-model-access`, the routing fragments, `pii-anonymization`) carry a marker comment instead,
+`<!-- usage-event status="403" reason="validate-model-access" -->`. The `apim-policy-fragments` module
+expands it into the event body when it deploys the fragment.
+
+The client IP is recorded (`RequestIp`), like upstream; remove it from the fragment if that isn't wanted.
+
+**Don't add both paths in reports.** The token metrics keep running, so aggregates (`llm-…` documents) and
+events count the same requests.
+
+**PII audit.** A contract with PII anonymization (custom `policy_xml`, see the `SNIPPETS["pii"]` example in
+[validation/shared/acceptance.py](../validation/shared/acceptance.py)) records its processing with the
+`pii-audit` fragment (deployed with `features.pii_anonymization`):
+
+```xml
+<outbound>
+    <base />
+    <include-fragment fragment-id="usage-event" />          <!-- optional: the usage event -->
+    <!-- ... pii-deanonymization ... -->
+    <set-variable name="piiAuditEnabled" value="true" />
+    <include-fragment fragment-id="pii-audit" />
+</outbound>
+```
+
+The event goes to the `pii-usage` Event Hub, and `pii-usage-ingestion` writes it to `pii-usage-container`.
+It holds **no PII**: `entityCount`, `entityCategories` (`{"Email": 1, "PhoneNumber": 1, "Person": 1}`),
+the confidence threshold and exclusions, whether the response was de-anonymized or the request
+`blocked`, the product, API, operation, model and status. `id` is `pii-<request ID>`.
+
+**PII blocking.** To reject requests with PII instead of anonymizing them, set `piiBlockingEnabled`
+(instead of `piiAnonymizationEnabled`) before `pii-anonymization`:
+
+```xml
+<set-variable name="piiBlockingEnabled" value="true" />
+<set-variable name="piiInputContent" value="@(context.Request.Body.As<string>(preserveContent: true))" />
+<include-fragment fragment-id="pii-anonymization" />
+```
+
+A request with PII gets `400` `{"error": {"code": "pii_detected", "message": …, "categories":
+{"Person": 1, …}, "requestId": …}}` and never reaches the model. Its usage event has `outcome =
+gateway`, `reason = pii-detected`; with `piiAuditEnabled` set in the inbound section, a `pii-audit` event
+with `blocked = true` is written too. Requests without PII pass unchanged.
+
+**De-anonymization.** Models don't always echo placeholders as sent. `pii-deanonymization` restores
+`<Person_0>`, the HTML-escaped `&lt;Person_0&gt;` and the bare `Person_0` (for example `**Person_0**`,
+as a whole word only), longest placeholder first. Values written into a JSON body are JSON-escaped.
+
+`pii-state-saving` (upstream's "state saving for testing") stores the prompt, the response and every
+detected value with its placeholder. Use it only for testing, never with real data.
+
+**Verify.** Send a request with the contract's key and keep the `UAIG-Request-Id` header. The
+`ai-usage-ingestion` run history (Logic App, *Run history*) shows one run per event, and the
+`Create_Usage_Log` input is the document; the Cosmos DB item has the same `id`. Cosmos DB is private:
+query it from the VNet.
+
+## 7. CI/CD (GitHub Actions)
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| [ci.yml](../.github/workflows/ci.yml) | PR, main | fmt, tflint, terraform-docs, repository rules (`scripts/ci/check-*.sh`), checkov, gitleaks, validate + mocked unit tests per module/stack, examples plan against their stacks. No Azure access. |
+| [plan.yml](../.github/workflows/plan.yml) | PR touching stacks/modules/environments | plans the affected stacks and contracts (`scripts/ci/changed-stacks.sh`) per environment with the **plan** identity; summary in the run; deletes of protected types fail |
+| [apply.yml](../.github/workflows/apply.yml) | push to main, dispatch | applies the affected stacks in order, dev → test → prod (approvals on the GitHub environments) |
+| [drift.yml](../.github/workflows/drift.yml) | nightly | `plan -detailed-exitcode` for every stack; opens an issue per drifted environment |
+| [e2e.yml](../.github/workflows/e2e.yml) | weekly, dispatch | `examples/quickstart` → bootstrap, `task up`, `task validate`, teardown in a sandbox subscription |
+
+All of them run Task through [_stack.yml](../.github/workflows/_stack.yml).
+
+**Setup per environment** (after `task bootstrap`):
+
+`environments/` is gitignored, so the workflows read the environment inputs from
+a **private configuration repository** with one folder per environment, the
+same layout as a local `environments/` folder:
+
+```text
+<config-repo>/
+└── dev/
+    ├── common.tfvars  backend.hcl  platform.tfvars  ...
+    └── access-contracts/team-a-chatbot.tfvars
+```
+
+Set the repository variables `ENVIRONMENTS_REPOSITORY` (`<owner>/<config-repo>`)
+and `DEPLOYMENT_ENVIRONMENTS` (a JSON array such as `["dev","test","prod"]`;
+unset or empty disables deployment), and the repository secret
+`ENVIRONMENTS_REPOSITORY_TOKEN` (a fine-grained token or GitHub App token with
+read access to that repository's contents). [_stack.yml](../.github/workflows/_stack.yml)
+checks it out and copies only the requested environment's folder.
+
+Changes in the configuration repository don't trigger this repository's
+workflows: run `apply.yml` manually for a configuration-only change. The e2e
+workflow generates its own inputs from `examples/quickstart` and doesn't use it.
+
+```bash
+ENV=dev
+gh variable set DEPLOYMENT_ENVIRONMENTS --body '["dev","test","prod"]'
+gh variable set ENVIRONMENTS_REPOSITORY --body '<owner>/<config-repo>'
+gh secret set ENVIRONMENTS_REPOSITORY_TOKEN     # read access to the configuration repository
+gh api -X PUT repos/<owner>/<repo>/environments/$ENV-plan
+gh api -X PUT repos/<owner>/<repo>/environments/$ENV
+gh variable set AZURE_CLIENT_ID       --env $ENV-plan --body "<plan_client_id>"
+gh variable set AZURE_CLIENT_ID       --env $ENV      --body "<apply_client_id>"
+for e in $ENV-plan $ENV; do
+  gh variable set AZURE_TENANT_ID       --env $e --body "<tenant-id>"
+  gh variable set AZURE_SUBSCRIPTION_ID --env $e --body "<workload-subscription-id>"
+done
+# runner that reaches the private data planes (JSON), e.g. a GitHub-hosted runner with private networking:
+gh variable set RUNNER_$ENV --body '"aigw-dev-private"'
+# prod: add required reviewers and a deployment-branch policy (main) to the "prod" environment
+```
+
+The federated credentials trust `repo:<owner>/<repo>:environment:<env>` (apply)
+and `…:environment:<env>-plan` (plan). With `pipeline_identity_mode = "single"`
+(sandbox/dev only) one identity trusts both.
+
+---
+
+## 8. Tear down
+
+```bash
+task down ENV=dev            # contracts, then stacks in reverse order; keeps bootstrap
+task destroy STACK=bootstrap ENV=dev   # only when the environment is gone for good
+```
+
+`task destroy` plans again and retries (3 attempts, `DESTROY_ATTEMPTS=n` to
+change) when the apply hits a transient Azure error such as a connection reset
+or a 409 while a parent resource is still deleting. If it still fails, re-run
+the same command: Terraform continues from what is left. Destroy in order
+(`task down` does): a stack's data lookups need the stacks it depends on, so
+destroying `gateway-config` before `llm-backend-onboarding` leaves the latter
+unable to plan. The resource group itself belongs to bootstrap, so it stays
+(empty) after `task down`. Azure itself adds a "Failure Anomalies - <component>"
+smart detector alert rule to each Application Insights component a few minutes
+after its first telemetry; Terraform doesn't manage it and it outlives the
+component, so it is removed only when bootstrap deletes the resource group. `task destroy STACK=bootstrap` first moves bootstrap's
+state out of the account it is about to delete into a local file in
+`stacks/bootstrap`, and removes that file when the destroy completes; if it
+stops half way, re-run the same command.
+Soft-deleted Key Vaults, APIM services and Foundry accounts are purged only
+with `purge_soft_delete_on_destroy = true` in `platform.tfvars`, which needs
+subscription-level purge rights the pipeline identities don't have — purge as
+a human, or keep the names and let `recover_soft_deleted_key_vaults` recover.
+
+---
+
+## 9. Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `platform`: `Error: … subnet "snet-pe" … not found` | greenfield, but `stacks/network` hasn't been applied (or the subnet isn't enabled) | apply `network` first; check `subnets_enabled` / `apim_vnet_mode` |
+| `platform`: `network_mode alz_spoke / byo: set network …` | the `network` object is missing | `task output STACK=network NAME=platform_network` |
+| `gateway-config`: `entra_auth.enabled: the gateway app wasn't found` | `stacks/identity` not applied, or no Graph `Application.Read.All` | apply `identity`, grant the permission, or set the Entra values explicitly |
+| `llm-backend-onboarding`: the plan warns `Missing shared fragments (apply stacks/gateway-config first)`, then the apply fails with `400 ValidationError` on `azurerm_api_management_api_policy` | stacks applied out of order: the LLM API policies include fragments that gateway-config hasn't deployed yet (e.g. `semantic-cache-*` after an update). It is a warning, not an error, so a CI plan of a change that spans both stacks still works | apply `gateway-config`, then `llm-backend-onboarding` (or `task up`) |
+| `llm-backend-onboarding` plans no backends | no Foundry deployments yet, or accounts named outside the naming contract | apply `platform` first, or set `foundry_backends.account_names` |
+| `llm-backend-onboarding`: `polling import Api … universal-llm-api … 400 ValidationError`; the Activity Log of the APIM service says `Tag with the same name already exists` | older versions of the stack imported the Universal LLM and Azure OpenAI specs, which share tag names, in parallel; APIM creates import tags service-wide and the two imports raced | pull a version where the Universal LLM API waits for the Azure OpenAI API (`module.llm_api_universal` in [apis.tf](../stacks/llm-backend-onboarding/apis.tf)) and re-apply the stack; the failed API is simply created on the next run |
+| `AuthorizationFailure` / `ForbiddenByFirewall` on Key Vault or the package blob | the machine running Terraform can't reach the private data plane | run from a runner in `snet-cicd`, or `dev_access` (greenfield non-prod); behind a proxy use a runner |
+| `RequestDisallowedByPolicy` on `Microsoft.ApiManagement/service/backends` (policy *API Management calls to API backends should be authenticated*) | the customer's policy (often the Microsoft cloud security benchmark with the effect raised to `Deny`) doesn't recognise managed-identity / policy-applied backend authentication: a false positive | request the exemption in [platform-team-requests.md](operations/platform-team-requests.md#apim-backend-authentication-policy-microsoft-cloud-security-benchmark); `task preflight ENV=<env>` detects it up front |
+| `RequestDisallowedByPolicy` on the Logic App storage account | ALZ `Deny-Storage-Shared-Key` vs Workflow Standard | `usage_pipeline.logic_app.hosting = "ase_v3"` (decision D3) |
+| Workflow Standard: workflow publish fails with `504 GatewayTimeout`, the Logic App host reports `ServiceUnavailable`, and every plan wants `allowSharedKeyAccess = false -> true` | tenant or management-group governance turns shared-key access off on storage accounts after they're created (seen in MCAPS tenants); the WS runtime needs the key | use `usage_pipeline.logic_app.hosting = "ase_v3"` (keyless) in that tenant, or get an exemption |
+| `ServiceModelDeprecating` on a Foundry deployment | the model version can't take new deployments any more | pick a current version: `az cognitiveservices model list -l <region>` |
+| `ForbiddenByFirewall` from Key Vault with a client address you didn't allow-list | proxied egress (secure web gateway / SASE) leaves through a rotating pool of addresses | run from a runner in `snet-cicd`; IP allow-listing doesn't hold behind such a proxy |
+| `deny_storage_shared_key needs … "ase_v3"` | precondition in [stacks/platform/policy.tf](../stacks/platform/policy.tf) | `hosting = "ase_v3"` or `deny_storage_shared_key = false` |
+| APIM v2 with `public_network_access = false` is still public after the first apply | Azure rejects creating a service with public access off | expected: the second apply closes it |
+| APIM create sits for 30–60 min; `app-hosting` for 2–4 h | first-time provisioning | normal; don't cancel |
+| Private-only Logic App: `zip_deploy` fails with `403` / times out, or `<site>.scm.azurewebsites.net` resolves to a public IP | SCM is closed to the public and the runner isn't on a network that resolves `privatelink.azurewebsites.net` | run from a runner or VM on the VNet; check the zone is linked and has the `<site>` and `<site>.scm` records ([§6.2](#62-private-logic-app-workflow-standard)) |
+| Logic App runs but the workflows are empty | code publish skipped or failed | `task logic-app-code ENV=<env>` from a runner that reaches the storage PE; fall back to `deployment = "zip_deploy"` |
+| `llm-usage-ingestion` / `mcp-usage-ingestion` / `agent-usage-ingestion` runs succeed but write no usage records, while the gateway serves traffic | the Log Analytics workspace behind the APIM App Insights component blocks queries from public networks (often a central BYO workspace); the managed connector queries through Resource Manager and gets an empty result, not an error | let the workspace accept public queries (`publicNetworkAccessForQuery = Enabled`); this repository keeps it on for the workspace it creates |
+| `Error acquiring the state lock` in a PR plan | the plan identity can only read state | plans run with `-lock=false` (`LOCK=-lock=false`) |
+| Windows: `task up` / `task contracts` / `task down` finish without touching any access contract; `find: flag provided but not defined: -exec` in the output | Task's built-in `find` (on by default on Windows) doesn't support the Taskfile's `-maxdepth` / `-exec`, so the contract list comes back empty | `export TASK_CORE_UTILS=false` in Git Bash ([§2.2](#22-deploying-from-windows)) and re-run |
+| Windows: every task fails, e.g. `task bootstrap` says `Create environments/<env>/common.tfvars … first` although the files exist | the clone path contains a space (often `OneDrive - <org>`); the Taskfile passes paths unquoted | clone to a short path without spaces, e.g. `C:\src\aigw` |
+| Windows: `$'\r': command not found` from `task validate`, or each switch between a Windows and a CI apply republishes the workflows | CRLF checkout (Git for Windows' default `core.autocrlf=true`) | re-clone with `git clone -c core.autocrlf=false …` |
+| Windows: `Filename too long` during `terraform init` | the AVM module clones under `.terraform/modules` go past the 260-character path limit | `git config --global core.longpaths true`; a shorter clone path |
+| Windows: `Python was not found; run without arguments to install from the Microsoft Store…` from `task preflight` / `task up` | `python3` is the Microsoft Store stub (the older python.org installer doesn't create `python3`) | install Python with the Python install manager, or `py scripts/preflight.py <env>` and `task up ENV=<env> PREFLIGHT=false` |
+| Windows, from PowerShell: the `zip_deploy` publish fails with `ERROR: az CLI not found on PATH` | Terraform's `bash -c` provisioner resolved to WSL's `bash.exe`, which runs it inside the Linux distribution | apply `platform` from Git Bash or WSL2 ([§2.2](#22-deploying-from-windows)) |

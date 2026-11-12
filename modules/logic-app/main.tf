@@ -1,154 +1,208 @@
 # =============================================================================
 # MODULE: Logic App (Standard)
 # Usage ingestion — reads from Event Hub, writes to Cosmos DB
-# Mirrors: src/usage-ingestion-logicapp/
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# STORAGE ACCOUNT (required for Logic App Standard runtime)
+# STORAGE ACCOUNT for the Logic App runtime (Azure Verified Module)
+#   workflow_standard  WS plans need a key-based Azure Files content share
+#                      (documented shared-key exception, ALZ Deny-Storage-Shared-Key).
+#   ase_v3             keyless: shared keys off, OAuth by default, no public
+#                      network access, private endpoints only (blob/queue/table),
+#                      the runtime uses the usage UAMI (WP-2b.3).
 # -----------------------------------------------------------------------------
 
-resource "azurerm_storage_account" "logic_app" {
-  name                     = "stla${var.random_suffix}"
-  location                 = var.location
-  resource_group_name      = var.resource_group_name
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  tags                     = var.tags
+module "storage" {
+  source  = "Azure/avm-res-storage-storageaccount/azurerm"
+  version = "0.10.0"
 
-  allow_nested_items_to_be_public = false
-  # Workflow Service Plan needs a key-based Azure Files content share; on ASE v3
-  # the runtime authenticates with the usage UAMI, so shared keys are disabled.
-  shared_access_key_enabled = !local.use_ase
-  min_tls_version           = "TLS1_2"
+  name             = var.names.storage_account
+  location         = var.location
+  parent_id        = local.resource_group_id
+  tags             = var.tags
+  enable_telemetry = var.enable_telemetry
+
+  account_kind                      = "StorageV2"
+  account_sku_name                  = local.storage_sku
+  access_tier                       = "Hot"
+  allow_nested_items_to_be_public   = false
+  min_tls_version                   = "TLS1_2"
+  local_user_enabled                = false
+  cross_tenant_replication_enabled  = false
+  shared_access_key_enabled         = !local.use_ase
+  default_to_oauth_authentication   = local.use_ase ? true : null
+  infrastructure_encryption_enabled = local.use_ase
+  allowed_copy_scope                = local.use_ase ? "PrivateLink" : null
+  # ase_v3: private endpoints only, unless package uploads are allowed from
+  # listed deployer IPs (default action stays Deny).
+  public_network_access_enabled = !local.use_ase || local.package_upload_from_ips
+  network_rules = local.use_ase ? {
+    default_action = "Deny"
+    bypass         = toset([])
+    ip_rules       = local.package_upload_from_ips ? toset([for r in var.package_upload_ip_rules : trimsuffix(r, "/32")]) : toset([])
+    } : {
+    default_action = "Allow"
+    bypass         = toset(["AzureServices"])
+    ip_rules       = toset([])
+  }
+
+  blob_properties = local.use_ase ? {
+    container_delete_retention_policy = {
+      enabled = true
+      days    = 7
+    }
+  } : null
+
+  # one PE per subresource with
+  # its DNS zone (no file PE on ASE: no content share). With ALZ
+  # Deploy-Private-DNS-Zones the policy owns the zone groups.
+  private_endpoints_manage_dns_zone_group = !var.dns_zone_group_managed_by_policy
+  private_endpoints = var.enable_storage_private_endpoints ? {
+    for sub, zone in merge(
+      {
+        blob  = var.dns_zone_id_blob
+        table = var.dns_zone_id_table
+        queue = var.dns_zone_id_queue
+      },
+      local.use_ase ? {} : { file = var.dns_zone_id_file },
+      ) : sub => {
+      name                            = "pe-${var.names.storage_account}-${sub}"
+      private_service_connection_name = "psc-${sub}"
+      subnet_resource_id              = var.pe_subnet_id
+      subresource_name                = sub
+      private_dns_zone_group_name     = "dns-group"
+      # Zone IDs are always supplied unless policy owns the groups (plan-time known).
+      private_dns_zone_resource_ids = var.dns_zone_group_managed_by_policy ? [] : [zone]
+      tags                          = var.tags
+    }
+  } : {}
+
+  shares = local.use_ase ? {} : {
+    content = {
+      name  = local.content_share
+      quota = 100
+    }
+  }
+
+  # Workflow packages for run-from-package deployments (WP-2b.4).
+  containers = local.run_from_package ? {
+    deployments = { name = "deployments" }
+  } : {}
 }
 
-resource "azurerm_storage_share" "logic_app_content" {
-  count              = local.use_ase ? 0 : 1
-  name               = local.content_share
-  storage_account_id = azurerm_storage_account.logic_app.id
-  quota              = 100
-}
+# Workflow Standard only: the runtime connection string needs the account key.
+# The keyless (ASE) path never reads keys, so no key ends up in state.
+data "azurerm_storage_account" "logic_app" {
+  count               = local.use_ase ? 0 : 1
+  name                = module.storage.name
+  resource_group_name = var.resource_group_name
 
-moved {
-  from = azurerm_storage_share.logic_app_content
-  to   = azurerm_storage_share.logic_app_content[0]
+  depends_on = [module.storage]
 }
 
 locals {
-  use_ase        = var.hosting_model == "AppServiceEnvironmentV3"
-  logic_app_name = "logic-usage-${var.environment_name}-${var.random_suffix}"
+  use_ase                 = var.hosting_model == "AppServiceEnvironmentV3"
+  run_from_package        = local.use_ase && var.deployment_method == "run_from_package"
+  package_upload_from_ips = local.run_from_package && length(var.package_upload_ip_rules) > 0
+  resource_group_id       = "/subscriptions/${var.subscription_id}/resourceGroups/${var.resource_group_name}"
+  logic_app_name          = var.names.logic_app
 
-  content_share = var.content_share_name != "" ? var.content_share_name : "logic-content-${var.random_suffix}"
-  storage_key   = azurerm_storage_account.logic_app.primary_access_key
-}
-
-# -----------------------------------------------------------------------------
-# STORAGE PRIVATE ENDPOINTS (Bicep parity: functionapp/storageaccount.bicep)
-# Blob / File / Table / Queue — one PE per subresource with its DNS zone.
-# -----------------------------------------------------------------------------
-
-resource "azurerm_private_endpoint" "storage_blob" {
-  count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${azurerm_storage_account.logic_app.name}-blob"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.pe_subnet_id
-  tags                = var.tags
-
-  private_service_connection {
-    name                           = "psc-blob"
-    private_connection_resource_id = azurerm_storage_account.logic_app.id
-    subresource_names              = ["blob"]
-    is_manual_connection           = false
-  }
-  private_dns_zone_group {
-    name                 = "dns-group"
-    private_dns_zone_ids = [var.dns_zone_id_blob]
-  }
-}
-
-resource "azurerm_private_endpoint" "storage_file" {
-  count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${azurerm_storage_account.logic_app.name}-file"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.pe_subnet_id
-  tags                = var.tags
-  private_service_connection {
-    name                           = "psc-file"
-    private_connection_resource_id = azurerm_storage_account.logic_app.id
-    subresource_names              = ["file"]
-    is_manual_connection           = false
-  }
-  private_dns_zone_group {
-    name                 = "dns-group"
-    private_dns_zone_ids = [var.dns_zone_id_file]
-  }
-}
-
-resource "azurerm_private_endpoint" "storage_table" {
-  count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${azurerm_storage_account.logic_app.name}-table"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.pe_subnet_id
-  tags                = var.tags
-  private_service_connection {
-    name                           = "psc-table"
-    private_connection_resource_id = azurerm_storage_account.logic_app.id
-    subresource_names              = ["table"]
-    is_manual_connection           = false
-  }
-  private_dns_zone_group {
-    name                 = "dns-group"
-    private_dns_zone_ids = [var.dns_zone_id_table]
-  }
-}
-
-resource "azurerm_private_endpoint" "storage_queue" {
-  count               = var.enable_storage_private_endpoints ? 1 : 0
-  name                = "pe-${azurerm_storage_account.logic_app.name}-queue"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.pe_subnet_id
-  tags                = var.tags
-  private_service_connection {
-    name                           = "psc-queue"
-    private_connection_resource_id = azurerm_storage_account.logic_app.id
-    subresource_names              = ["queue"]
-    is_manual_connection           = false
-  }
-  private_dns_zone_group {
-    name                 = "dns-group"
-    private_dns_zone_ids = [var.dns_zone_id_queue]
+  content_share = var.content_share_name != "" ? var.content_share_name : var.names.content_share
+  storage_key   = one(data.azurerm_storage_account.logic_app[*].primary_access_key)
+  storage_endpoints = {
+    for svc in ["blob", "queue", "table"] : svc => "https://${var.names.storage_account}.${svc}.${var.storage_endpoint_suffix}"
   }
 }
 
 # -----------------------------------------------------------------------------
-# APP SERVICE PLAN
-#   WorkflowStandard        : WS1/WS2/WS3 (Bicep kind=elastic, maxElastic=20)
-#   AppServiceEnvironmentV3 : Isolated v2 (I*v2) inside the ASE (see ase.tf)
+# APP SERVICE PLAN (Azure Verified Module)
+#   workflow_standard : WS1/WS2/WS3 (kind=elastic, maxElastic=20)
+#   ase_v3            : Isolated v2 (I*v2) in the App Service Environment v3
+#                       (modules/app-hosting, or a shared/BYO ASE), with CPU
+#                       autoscale between worker_count and max_worker_count.
 # -----------------------------------------------------------------------------
 
-resource "azurerm_service_plan" "logic_app" {
-  name                         = "asp-logic-${var.environment_name}"
-  location                     = var.location
-  resource_group_name          = var.resource_group_name
+module "service_plan" {
+  source  = "Azure/avm-res-web-serverfarm/azurerm"
+  version = "2.0.8"
+
+  name             = var.names.app_service_plan
+  location         = var.location
+  parent_id        = local.resource_group_id
+  tags             = var.tags
+  enable_telemetry = var.enable_telemetry
+
   os_type                      = "Windows"
   sku_name                     = local.use_ase ? var.ase_sku_size : var.sku_size
-  app_service_environment_id   = local.use_ase ? azurerm_app_service_environment_v3.ase[0].id : null
-  worker_count                 = local.use_ase ? var.ase_worker_count : null
-  maximum_elastic_worker_count = local.use_ase ? null : 20 # Bicep parity: hostingPlan.properties.maximumElasticWorkerCount
-  tags                         = var.tags
+  app_service_environment_id   = local.use_ase ? var.app_service_environment_id : null
+  worker_count                 = var.worker_count
+  maximum_elastic_worker_count = local.use_ase ? null : 20 # hostingPlan.properties.maximumElasticWorkerCount
+  zone_balancing_enabled       = var.zone_redundant
+}
+
+resource "azurerm_monitor_autoscale_setting" "service_plan" {
+  count               = local.use_ase ? 1 : 0
+  name                = "autoscale-${var.names.app_service_plan}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  target_resource_id  = module.service_plan.resource_id
+  tags                = var.tags
+
+  profile {
+    name = "cpu"
+
+    capacity {
+      default = var.worker_count
+      minimum = var.worker_count
+      maximum = max(var.worker_count, var.ase_max_worker_count)
+    }
+
+    rule {
+      metric_trigger {
+        metric_name        = "CpuPercentage"
+        metric_resource_id = module.service_plan.resource_id
+        time_grain         = "PT1M"
+        statistic          = "Average"
+        time_window        = "PT10M"
+        time_aggregation   = "Average"
+        operator           = "GreaterThan"
+        threshold          = 70
+      }
+      scale_action {
+        direction = "Increase"
+        type      = "ChangeCount"
+        value     = "1"
+        cooldown  = "PT10M"
+      }
+    }
+
+    rule {
+      metric_trigger {
+        metric_name        = "CpuPercentage"
+        metric_resource_id = module.service_plan.resource_id
+        time_grain         = "PT1M"
+        statistic          = "Average"
+        time_window        = "PT20M"
+        time_aggregation   = "Average"
+        operator           = "LessThan"
+        threshold          = 30
+      }
+      scale_action {
+        direction = "Decrease"
+        type      = "ChangeCount"
+        value     = "1"
+        cooldown  = "PT20M"
+      }
+    }
+  }
 }
 
 locals {
-  # App settings shared by both hosting models (Bicep parity: logicapp.bicep).
-  common_app_settings = {
+  # App settings shared by both hosting models.
+  common_app_settings = merge({
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = var.app_insights_connection_string
     "FUNCTIONS_WORKER_RUNTIME"              = "node"
-    "WEBSITE_NODE_DEFAULT_VERSION"          = "~20"
+    "WEBSITE_NODE_DEFAULT_VERSION"          = "~22"
 
     "eventHub_fullyQualifiedNamespace" = var.eventhub_endpoint_host
     "eventHub_name"                    = var.eventhub_ai_usage_hub_name
@@ -166,6 +220,8 @@ locals {
     "CosmosDBContainerUsage"        = var.cosmos_db_container_usage
     "CosmosDBContainerPII"          = var.cosmos_db_container_pii
     "CosmosDBContainerLLMUsage"     = var.cosmos_db_container_llm_usage
+    "CosmosDBContainerMCPUsage"     = var.cosmos_db_container_mcp_usage
+    "CosmosDBContainerAgentUsage"   = var.cosmos_db_container_agent_usage
 
     # App Insights workbook lookup info
     "AppInsights_SubscriptionId" = var.subscription_id
@@ -187,12 +243,19 @@ locals {
     "COSMOSDB_ENDPOINT"  = var.cosmos_db_endpoint
     "COSMOSDB_DATABASE"  = var.cosmos_db_database_name
     "COSMOSDB_CONTAINER" = var.cosmos_db_container_usage
-  }
+    }, var.app_insights_managed_identity ? {
+    # Microsoft Entra ingestion for the runtime telemetry (Functions host), as the usage UAMI.
+    "APPLICATIONINSIGHTS_AUTHENTICATION_STRING" = "Authorization=AAD;ClientId=${var.managed_identity_client_id}"
+  } : {})
 
   # ASE v3: settings azurerm_logic_app_standard would otherwise inject, plus
   # identity-based runtime storage (UAMI only — system-assigned isn't supported).
   # https://learn.microsoft.com/azure/logic-apps/create-single-tenant-workflows-azure-portal#set-up-managed-identity-access-to-your-storage-account
-  ase_app_settings = merge(local.common_app_settings, {
+  ase_app_settings = merge(local.common_app_settings, local.run_from_package && var.enable_code_deploy ? {
+    # Workflows run from the package blob, fetched with the usage UAMI (WP-2b.4).
+    "WEBSITE_RUN_FROM_PACKAGE"                     = local.package_url
+    "WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID" = var.managed_identity_id
+    } : {}, {
     "FUNCTIONS_EXTENSION_VERSION"                     = "~4"
     "APP_KIND"                                        = "workflowApp"
     "AzureFunctionsJobHost__extensionBundle__id"      = "Microsoft.Azure.Functions.ExtensionBundle.Workflows"
@@ -200,27 +263,32 @@ locals {
 
     "AzureWebJobsStorage__credential"                = "managedIdentity"
     "AzureWebJobsStorage__managedIdentityResourceId" = var.managed_identity_id
-    "AzureWebJobsStorage__blobServiceUri"            = trimsuffix(azurerm_storage_account.logic_app.primary_blob_endpoint, "/")
-    "AzureWebJobsStorage__queueServiceUri"           = trimsuffix(azurerm_storage_account.logic_app.primary_queue_endpoint, "/")
-    "AzureWebJobsStorage__tableServiceUri"           = trimsuffix(azurerm_storage_account.logic_app.primary_table_endpoint, "/")
+    "AzureWebJobsStorage__blobServiceUri"            = local.storage_endpoints.blob
+    "AzureWebJobsStorage__queueServiceUri"           = local.storage_endpoints.queue
+    "AzureWebJobsStorage__tableServiceUri"           = local.storage_endpoints.table
   })
+
+  # Keyless guardrail: settings that carry storage keys or connection strings.
+  forbidden_keyless_settings = ["AzureWebJobsStorage", "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING", "WEBSITE_CONTENTSHARE", "AzureCosmosDB_connectionString"]
 }
 
 # -----------------------------------------------------------------------------
 # LOGIC APP STANDARD — Workflow Service Plan (default)
-# Bicep parity: SystemAssigned + UserAssigned identity.
+# SystemAssigned + UserAssigned identity.
 # -----------------------------------------------------------------------------
 
 resource "azurerm_logic_app_standard" "usage_ingestion" {
-  count                      = local.use_ase ? 0 : 1
-  name                       = local.logic_app_name
-  location                   = var.location
-  resource_group_name        = var.resource_group_name
-  app_service_plan_id        = azurerm_service_plan.logic_app.id
-  storage_account_name       = azurerm_storage_account.logic_app.name
+  count               = local.use_ase ? 0 : 1
+  name                = local.logic_app_name
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  # azurerm expects ".../serverFarms/..."; the AVM (azapi) ID uses ".../serverfarms/".
+  app_service_plan_id        = replace(module.service_plan.resource_id, "Microsoft.Web/serverfarms", "Microsoft.Web/serverFarms")
+  storage_account_name       = module.storage.name
   storage_account_access_key = local.storage_key
   storage_account_share_name = local.content_share
   virtual_network_subnet_id  = var.subnet_id
+  public_network_access      = var.public_network_access_enabled ? "Enabled" : "Disabled"
   tags                       = var.tags
 
   version = "~4"
@@ -230,7 +298,7 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
     identity_ids = [var.managed_identity_id]
   }
 
-  # Bicep parity: functionAppSiteConfig — TLS 1.2, FTPS-only, pre-warmed, CORS.
+  # functionAppSiteConfig — TLS 1.2, FTPS-only, pre-warmed, CORS.
   site_config {
     vnet_route_all_enabled           = true
     ftps_state                       = "FtpsOnly"
@@ -257,12 +325,65 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
     "WEBSITE_CONTENTOVERVNET" = "1"
   })
 
-  depends_on = [azurerm_storage_share.logic_app_content]
+  depends_on = [module.storage]
 }
 
-moved {
-  from = azurerm_logic_app_standard.usage_ingestion
-  to   = azurerm_logic_app_standard.usage_ingestion[0]
+# -----------------------------------------------------------------------------
+# PRIVATE ENDPOINT — Workflow Standard only (upstream accelerator PR #161).
+# One `sites` endpoint serves the website and SCM/Kudu (privatelink.azurewebsites.net,
+# including the <site>.scm record). Independent of public_network_access_enabled:
+# all four combinations are valid. Turning use_private_endpoint off removes the
+# endpoint. With ALZ Deploy-Private-DNS-Zones the policy owns the zone group.
+# -----------------------------------------------------------------------------
+
+locals {
+  private_endpoint_enabled = var.use_private_endpoint && !local.use_ase
+  private_endpoint_name    = var.private_endpoint_name != "" ? var.private_endpoint_name : "pe-${local.logic_app_name}"
+}
+
+resource "azurerm_private_endpoint" "logic_app" {
+  count               = local.private_endpoint_enabled && !var.dns_zone_group_managed_by_policy ? 1 : 0
+  name                = local.private_endpoint_name
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.pe_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-${local.logic_app_name}"
+    private_connection_resource_id = azurerm_logic_app_standard.usage_ingestion[0].id
+    subresource_names              = ["sites"]
+    is_manual_connection           = false
+  }
+
+  dynamic "private_dns_zone_group" {
+    for_each = var.dns_zone_id_sites != "" ? [1] : []
+    content {
+      name                 = "logic-dns-group"
+      private_dns_zone_ids = [var.dns_zone_id_sites]
+    }
+  }
+}
+
+resource "azurerm_private_endpoint" "logic_app_policy_dns" {
+  count               = local.private_endpoint_enabled && var.dns_zone_group_managed_by_policy ? 1 : 0
+  name                = local.private_endpoint_name
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  subnet_id           = var.pe_subnet_id
+  tags                = var.tags
+
+  private_service_connection {
+    name                           = "psc-${local.logic_app_name}"
+    private_connection_resource_id = azurerm_logic_app_standard.usage_ingestion[0].id
+    subresource_names              = ["sites"]
+    is_manual_connection           = false
+  }
+
+  # Azure Policy (ALZ Deploy-Private-DNS-Zones) creates the DNS zone group.
+  lifecycle {
+    ignore_changes = [private_dns_zone_group]
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -293,22 +414,35 @@ resource "azapi_resource" "usage_ingestion_ase" {
     kind = "functionapp,workflowapp"
     properties = {
       # ARM returns ".../serverfarms/..." (lower-case); match it to avoid a perpetual diff.
-      serverFarmId              = replace(azurerm_service_plan.logic_app.id, "Microsoft.Web/serverFarms", "Microsoft.Web/serverfarms")
-      hostingEnvironmentProfile = { id = azurerm_app_service_environment_v3.ase[0].id }
+      serverFarmId              = replace(module.service_plan.resource_id, "Microsoft.Web/serverFarms", "Microsoft.Web/serverfarms")
+      hostingEnvironmentProfile = { id = var.app_service_environment_id }
       httpsOnly                 = true
       clientAffinityEnabled     = false
+      publicNetworkAccess       = "Disabled"
       siteConfig = {
-        alwaysOn              = true # dedicated plan: keeps Event Hub triggers polling
-        ftpsState             = "FtpsOnly"
-        minTlsVersion         = "1.2"
-        scmMinTlsVersion      = "1.2"
-        use32BitWorkerProcess = false
+        alwaysOn               = true # dedicated plan: keeps Event Hub triggers polling
+        ftpsState              = "Disabled"
+        minTlsVersion          = "1.2"
+        scmMinTlsVersion       = "1.2"
+        remoteDebuggingEnabled = false
+        use32BitWorkerProcess  = false
         cors = {
           allowedOrigins     = ["https://portal.azure.com", "https://ms.portal.azure.com"]
           supportCredentials = false
         }
         appSettings = [for k, v in local.ase_app_settings : { name = k, value = v }]
       }
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = var.app_service_environment_id != null
+      error_message = "ase_v3 hosting needs app_service_environment_id (modules/app-hosting or a shared ASE)."
+    }
+    precondition {
+      condition     = length(setintersection(keys(local.ase_app_settings), local.forbidden_keyless_settings)) == 0
+      error_message = "The keyless (ase_v3) Logic App must not carry key-based settings: ${join(", ", local.forbidden_keyless_settings)}."
     }
   }
 
@@ -319,10 +453,23 @@ resource "azapi_resource" "usage_ingestion_ase" {
     azurerm_role_assignment.storage_queue_contributor,
     azurerm_role_assignment.storage_table_contributor,
     azurerm_role_assignment.storage_account_contributor,
-    azurerm_private_endpoint.storage_blob,
-    azurerm_private_endpoint.storage_queue,
-    azurerm_private_endpoint.storage_table,
+    module.storage, # private endpoints
   ]
+}
+
+# No basic-auth (FTP / SCM) publishing on the keyless app: deployments use
+# Entra ID (run-from-package via the usage UAMI, or Kudu with a bearer token).
+resource "azapi_update_resource" "publishing_credentials" {
+  for_each = local.use_ase ? toset(["ftp", "scm"]) : toset([])
+
+  type        = "Microsoft.Web/sites/basicPublishingCredentialsPolicies@2024-04-01"
+  resource_id = "${azapi_resource.usage_ingestion_ase[0].id}/basicPublishingCredentialsPolicies/${each.key}"
+
+  body = {
+    properties = {
+      allow = false
+    }
+  }
 }
 
 locals {
@@ -337,7 +484,7 @@ locals {
 }
 
 # -----------------------------------------------------------------------------
-# API CONNECTION: azuremonitorlogs (Bicep parity: api-connection.json)
+# API CONNECTION: azuremonitorlogs
 # Uses azapi — azurerm provider does not model Microsoft.Web/connections.
 # -----------------------------------------------------------------------------
 
@@ -406,13 +553,22 @@ data "azurerm_client_config" "current" {}
 # DIAGNOSTIC SETTINGS
 # -----------------------------------------------------------------------------
 
-resource "azurerm_monitor_diagnostic_setting" "logic_app" {
-  name                       = "diag-logic-${var.environment_name}"
-  target_resource_id         = local.logic_app_id
-  log_analytics_workspace_id = var.log_analytics_id
+# An ARM PUT is a create-or-update: it succeeds even when Azure Policy already
+# created a setting with this name. Azure deletes it with the site.
+resource "azapi_resource_action" "logic_app_diagnostics" {
+  count = var.enable_diagnostics ? 1 : 0
 
-  enabled_log { category = "WorkflowRuntime" }
-  enabled_metric { category = "AllMetrics" }
+  type        = "Microsoft.Insights/diagnosticSettings@2021-05-01-preview"
+  resource_id = "${local.logic_app_id}/providers/Microsoft.Insights/diagnosticSettings/diag-logic-${var.environment_name}"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      workspaceId = var.log_analytics_id
+      logs        = [{ category = "WorkflowRuntime", enabled = true }]
+      metrics     = [{ category = "AllMetrics", enabled = true }]
+    }
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -420,39 +576,35 @@ resource "azurerm_monitor_diagnostic_setting" "logic_app" {
 # -----------------------------------------------------------------------------
 
 resource "azurerm_role_assignment" "storage_blob_owner" {
-  scope                = azurerm_storage_account.logic_app.id
+  scope                = module.storage.resource_id
   role_definition_name = "Storage Blob Data Owner"
   principal_id         = var.managed_identity_principal_id
 }
 
 resource "azurerm_role_assignment" "storage_queue_contributor" {
-  scope                = azurerm_storage_account.logic_app.id
+  scope                = module.storage.resource_id
   role_definition_name = "Storage Queue Data Contributor"
   principal_id         = var.managed_identity_principal_id
 }
 
 resource "azurerm_role_assignment" "storage_table_contributor" {
-  scope                = azurerm_storage_account.logic_app.id
+  scope                = module.storage.resource_id
   role_definition_name = "Storage Table Data Contributor"
   principal_id         = var.managed_identity_principal_id
 }
 
 resource "azurerm_role_assignment" "storage_account_contributor" {
-  scope                = azurerm_storage_account.logic_app.id
+  scope                = module.storage.resource_id
   role_definition_name = "Storage Account Contributor"
   principal_id         = var.managed_identity_principal_id
 }
 
 # -----------------------------------------------------------------------------
-# RBAC on the Logic App SYSTEM-ASSIGNED principal (Bicep parity)
+# RBAC on the Logic App SYSTEM-ASSIGNED principal
 # - Cosmos SQL Role (Data Contributor 00000000-0000-0000-0000-000000000002)
 # - Event Hubs Data Owner (RG scope)
 # - Monitor Logs Reader (RG scope — for azuremonitorlogs workflows)
 # -----------------------------------------------------------------------------
-
-data "azurerm_resource_group" "this" {
-  name = var.resource_group_name
-}
 
 resource "azurerm_cosmosdb_sql_role_assignment" "logic_app_system_mi" {
   count               = var.enable_cosmos_role_assignment ? 1 : 0
@@ -464,14 +616,14 @@ resource "azurerm_cosmosdb_sql_role_assignment" "logic_app_system_mi" {
 }
 
 resource "azurerm_role_assignment" "logic_app_system_eh_owner" {
-  scope                = data.azurerm_resource_group.this.id
+  scope                = var.resource_group_id
   role_definition_name = "Azure Event Hubs Data Owner"
   principal_id         = local.logic_app_principal_id
   principal_type       = "ServicePrincipal"
 }
 
 resource "azurerm_role_assignment" "logic_app_system_monitor_reader" {
-  scope                = data.azurerm_resource_group.this.id
+  scope                = var.resource_group_id
   role_definition_name = "Log Analytics Reader"
   principal_id         = local.logic_app_principal_id
   principal_type       = "ServicePrincipal"

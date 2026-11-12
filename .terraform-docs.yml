@@ -1,0 +1,26 @@
+# terraform-docs configuration — module READMEs are generated between the
+# BEGIN_TF_DOCS / END_TF_DOCS markers; text outside the markers is hand-written.
+# Regenerate:  terraform-docs -c .terraform-docs.yml modules/<name>
+formatter: markdown table
+
+output:
+  file: README.md
+  mode: inject
+  template: |-
+    <!-- BEGIN_TF_DOCS -->
+    {{ .Content }}
+    <!-- END_TF_DOCS -->
+
+sort:
+  enabled: true
+  by: required
+
+settings:
+  anchor: true
+  default: true
+  required: true
+  sensitive: true
+  type: true
+  hide-empty: true
+  lockfile: false
+  escape: true

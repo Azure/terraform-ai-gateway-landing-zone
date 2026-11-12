@@ -1,19 +1,34 @@
-output "apim_name"    { value = azurerm_api_management.citadel.name }
-output "apim_id"      { value = azurerm_api_management.citadel.id }
-output "gateway_url"  { value = azurerm_api_management.citadel.gateway_url }
-output "portal_url"   { value = azurerm_api_management.citadel.portal_url }
-output "management_api_url" { value = azurerm_api_management.citadel.management_api_url }
-output "private_ip_addresses" { value = azurerm_api_management.citadel.private_ip_addresses }
-
-# Primary key of the dedicated subscription used for Foundry → APIM connections.
-# Empty if the foundry connection subscription is not enabled.
-output "foundry_connection_primary_key" {
-  value     = try(azurerm_api_management_subscription.foundry_connection[0].primary_key, "")
-  sensitive = true
+output "apim_name" {
+  description = "Name of the API Management service."
+  value       = local.apim.name
+}
+output "apim_id" {
+  description = "Resource ID of the API Management service."
+  value       = local.apim.id
+}
+output "gateway_url" {
+  description = "Gateway URL of the API Management service."
+  value       = local.apim.gateway_url
+}
+output "portal_url" {
+  description = "Developer portal URL (classic SKUs)."
+  value       = local.apim.portal_url
+}
+output "management_api_url" {
+  description = "Management API URL of the API Management service."
+  value       = local.apim.management_api_url
+}
+output "private_ip_addresses" {
+  description = "Private IP addresses of the APIM gateway (VNet-injected SKUs)."
+  value       = local.apim.private_ip_addresses
 }
 
-# System-assigned identity (only with the semantic cache): needs Cognitive
-# Services OpenAI User on the embeddings deployment's account.
+output "internal_dns_zone_names" {
+  description = "Private DNS zones created for the private VIP hostnames (empty when the hub provides them)."
+  value       = keys(azurerm_private_dns_zone.internal)
+}
+
 output "system_assigned_principal_id" {
-  value = try(azurerm_api_management.citadel.identity[0].principal_id, null)
+  description = "Principal ID of the service's system-assigned identity (null without system_assigned_identity)."
+  value       = var.system_assigned_identity ? local.apim.system_principal_id : null
 }

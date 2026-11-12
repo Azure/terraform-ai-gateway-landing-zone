@@ -1,60 +1,61 @@
 output "vnet_id" {
-  value = var.use_existing_vnet ? data.azurerm_virtual_network.existing[0].id : azurerm_virtual_network.citadel[0].id
+  description = "Resource ID of the virtual network."
+  value       = local.alz_spoke ? var.existing_vnet_id : one(module.vnet[*].resource_id)
 }
 
 output "apim_subnet_id" {
-  value = var.use_existing_vnet ? data.azurerm_subnet.existing_apim[0].id : azurerm_subnet.apim[0].id
+  description = "Resource ID of the APIM subnet (empty when apim_vnet_mode = none)."
+  value       = lookup(local.subnet_ids, "apim", "")
 }
 
 output "pe_subnet_id" {
-  value = var.use_existing_vnet ? data.azurerm_subnet.existing_pe[0].id : azurerm_subnet.pe[0].id
+  description = "Resource ID of the private-endpoint subnet."
+  value       = local.subnet_ids["pe"]
 }
 
 output "logic_app_subnet_id" {
-  value = var.use_existing_vnet ? data.azurerm_subnet.existing_logic_app[0].id : azurerm_subnet.logic_app[0].id
-}
-
-output "dns_zone_ids" {
-  description = <<-EOT
-    Map of DNS zone keys (snake_case) to their resource IDs. Child modules consume
-    this via `module.networking.dns_zone_ids["<key>"]`.
-
-    Resolution order:
-      1. BYO zones from `var.existing_private_dns_zones` (accepts both Bicep
-         camelCase — e.g. `keyVault`, `cosmosDb`, `storageBlob` — and TF
-         snake_case keys).
-      2. Newly-created zones (when `var.create_dns_zones = true`).
-
-    BYO entries override created zones for the same logical key, which allows
-    partial BYO (some zones created, some referenced from another subscription).
-  EOT
-  value = merge(
-    var.create_dns_zones ? {
-      for k, v in azurerm_private_dns_zone.zones : k => v.id
-    } : {},
-    # Normalize Bicep camelCase → TF snake_case keys. Unknown keys pass through.
-    {
-      for k, v in var.existing_private_dns_zones : lookup(local.byo_key_map, k, k) => v
-      if v != ""
-    },
-  )
+  description = "Resource ID of the Logic App integration subnet (empty when disabled)."
+  value       = var.enable_logic_app_subnet ? local.subnet_ids["logic_app"] : ""
 }
 
 output "agent_subnet_id" {
-  value = var.enable_agent_subnet ? (
-    var.use_existing_vnet
-      ? try(data.azurerm_subnet.existing_agent[0].id, "")
-      : try(azurerm_subnet.agent[0].id, "")
-  ) : ""
+  description = "Resource ID of the Foundry agent subnet (empty when disabled)."
+  value       = var.enable_agent_subnet ? local.subnet_ids["agent"] : ""
 }
+
 output "agent_subnet_name" {
-  value = var.enable_agent_subnet ? var.agent_subnet_name : ""
+  description = "Name of the Foundry agent subnet (empty when disabled)."
+  value       = var.enable_agent_subnet ? var.agent_subnet_name : ""
+}
+
+output "cicd_subnet_id" {
+  description = "Resource ID of the CI runner subnet (empty when disabled)."
+  value       = var.enable_cicd_subnet ? local.subnet_ids["cicd"] : ""
+}
+
+output "subnet_ids" {
+  description = "Subnet key (apim, pe, logic_app, agent, ase, cicd) => resource ID, for the subnets created."
+  value       = local.subnet_ids
 }
 
 output "ase_subnet_id" {
-  value = var.enable_ase_subnet ? (
-    var.use_existing_vnet
-    ? data.azurerm_subnet.existing_ase[0].id
-    : azurerm_subnet.ase[0].id
-  ) : ""
+  description = "Resource ID of the ASE v3 subnet (empty when disabled)."
+  value       = var.enable_ase_subnet ? local.subnet_ids["ase"] : ""
+}
+
+output "subnet_nsg_names" {
+  description = "Subnet key => name of its network security group (every subnet has one)."
+  value       = { for k, m in module.nsg : k => m.name }
+}
+
+locals {
+  subnet_ids = merge(
+    { for k, m in module.spoke_subnet : k => m.resource_id },
+    merge([for v in module.vnet : { for k, sn in v.subnets : k => sn.resource_id }]...),
+  )
+}
+
+output "spoke_routes" {
+  description = "alz_spoke: subnet key => next hop of its 0.0.0.0/0 route (empty for greenfield)."
+  value       = { for k, rt in azurerm_route_table.spoke : k => one([for r in rt.route : r.next_hop_in_ip_address if r.address_prefix == "0.0.0.0/0"]) }
 }

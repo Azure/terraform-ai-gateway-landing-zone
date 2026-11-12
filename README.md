@@ -1,454 +1,212 @@
 # 🏰 AI Gateway Landing Zone — Terraform
 
-Complete Terraform implementation of the [AI Gateway Landing Zone - Bicep](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1) solution accelerator. Mirrors the Bicep reference architecture using Terraform + AzureRM + AzAPI providers.
+Terraform implementation of the [AI Gateway Landing Zone (Bicep)](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1)
+solution accelerator, built on [Azure Verified Modules](https://aka.ms/avm) and
+split into independently deployable **stacks** that fit an Azure Landing Zone
+(CAF) application landing zone.
 
 ---
 
 ## 📐 Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Resource Group                           │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │            Virtual Network (hub or spoke)            │   │
-│  │  ┌───────────────┐ ┌──────────────┐ ┌────────────┐   │   │
-│  │  │  APIM Subnet  │ │   PE Subnet  │ │  LA Subnet │   │   │
-│  │  └──────┬────────┘ └──────┬───────┘ └─────┬──────┘   │   │
-│  └─────────┼────────────────┼───────────────┼───────────┘   │
-│            │                │               │               │
-│   ┌────────▼──────┐  Private Endpoints:     │               │
-│   │  API Mgmt     │  • Key Vault            │               │
-│   │  (Citadel     │  • Cosmos DB     ┌──────▼───────┐       │
-│   │   Gateway)    │  • Event Hub     │  Logic App   │       │
-│   └──────┬────────┘  • AI Services   │  (Usage      │       │
-│          │           • Storage       │   Ingestion) │       │
-│          │                           └──────┬───────┘       │
-│   Named Values:                             │               │
-│   • uami-client-id   ┌──────────────────────▼─────────┐     │
-│   • piiServiceUrl    │         Cosmos DB              │     │
-│   • entra-auth       │  usage-db / model-pricing      │     │
-│                      └────────────────────────────────┘     │
-│                                                             │
-│  Supporting:  Key Vault · Log Analytics · App Insights      │
-│               Event Hub · AI Foundry · Language Service     │
-│               Content Safety · API Center                   │
-└─────────────────────────────────────────────────────────────┘
+```text
+ environments/<env>/*.tfvars ──► Taskfile (task up / task apply STACK=…) ──► stacks/* (one state each)
+
+  0 bootstrap ──► state account · workload RG · plan + apply pipeline identities (OIDC)
+  1 identity  ──► Entra app for JWT validation (no secret)
+  2 network   ──► greenfield VNet + subnets + private DNS │ alz_spoke subnets + UDR │ (byo: skipped)
+ 2b app-hosting ► ILB App Service Environment v3 (keyless usage pipeline)
+  3 platform  ──► APIM · Key Vault · Foundry (+ models) · Cosmos DB · Event Hub · Redis · API Center
+                  · Log Analytics / App Insights · usage-ingestion Logic App (ASE v3 or WS)
+  4 gateway-config ──► named values · shared policy fragments · service APIs · non-LLM backends
+  5 llm-backend-onboarding ──► LLM backends + pools (from the Foundry deployments) · routing · LLM APIs
+  6 access-contracts (× N) ──► per use case: products · subscriptions · Key Vault secrets · Foundry connection
 ```
 
----
+Stacks find each other's resources **by deterministic name** (no remote state):
+a change to a policy fragment plans only `gateway-config`; onboarding a use case
+touches only its own contract state. Details: [docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md).
 
-## ⚡ Quick Start
-
-> **In a hurry?** See [QUICK_START.md](QUICK_START.md) for a concise, copy-paste
-> deployment walkthrough (dev & prod, add-ons, and common operations).
-
-### Prerequisites
-
-| Tool | Min Version | Install |
-|------|-------------|---------|
-| Terraform | ≥ 1.5 | [Install](https://developer.hashicorp.com/terraform/install) |
-| Azure CLI | ≥ 2.50 | [Install](https://aka.ms/installazurecli) |
-| Git | Any | [Install](https://git-scm.com) |
-| Bash shell (`scripts/*.sh`) | Any | macOS/Linux: built-in. Windows: use [Git Bash](https://git-scm.com) or [WSL](https://learn.microsoft.com/windows/wsl/install). |
-| PowerShell (`scripts/*.ps1`) | 7+ | Cross-platform on macOS/Linux/Windows — [Install pwsh](https://learn.microsoft.com/powershell/scripting/install/installing-powershell). |
-
-### 1 — Clone and configure
-
-```bash
-git clone https://github.com/Azure/terraform-ai-gateway-landing-zone.git
-cd citadel-terraform
-
-```
-
-### 2 — (Optional) Set up remote state backend
-
-```bash
-# Bash (Linux/macOS):
-# -------------------
-./scripts/bootstrap-state.sh eastus
-# Then uncomment the backend block in versions.tf and re-run terraform init
-```
-
-```powershell
-# PowerShell (cross-platform pwsh):
-# --------------------------------
-./scripts/bootstrap-state.ps1 eastus
-```
-
-### 3 — Deploy
-
-```bash
-# Copy the environment template and fill in your values
-cp environments/dev.tfvars.example environments/dev.tfvars
-# Edit environments/dev.tfvars — set subscription_id and other required values
-# (for production: cp environments/prod.tfvars.example environments/prod.tfvars)
-
-# Bash (Linux/macOS):
-# -------------------
-# Development environment (30-45 min for APIM)
-./scripts/deploy.sh dev
-
-# Production environment
-./scripts/deploy.sh prod
-
-# Skip confirmation prompt
-./scripts/deploy.sh dev --auto-approve
-```
-
-```powershell
-# PowerShell (cross-platform pwsh):
-# ---------------------------------
-./scripts/deploy.ps1 dev
-./scripts/deploy.ps1 prod
-
-# Skip confirmation prompt
-./scripts/deploy.ps1 dev -AutoApprove
-```
-
-### 4 — Validate
-
-```bash
-# Bash
-./scripts/validate.sh dev
-```
-
-```powershell
-# PowerShell
-./scripts/validate.ps1 dev
-```
-
-### 5 — Tear down
-
-```bash
-# Bash
-./scripts/destroy.sh dev
-```
-
-```powershell
-# PowerShell
-./scripts/destroy.ps1 dev
+```text
+┌──────────────────────── rg-<workload>-<env> ───────────────────────────────┐
+│  VNet (greenfield, or the vended ALZ spoke)                                 │
+│   snet-apim · snet-pe · snet-agent · snet-ase · snet-cicd (· snet-logic)    │
+│                                                                             │
+│  API Management ──► Foundry (models, PII, Content Safety) · AI Search · MCP │
+│      │  usage metrics / events                                              │
+│      ▼                                                                      │
+│  Event Hub ──► Logic App Standard (ASE v3, keyless) ──► Cosmos DB           │
+│  Key Vault · Log Analytics · App Insights · API Center · Managed Redis      │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🔧 Configuration
+## ⚡ Quick start
 
-All configuration is done through `.tfvars` files in `environments/`. Key settings:
+Prerequisites: 
+- Terraform (`.terraform-version`)
+- [Task](https://taskfile.dev)
+- Azure CLI 
+- Permissions: Contributor + User Access Administrator on a subscription (what each stack needs: [DEPLOYMENT_GUIDE §2.1](docs/DEPLOYMENT_GUIDE.md#21-permissions)).
 
-### T-Shirt Sizing
+```bash
+az login && az account set --subscription <subscription-id>
 
-| Size | APIM SKU | Cosmos RU/s | Event Hub Units | Use Case |
-|------|----------|-------------|-----------------|----------|
-| Small (dev) | `Developer` | 400 | 1 | Dev/test, no SLA |
-| Medium | `StandardV2` | 400 | 1 | Non-prod with SLA |
-| Large | `PremiumV2` | 1000 | 2 | Multi-zone production |
+cp -r examples/quickstart environments/dev     # pick a scenario (below)
+# edit environments/dev/*.tfvars: replace every <...> placeholder
 
-### Network Approach
-
-**Greenfield (new VNet):**
-```hcl
-use_existing_vnet   = false
-vnet_address_prefix = "10.170.0.0/24"
-apim_network_type   = "External"   # or "Internal" for fully private
+task bootstrap ENV=dev                          # once: state, workload RG, pipeline identities
+task up ENV=dev                                 # every configured stack, then every access contract
+task validate ENV=dev                           # post-deploy smoke tests
 ```
 
-**Brownfield (existing enterprise VNet):**
-```hcl
-use_existing_vnet    = true
-existing_vnet_rg     = "rg-network-hub"
-vnet_name            = "vnet-hub-prod-eastus"
-apim_subnet_name     = "snet-citadel-apim"
-dns_zone_rg          = "rg-network-dns"
-dns_subscription_id  = "00000000-0000-0000-0000-000000000000"
+Other commands:
+
+```bash
+task apply STACK=platform ENV=dev                        # deploy a specific stack only
+task contract ENV=dev USE_CASE=team-a-chatbot            # deploy a specific access contract (one use case)
+task plan-all ENV=dev                                    # plan all stacks, read-only
+task entra-setup ENV=dev                                 # JWT: gateway Entra app (if missing) + a test client identity
+task jwt-test ENV=dev                                    # JWT and app-role tests on every product that requires a JWT
+task down ENV=dev                                        # tear down all stacks and contracts, reverse order
+task                                                     # list all available tasks
 ```
 
-### Entra ID Authentication
+### Scenarios ([examples/](examples/), [docs/deployment-scenarios.md](docs/deployment-scenarios.md))
 
-```hcl
-entra_auth_enabled = true
-entra_tenant_id    = "your-tenant-id"
-entra_client_id    = "your-client-id"
-entra_audience     = "api://ai-citadel-prod"
-```
-
-### AI Foundry Multi-Region
-
-```hcl
-ai_foundry_instances = [
-  { location = "eastus",  default_project_name = "citadel-prod" },
-  { location = "eastus2", default_project_name = "citadel-prod-secondary" }
-]
-ai_foundry_models = [
-  { name = "gpt-4o", version = "2024-11-20", capacity = 100, ai_service_index = 0 },
-  { name = "gpt-4o", version = "2024-11-20", capacity = 100, ai_service_index = 1 }
-]
-```
+| Scenario | Network | APIM | Usage pipeline | For |
+|---|---|---|---|---|
+| [quickstart](examples/quickstart/) | greenfield | StandardV2, public + integration | Workflow Standard | demos from a laptop |
+| [dev-greenfield-private](examples/dev-greenfield-private/) | greenfield + CI runner subnet | StandardV2, integration + PE, public off | ASE v3, keyless | private dev/test without a platform team |
+| [byo-hub-spoke-network](examples/byo-hub-spoke-network/) | byo | Developer, internal | Workflow Standard | existing hub-spoke |
+| [alz-corp](examples/alz-corp/) | alz_spoke | Premium ×3, internal | ASE v3, keyless | ALZ Corp production |
+| [premium-internal-vnet](examples/premium-internal-vnet/) | greenfield | Premium ×3, internal | ASE v3 | classic private VIP |
+| [apim-v2-private-endpoint](examples/apim-v2-private-endpoint/) | greenfield | StandardV2, integration + PE | ASE v3 | v2 private |
+| [apim-premiumv2-injection](examples/apim-premiumv2-injection/) | greenfield | PremiumV2, injection | ASE v3 | v2 private VIP |
+| [dev-greenfield-private-ws](examples/dev-greenfield-private-ws/) | greenfield + CI runner subnet | StandardV2, integration + PE, public off | Workflow Standard, private endpoint | private dev/test, faster than ASE |
+| [apim-external-vnet](examples/apim-external-vnet/) | greenfield | Developer, external | Workflow Standard | classic public VIP in a VNet |
+| [ase-hosting](examples/ase-hosting/) | greenfield + CI runner subnet | StandardV2 ×2, integration, zone redundant | ASE v3 reference (zones, sizing, DNS) | every ASE setting explained |
+| [shared-ase](examples/shared-ase/) | greenfield + extra DNS links | StandardV2, integration + PE | shared ASE v3 | ASE owned by another team |
+| [multi-provider-llm](examples/multi-provider-llm/) | greenfield | StandardV2, integration | Workflow Standard | every LLM backend type: Foundry, Azure OpenAI, AWS Bedrock and Mantle, Gemini, external OpenAI-compatible |
+| [entra-jwt-auth](examples/entra-jwt-auth/) | greenfield | StandardV2, integration | Workflow Standard | API key + Entra ID JWT and app roles per contract, another tenant per contract |
+| [existing-apim-platform](examples/existing-apim-platform/) | byo (name overrides) | existing APIM | not deployed | gateway config on an APIM you run |
+| [no-foundry-ai-services](examples/no-foundry-ai-services/) | greenfield | StandardV2, integration | Workflow Standard | no Foundry; standalone Language + Content Safety |
+| [all-features](examples/all-features/) | greenfield | StandardV2, integration + PE | Workflow Standard | every optional switch, to copy from |
 
 ---
 
-## 🌐 API Endpoints (post-deploy)
+## 🔧 Configuration highlights
 
-| API | URL Pattern | Use Case |
+| Topic | Where | Notes |
+|---|---|---|
+| Names | `common.tfvars` `workload`, `environment`, `naming` | `<prefix>-<workload>-<env>[-<seed>]`; [modules/naming](modules/naming/README.md) |
+| Network model | `common.tfvars` `network_mode`; `network.tfvars` | greenfield / alz_spoke / byo — [DEPLOYMENT_GUIDE §5](docs/DEPLOYMENT_GUIDE.md#5-network-modes) |
+| APIM SKU × network | `platform.tfvars` `apim` | none · external · internal · integration · injection — [apim-network-modes.md](docs/operations/apim-network-modes.md) |
+| Foundry accounts and models | `platform.tfvars` `foundry` | LLM backends are derived from the deployments in `llm-backend-onboarding` |
+| External LLMs, aliases | `llm-backend-onboarding.tfvars` | `llm_backends` (Key Vault-referenced credentials, a circuit breaker per backend), `model_aliases` |
+| Entra JWT auth | `identity.tfvars` + `gateway-config.tfvars` `entra_auth`; contracts `jwt_required`, `required_roles` | the key is always required; a contract adds a JWT and app roles ([DEPLOYMENT_GUIDE §6.6](docs/DEPLOYMENT_GUIDE.md#66-entra-id-jwt-authentication), `task entra-setup`, `task jwt-test`) |
+| Usage pipeline | `platform.tfvars` `usage_pipeline` | `ase_v3` (keyless, run-from-package) or `workflow_standard` (shared-key exception) |
+| Availability zones | `platform.tfvars` `apim.zone_redundant`, `usage_pipeline.logic_app.zone_redundant` / `usage_pipeline.ase.zone_redundant` | chosen at creation; more instances alone don't add zones ([DEPLOYMENT_GUIDE §6.7](docs/DEPLOYMENT_GUIDE.md#67-availability-zones)) |
+| Access contracts | `access-contracts/<use-case>.tfvars` | keys never in state (ephemeral read, write-only secrets) |
+
+Every stack's inputs and outputs are documented in its README
+(`stacks/<stack>/README.md`, generated by terraform-docs); see also
+[docs/VARIABLES.md](docs/VARIABLES.md).
+
+---
+
+## 🌐 API endpoints (post-deploy)
+
+| API | URL pattern | Use case |
 |-----|-------------|---------|
 | Universal LLM | `{gateway_url}/models/chat/completions` | Recommended — all models |
-| Azure OpenAI Compat | `{gateway_url}/openai/deployments/{model}/chat/completions` | SDK compatibility |
-| List Models | `GET {gateway_url}/models/` | Discover available models |
-
-### Test the gateway
+| Azure OpenAI compatible | `{gateway_url}/openai/deployments/{model}/chat/completions` | SDK compatibility |
+| List models | `GET {gateway_url}/models/` | Discover available models |
 
 ```bash
-# Get subscription key from APIM portal → Subscriptions
-APIM_URL=$(terraform output -raw universal_llm_api_url)
-SUB_KEY="your-apim-subscription-key"
-
-curl -X POST "$APIM_URL" \
-  -H "Content-Type: application/json" \
-  -H "api-key: $SUB_KEY" \
-  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Hello from Citadel!"}]}'
+URL=$(task output STACK=llm-backend-onboarding ENV=dev NAME="-raw universal_llm_api_url")
+KEY=$(az keyvault secret show --vault-name <key-vault> -n teama-llm-key --query value -o tsv)   # written by the access contract
+curl -X POST "$URL/chat/completions" -H "Content-Type: application/json" -H "api-key: $KEY" \
+  -d '{"model":"gpt-5.4-mini","messages":[{"role":"user","content":"Hello from Citadel!"}]}'
 ```
 
 ---
 
-## 🧪 Validation Notebooks
+## 🧪 Validation notebooks
 
-The [validation/](validation/) folder contains the Jupyter test notebooks ported
-from the upstream accelerator, plus their Python helpers in [shared/](shared/).
-They exercise a **live** deployment, and the recommended baseline order is steps
-1–4 (run them on every new Governance Hub deployment before the scenario-specific
-ones):
-
-| # | Notebook | Purpose |
-|---|----------|---------|
-| 1 | [llm-backend-onboarding-runner.ipynb](validation/llm-backend-onboarding-runner.ipynb) ⭐ | Register AI backends and deploy routing logic into APIM (run first). Drives the [`llm-backend-onboarding/`](llm-backend-onboarding/) module. |
-| 2 | [citadel-universal-llm-api-all-models-tests.ipynb](validation/citadel-universal-llm-api-all-models-tests.ipynb) ⭐ | Validate every gateway-configured model (chat / embeddings / Responses API) through `/models`. |
-| 3 | [citadel-access-contracts-tests.ipynb](validation/citadel-access-contracts-tests.ipynb) ⭐ | Provision per-team access contracts with Key Vault + Foundry integration. Drives the [`citadel-access-contracts/`](citadel-access-contracts/) module. |
-| 4 | [citadel-model-aliases-tests.ipynb](validation/citadel-model-aliases-tests.ipynb) | Validate the shared `resolve-model-alias` policy fragment (priority + weighted strategies, RBAC, discovery). |
-
-See [validation/README.md](validation/README.md) for the full per-notebook
-variable map, prerequisites, and execution guide.
-
-### Terraform autoload (no azd required)
-
-The notebooks were written for an `azd`-deployed environment and bootstrap their
-config with `init_from_azd = True`. This repo deploys with **Terraform, not azd**,
-so [shared/utils.py](shared/utils.py) adds a transparent bridge:
-`azd_env_get()` tries `azd` first, then falls back to `terraform output -json`.
-An internal alias map translates each azd-style variable the notebooks request
-into the matching Terraform output, so the existing `init_from_azd = True` /
-`utils.load_azd_env(...)` cells work **unchanged**:
-
-| azd env var | Terraform output |
-|---|---|
-| `AZURE_RESOURCE_GROUP`, `GOVERNANCE_HUB_RESOURCE_GROUP` | `resource_group_name` |
-| `AZURE_LOCATION`, `LOCATION` | `location` |
-| `AZURE_SUBSCRIPTION_ID` | `subscription_id` |
-| `KEY_VAULT_NAME` | `key_vault_name` |
-| `AI_FOUNDRY_SERVICES` | `ai_foundry_services` |
-| `LLM_BACKEND_CONFIG`, `LLM_BACKENDS_CONFIG` | `llm_backend_config` |
-| `APIM_NAME` | `apim_name` |
-| `APIM_GATEWAY_URL` | `apim_gateway_url` |
-
-The bridge resolves the Terraform root as the parent of `shared/` (the repo
-root). Override with the `CITADEL_TF_DIR` environment variable to point the
-notebooks at a different state directory (e.g. `llm-backend-onboarding/`).
-Outputs only appear after a `terraform apply`. See
-[validation/README.md](validation/README.md) for the full per-notebook variable
-map.
-
-### Run
+[validation/](validation/) holds the Jupyter notebooks ported from the upstream
+accelerator (helpers in [validation/shared/](validation/shared/)). They exercise a **live**
+environment: LLM backend onboarding, all-models tests, access contracts and
+model aliases. They write tfvars into `environments/<env>/` and deploy through
+the stacks. [citadel-acceptance-tests.ipynb](validation/citadel-acceptance-tests.ipynb)
+runs a customer acceptance catalogue (authentication, policies, usage, security)
+against a deployed environment, one cell per test case, and exports the results
+as CSV. See [validation/README.md](validation/README.md).
 
 ```bash
-pip install -r shared/requirements.txt
-# then open any notebook in validation/ and run the first (config) cell
-```
-
-`apimtools.py` is deployment-tool-agnostic — it uses `az` + the Azure SDK with
-the resource group / APIM name passed as parameters, so no azd/Terraform coupling
-there.
-
----
-
-## 🏗️ Modules Reference
-
-| Module | Resources Created |
-|--------|-------------------|
-| `networking` | VNet, 3 subnets, NSG, route table, 12 private DNS zones |
-| `monitoring` | Log Analytics workspace, 2× Application Insights, dashboard |
-| `security` | Key Vault, RBAC assignments, PE |
-| `cosmosdb` | Cosmos DB account, `usage-db` database, `usage` + `model-pricing` containers |
-| `eventhub` | Event Hub namespace, `apim-usage` + `pii-usage` hubs, auth rules, consumer groups |
-| `ai-services` | Language Service (PII), Content Safety, AI Foundry (n instances + models), API Center |
-| `apim` | APIM instance, Universal LLM API, Azure OpenAI API, named values, loggers, diagnostic settings |
-| `logic-app` | Logic App Standard, App Service Plan, Storage Account (runtime); optional App Service Environment v3 for keyless storage (`logic_app_hosting_model`) |
-
----
-
-## 🔌 Standalone Onboarding Modules
-
-Beyond the root deployment, the repo ships two **independently-applyable** Terraform
-root modules that target an **already-deployed** Governance Hub APIM. They are the
-Terraform ports of the upstream [`bicep/infra/llm-backend-onboarding`](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1/bicep/infra/llm-backend-onboarding) and
-[`bicep/infra/citadel-access-contracts`](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1/bicep/infra/citadel-access-contracts) modules, and each has its own state,
-`terraform.tfvars`, and `scripts/` (`deploy.sh` / `destroy.sh` / `test.sh`).
-
-### LLM Backend Onboarding — [`llm-backend-onboarding/`](llm-backend-onboarding/)
-
-Registers LLM backends and routing logic into an existing APIM gateway. Use it to
-add or update model backends without touching the core infrastructure.
-
-| Resource | Description |
-|----------|-------------|
-| **APIM Backends** | One backend per LLM endpoint (native managed-identity creds for Azure OpenAI / AI Foundry) |
-| **Backend Pools** | Load-balanced pools for models served by multiple backends (priority + weight) |
-| **Policy Fragments** | Dynamic model-based routing, model aliases, Responses API isolation |
-| **Named Values** | AWS Bedrock credentials + per-backend API-key values (Key Vault ref or explicit) |
-
-```bash
-cd llm-backend-onboarding
-cp terraform.tfvars.example terraform.tfvars   # set apim + llm_backend_config
-./scripts/deploy.sh
-./scripts/test.sh --api-key "<apim-subscription-key>"
-```
-
-Supports **model aliases** (`model_aliases`) that expose a single client-facing
-name routing to one or more real models (`priority` or `weighted` strategy),
-honored by `/deployments` discovery and `validate-model-access` RBAC. See
-[llm-backend-onboarding/README.md](llm-backend-onboarding/README.md) for the full
-backend / model schema.
-
-### Access Contracts — [`citadel-access-contracts/`](citadel-access-contracts/)
-
-Onboards a **use-case** (business unit) to the gateway by provisioning per-service
-APIM products, subscriptions, and inbound policies — optionally writing keys to Key
-Vault and creating Azure AI Foundry connections.
-
-| Resource | Description |
-|----------|-------------|
-| **APIM Product** | `<code>-<businessUnit>-<useCase>-<env>` (e.g. `LLM-Finance-CustomerSupport-DEV`) |
-| **Product → API links** | Attaches published APIs from `api_name_mapping[code]` to the product |
-| **Product Policy** | Per-service inbound XML or the bundled `default-ai-product-policy.xml` |
-| **Subscription** | `<product>-SUB-01` with primary/secondary keys |
-| **Key Vault Secrets** *(optional)* | Endpoint URL + subscription key per service (`use_target_key_vault = true`) |
-| **Foundry Connection** *(optional)* | One connection per service pointing at the gateway (`use_target_foundry = true`) |
-
-```bash
-cd citadel-access-contracts
-cp terraform.tfvars.example terraform.tfvars   # set apim + use_case + services
-./scripts/deploy.sh
-./scripts/test.sh                              # or --api-key "<key>" when keys are in Key Vault
-```
-
-Naming follows `<code>-<business_unit>-<use_case_name>-<environment>`. See
-[citadel-access-contracts/README.md](citadel-access-contracts/README.md) for the
-service object and Foundry connection options.
-
----
-
-## 📋 Post-Deployment Checklist
-
-- [ ] Run `./scripts/validate.sh <env>` (or `./scripts/validate.ps1 <env>`) — all checks pass
-- [ ] Retrieve APIM subscription key from Azure Portal → APIM → Subscriptions
-- [ ] Test `POST /models/chat/completions` with a sample request
-- [ ] Load `model-pricing.json` into Cosmos DB `model-pricing` container
-- [ ] Connect Power BI desktop to Cosmos DB endpoint
-- [ ] For production: disable Event Hub public access post-deploy
-- [ ] For production: configure APIM custom domains + TLS certificates
-- [ ] Configure CI/CD pipeline to call `./scripts/deploy.sh prod --auto-approve` (or `./scripts/deploy.ps1 prod -AutoApprove`)
-
----
-
-## 🔑 Sensitive Values
-
-Never commit real secrets to source control. Use one of:
-
-1. **Environment variables before deploy:**
-   ```bash
-   export TF_VAR_entra_tenant_id="your-tenant-id"
-   export TF_VAR_entra_client_id="your-client-id"
-   ```
-
-2. **Azure Key Vault references in tfvars** (requires azurerm data source)
-
-3. **CI/CD pipeline secret variables** (Azure DevOps / GitHub Actions secrets)
-
----
-
-
-## 📁 Project Structure
-
-```
-citadel-terraform/
-├── versions.tf              # Provider + Terraform version constraints
-├── providers.tf             # AzureRM, AzAPI, Random provider config
-├── main.tf                  # Root module — orchestrates all modules
-├── variables.tf             # All input variables (mirrors Bicep params)
-├── outputs.tf               # Key deployment outputs
-├── .gitignore
-│
-├── modules/
-│   ├── networking/          # VNet, subnets, NSGs, route tables, DNS zones
-│   ├── monitoring/          # Log Analytics, Application Insights, dashboards
-│   ├── security/            # Key Vault, RBAC assignments, private endpoints
-│   ├── cosmosdb/            # Cosmos DB account, databases, containers
-│   ├── eventhub/            # Event Hub namespace, hubs, auth rules
-│   ├── ai-services/         # Language Service, Content Safety, AI Foundry, API Center
-│   ├── apim/                # API Management + APIs + policies + named values
-│   │   └── policies/        # APIM policy XML templates
-│   └── logic-app/           # Logic App Standard for usage ingestion
-│
-├── llm-backend-onboarding/  # Standalone module — onboard LLM backends to an existing APIM
-│   ├── main.tf              # Backends, backend pools, policy fragments, named values
-│   ├── terraform.tfvars.example
-│   ├── policies/            # Routing policy-fragment templates
-│   └── scripts/             # deploy.sh / destroy.sh / test.sh
-│
-├── citadel-access-contracts/ # Standalone module — onboard a use-case to an existing APIM
-│   ├── main.tf              # APIM products, subscriptions, policies, KV secrets, Foundry conns
-│   ├── terraform.tfvars.example
-│   ├── contracts/           # Per-use-case contract definitions
-│   ├── policies/            # Inbound product policy XML (incl. default-ai-product-policy.xml)
-│   └── scripts/             # deploy.sh / destroy.sh / test.sh
-│
-├── environments/
-│   ├── dev.tfvars.example   # Development template — copy to dev.tfvars and fill in
-│   ├── dev.tfvars           # Development (Developer SKU, public access)
-│   ├── prod.tfvars.example  # Production template — copy to prod.tfvars and fill in
-│   └── prod.tfvars          # Production (PremiumV2, fully private)
-│
-├── scripts/                # Bash (*.sh) + PowerShell (*.ps1) equivalents
-│   ├── deploy.sh / .ps1        # Full deploy script (init + plan + apply)
-│   ├── destroy.sh / .ps1       # Teardown script
-│   ├── validate.sh / .ps1      # Post-deployment smoke tests
-│   ├── import-existing.sh / .ps1  # Import pre-existing resources into state
-│   └── bootstrap-state.sh / .ps1  # One-time remote state backend setup
-│
-├── shared/                  # Python helpers for the validation notebooks
-│   ├── utils.py             # Config bootstrap (+ Terraform-output bridge), APIM helpers
-│   ├── apimtools.py         # APIMClientTool — backend/policy/trace discovery (az + SDK)
-│   ├── requirements.txt     # Python deps for the notebooks
-│   └── snippets/            # Standalone az/REST example scripts
-│
-└── validation/              # Jupyter test notebooks (run against a live deployment)
-    ├── llm-backend-onboarding-runner.ipynb              # 1 — onboard LLM backends ⭐
-    ├── citadel-universal-llm-api-all-models-tests.ipynb # 2 — validate all models ⭐
-    ├── citadel-access-contracts-tests.ipynb            # 3 — provision access contracts ⭐
-    ├── citadel-model-aliases-tests.ipynb              # 4 — model alias routing
-    ├── README.md            # Variable map + Terraform autoload instructions
-    └── requirements.txt
+pip install -r validation/requirements.txt
 ```
 
 ---
 
-## 📚 Related Documentation
+## 📁 Project structure
 
-- [AI Citadel Governance Hub README](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1)
-- [Full Deployment Guide](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/full-deployment-guide.md)
-- [LLM Routing Architecture](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/llm-routing-architecture.md)
-- [Network Approach Guide](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/network-approach.md)
+```text
+├── Taskfile.yml                 # task bootstrap / up / apply / plan-all / contract / down / test / lint
+├── stacks/                      # root configurations (own backend, lock file and state)
+│   ├── bootstrap/  identity/  network/  app-hosting/  platform/
+│   ├── gateway-config/          # + fragments/ (shared) and apis/ (service APIs)
+│   ├── llm-backend-onboarding/  # + fragments/ (model-aware) and apis/ (LLM APIs)
+│   └── access-contracts/
+├── modules/                     # custom modules (call AVM modules, never each other)
+├── environments/<env>/          # local, gitignored inputs (only .gitkeep is tracked)
+├── examples/<scenario>/         # environment templates to copy
+├── logicapp-src/                # usage-ingestion Logic App project
+├── scripts/                     # preflight.py (policy check), validate.sh / .ps1, ci/ (repository rules)
+├── validation/                  # notebooks; shared/ holds their Python helpers
+└── docs/                        # scenarios, operations runbooks
+```
+
+Design rules (enforced in CI by `scripts/ci/check-*.sh`): stack → custom module
+→ AVM module only; one AVM version per module; identical `variables.common.tf`
+and `naming.tf` in every stack; no `terraform_remote_state`; every policy file
+has exactly one owner and is wired up.
+
+---
+
+## 📋 Post-deployment checklist
+
+- [ ] `task validate ENV=<env>` — all checks pass
+- [ ] `task plan-all ENV=<env>` — no changes
+- [ ] Onboard a use case (`access-contracts/<use-case>.tfvars`) and call the gateway with its key
+- [ ] Load `model-pricing.json` into the Cosmos DB `model-pricing` container; connect Power BI
+- [ ] Production: custom domains + TLS certificates on APIM; GitHub environments with reviewers ([DEPLOYMENT_GUIDE §7](docs/DEPLOYMENT_GUIDE.md#7-cicd-github-actions))
+
+---
+
+## 🔑 Secrets
+
+No secret is passed through tfvars or stored in state: pipelines sign in with
+OIDC, the state backend uses Entra ID, APIM subscription keys are read
+ephemerally and written only to write-only Key Vault arguments, and backend
+credentials are Key Vault references (`auth_config.key_vault_secret_uri`).
+
+---
+
+## 📚 Related documentation
+
+- [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) — stacks, commands, CI/CD, day-2, troubleshooting
+- [Deployment-Scenarios.md](docs/deployment-scenarios.md) — the scenario templates
+- [Platform-team-requests.md](docs/operations/platform-team-requests.md) — what to request from the ALZ platform team
+- [Apim-network-modes.md](docs/operations/apim-network-modes.md) — APIM network modes and how to change them
+- [Apim-policy-architecture.md](docs/APIM_POLICY_ARCHITECTURE.md) — policies and fragments
+- [Access-contracts-guide.md](docs/ACCESS_CONTRACTS_GUIDE.md) — access contracts: products, policies, limits, authentication, keys, Foundry connections
+- [CONTRIBUTING.md](CONTRIBUTING.md) — local checks and the rules CI enforces
+- Upstream: [AI Citadel Governance Hub](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1) · [LLM routing](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/llm-routing-architecture.md) · [Network approach](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/network-approach.md)
 
 ---
 
 ## 📄 License
 
-MIT — see [LICENSE](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/LICENSE)
+MIT — see [LICENSE](LICENSE)

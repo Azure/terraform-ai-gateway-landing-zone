@@ -1,76 +1,93 @@
-variable "resource_group_name"           { type = string }
-variable "location"                        { type = string }
-variable "tags"                            { type = map(string) }
-variable "apim_name"                       { type = string }
-variable "sku_name"                        { type = string }
-variable "sku_capacity"                    { type = number }
-variable "publisher_email"                 { type = string }
-variable "publisher_name"                  { type = string }
-variable "apim_network_type"               { type = string }
-variable "is_apim_v2"                      { type = bool }
-variable "apim_subnet_id"                  { type = string }
-variable "pe_subnet_id"                    { type = string }
-variable "vnet_id"                         { type = string }
-variable "apim_v2_use_private_endpoint"    { type = bool }
-variable "apim_v2_public_network_access"   { type = bool }
-variable "managed_identity_id"             { type = string }
-variable "managed_identity_client_id"      { type = string }
-
-variable "eventhub_namespace_name"         { type = string }
-variable "eventhub_endpoint_uri"           {
-    type = string
-    description = "EventHub namespace endpoint URI (https://<ns>.servicebus.windows.net)"
-}
-variable "eventhub_usage_hub_name" {
+variable "resource_group_name" {
+  description = "Name of the resource group the module deploys into."
   type        = string
-  description = "Name of the APIM usage event hub inside the namespace (matches Bicep output eventHub.name)."
-  default     = "ai-usage"
 }
-variable "eventhub_pii_hub_name" {
+variable "location" {
+  description = "Primary Azure region for deployment"
   type        = string
-  description = "Name of the PII usage event hub (matches Bicep output eventHubPIIName)."
-  default     = "pii-usage"
 }
-variable "cosmos_db_endpoint"              { type = string }
-variable "pii_service_endpoint"            { type = string }
-variable "content_safety_endpoint"         { type = string }
-variable "enable_pii_redaction"             { type = bool }
-variable "enable_content_safety"            { type = bool }
-variable "entra_auth_enabled"              { type = bool }
-variable "entra_tenant_id"                 { type = string }
-variable "entra_client_id"                 { type = string }
-variable "entra_audience"                  { type = string }
-variable "log_analytics_id"               { type = string }
-variable "log_verbosity"                   { type = string }
-variable "log_body_bytes"                  { type = number }
-variable "dns_zone_id_apim"               { type = string }
+variable "tags" {
+  description = "Tags applied to every resource the module creates."
+  type        = map(string)
+}
+variable "apim_name" {
+  description = "Name of the API Management service."
+  type        = string
+}
+variable "sku_name" {
+  description = "APIM SKU: Developer, StandardV2, Premium, PremiumV2. REGION AVAILABILITY (important — v2 SKUs are NOT globally available): - Developer / Premium (classic): Globally available in virtually all Azure public regions. - StandardV2 / PremiumV2 (stv2 platform): Available in a limited subset of regions. Authoritative list (check before deploy): https://learn.microsoft.com/azure/api-management/api-management-region-availability az apim list-skus --location <region> If you hit `SkuNotSupportedInRegion` at apply time, either: (a) pick a supported region for `location`, or (b) fall back to `Premium` (classic)"
+  type        = string
+}
+variable "sku_capacity" {
+  description = "Number of APIM scale units"
+  type        = number
+}
+variable "publisher_email" {
+  description = "APIM publisher email"
+  type        = string
+}
+variable "publisher_name" {
+  description = "APIM publisher name"
+  type        = string
+}
+variable "apim_subnet_id" {
+  description = "Resource ID of the APIM subnet (VNet injection or outbound integration)."
+  type        = string
+}
+variable "pe_subnet_id" {
+  description = "Resource ID of the subnet that hosts private endpoints."
+  type        = string
+}
+variable "vnet_id" {
+  description = "Resource ID of the virtual network."
+  type        = string
+}
+variable "apim_v2_use_private_endpoint" {
+  description = "Enable private endpoint for APIM V2 SKUs"
+  type        = bool
+}
+variable "apim_v2_public_network_access" {
+  description = "Allow public access for APIM V2 SKUs"
+  type        = bool
+}
+variable "managed_identity_id" {
+  description = "Resource ID of the user-assigned managed identity the service runs as."
+  type        = string
+}
+variable "dns_zone_id_apim" {
+  description = "Resource ID of the privatelink.azure-api.net DNS zone for the gateway private endpoint (empty = none)."
+  type        = string
+}
 
 variable "create_internal_dns" {
-  description = "For apim_network_type = Internal (Developer/Premium), create per-hostname private DNS zones for the gateway/portal/developer/management/scm endpoints and link them to the VNet."
+  description = "For vnet_mode internal (classic: gateway, portal, developer, management, scm) or injection (Premium v2: gateway), create per-hostname private DNS zones and link them to the VNet."
   type        = bool
   default     = true
 }
 
-# -----------------------------------------------------------------------------
-# APIM hardening
-# -----------------------------------------------------------------------------
-variable "app_insights_id"                 { type = string }
-variable "app_insights_instrumentation_key" { 
-    type = string
-    sensitive = true
-}
-variable "app_insights_connection_string" {
-  description = "Application Insights connection string — used in the AppInsights logger (Bicep parity)."
+variable "redis_cache_connection_string_secret_id" {
+  description = "Versionless ID of the Key Vault secret holding the Azure Managed Redis connection string (modules/redis). Used when enable_redis_cache."
   type        = string
-  sensitive   = true
-  default     = ""
+  default     = null
 }
 
-variable "redis_cache_connection_string" {
-  description = "Optional Azure Managed Redis connection string. When set, creates an APIM service/caches resource."
+variable "redis_cache_id" {
+  description = "Resource ID of the Azure Managed Redis cluster (shown on the APIM external cache)."
   type        = string
-  sensitive   = true
-  default     = ""
+  default     = null
+}
+
+variable "managed_identity_client_id" {
+  description = "Client ID of the user-assigned identity (managed_identity_id): reads the Key Vault-backed named values."
+  type        = string
+  default     = null
+}
+
+variable "system_assigned_identity" {
+  description = "Also give the service a system-assigned identity. Needed by the semantic cache: llm-semantic-cache-lookup calls the embeddings backend only as the system-assigned identity."
+  type        = bool
+  default     = false
+  nullable    = false
 }
 
 variable "apim_zones" {
@@ -79,288 +96,43 @@ variable "apim_zones" {
   default     = []
 }
 
-# -----------------------------------------------------------------------------
-# APIM logic plane (Bicep parity: llm-backends, policy fragments, extra APIs)
-# -----------------------------------------------------------------------------
-
-variable "llm_backend_config" {
-  description = "Bicep llmBackendConfig — one entry per LLM endpoint."
-  type = list(object({
-    backend_id   = string
-    backend_type = string
-    endpoint     = string
-    auth_scheme  = optional(string)  # legacy, retained
-    auth_type    = optional(string)  # 'managed-identity'|'aws-sigv4'|'api-key-bearer'|'api-key-header'|'none'
-    auth_config  = optional(object({
-      named_value_key      = optional(string)
-      authorization_scheme = optional(string, "Bearer") # api-key-bearer only; "" = secret holds full header value
-    }))
-    supported_models = list(object({
-      name                = string
-      sku                 = optional(string, "Standard")
-      capacity            = optional(number, 100)
-      modelFormat         = optional(string, "OpenAI")
-      modelVersion        = optional(string, "1")
-      apiVersion          = optional(string, "2024-02-15-preview")
-      timeout             = optional(number, 120)
-      inferenceApiVersion = optional(string, "")
-      retirementDate      = optional(string, "")
-    }))
-    priority = optional(number, 1)
-    weight   = optional(number, 100)
-  }))
-  default = []
+variable "zone_redundant" {
+  description = "StandardV2 / PremiumV2: create the service zone redundant (ARM zoneRedundant; set at creation only, Azure can't change it later). Classic Premium uses apim_zones instead."
+  type        = bool
+  default     = false
+  nullable    = false
 }
 
-variable "configure_circuit_breaker" {
-  type    = bool
-  default = true
+variable "enable_redis_cache" {
+  description = "Attach Azure Managed Redis as the APIM external cache (requires redis_cache_connection_string_secret_id)."
+  type        = bool
+  default     = false
 }
 
-variable "ai_search_instances" {
-  description = "Existing AI Search endpoints to register as APIM backends."
-  type = list(object({
-    name        = string
-    description = optional(string, "AI Search backend")
-    url         = string
-  }))
-  default = []
+variable "subscription_id" {
+  description = "Subscription of the APIM service (existence probe for the public-access flip)."
+  type        = string
 }
 
-variable "enable_azure_ai_search" {
-  type    = bool
-  default = false
+variable "dns_zone_group_managed_by_policy" {
+  description = "Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoint's DNS zone group; Terraform leaves it alone."
+  type        = bool
+  default     = false
 }
 
-variable "enable_embeddings_backend" {
-  type    = bool
-  default = false
-}
-
-variable "embeddings_backend_id" {
-  type    = string
-  default = "foundry-embeddings"
-}
-
-variable "embeddings_backend_url" {
-  type    = string
-  default = ""
-}
-
-variable "enable_pii_anonymization" {
-  description = "Feature flag for policy fragments that implement PII redaction."
+variable "enable_telemetry" {
+  description = "Enable Azure Verified Modules usage telemetry."
   type        = bool
   default     = true
 }
 
-variable "enable_unified_ai_api" {
-  type    = bool
-  default = false
-}
-
-variable "enable_ai_model_inference" {
-  type    = bool
-  default = false
-}
-
-variable "enable_document_intelligence" {
-  type    = bool
-  default = false
-}
-
-# Bicep parity: apim.bicep inferenceAPIType (default 'OpenAIV1'). Drives the
-# Universal LLM API OpenAPI spec + base path selection.
-variable "inference_api_type" {
-  type    = string
-  default = "OpenAIV1"
-  validation {
-    condition     = contains(["AzureOpenAI", "AzureAI", "OpenAI", "OpenAIV1"], var.inference_api_type)
-    error_message = "inference_api_type must be one of AzureOpenAI, AzureAI, OpenAI, OpenAIV1."
-  }
-}
-
-variable "enable_openai_realtime" {
-  type    = bool
-  default = false
-}
-
-variable "is_mcp_sample_deployed" {
-  type    = bool
-  default = false
-}
-
-variable "ms_learn_mcp_backend_url" {
-  description = "Backend URL for the MS Learn MCP server."
+variable "vnet_mode" {
+  description = "APIM network mode: none | external | internal (Developer/Premium) | integration (StandardV2/PremiumV2) | injection (PremiumV2)."
   type        = string
-  default     = "https://learn.microsoft.com/api/mcp"
 }
 
-# -----------------------------------------------------------------------------
-# Extra-API diagnostics (Bicep parity: api.bicep `enableAPIDiagnostics`).
-# Bicep callers in apim.bicep pass `false` for AI Search, Doc Intel, OpenAI
-# Realtime, so the default here is also false. When set to true, both
-# `applicationinsights` and `azuremonitor` per-API diagnostics are created
-# matching the api.bicep resource shape (azuremonitor includes the LLM logs
-# block via azapi).
-# -----------------------------------------------------------------------------
-
-variable "enable_extra_api_diagnostics" {
-  type    = bool
-  default = false
-}
-
-variable "extra_api_log_settings" {
-  description = "Bicep parity: api.bicep `logSettings` (headers + body bytes for app insights)."
-  type = object({
-    headers = list(string)
-    body    = object({ bytes = number })
-  })
-  default = {
-    headers = ["Content-type", "User-agent", "x-ms-region", "x-ratelimit-remaining-tokens", "x-ratelimit-remaining-requests"]
-    body    = { bytes = 0 }
-  }
-}
-
-variable "enable_jwt_auth" {
-  description = "When true, JWT-* named values are populated from jwt_tenant_id / jwt_app_registration_id."
-  type        = bool
-  default     = false
-}
-
-variable "jwt_tenant_id" {
-  type    = string
-  default = ""
-}
-
-variable "jwt_app_registration_id" {
-  type    = string
-  default = ""
-}
-
-variable "subscription_id" {
-  type    = string
-}
-
-variable "azure_login_endpoint" {
-  description = "Entra login endpoint (e.g. https://login.microsoftonline.com/)."
+variable "public_ip_address_id" {
+  description = "Classic external/internal injection only: Standard-SKU public IP resource ID for the service. null = Azure-managed."
   type        = string
-  default     = "https://login.microsoftonline.com/"
-}
-
-# API Center onboarding (Bicep parity)
-variable "enable_api_center_onboarding" {
-  type    = bool
-  default = false
-}
-
-variable "api_center_service_name" {
-  type    = string
-  default = ""
-}
-
-variable "api_center_workspace_name" {
-  type    = string
-  default = "default"
-}
-
-variable "api_center_environment_name" {
-  type    = string
-  default = "api-dev"
-}
-
-variable "api_center_mcp_environment_name" {
-  type    = string
-  default = "mcp-dev"
-}
-
-# Foundry → APIM named subscription
-variable "enable_foundry_apim_connection" {
-  description = "Create a dedicated APIM subscription for Foundry connections."
-  type        = bool
-  default     = false
-}
-
-variable "model_aliases" {
-  description = "Model alias definitions. Each: { name, models[], strategy?, weights?[] }"
-  type = list(object({
-    name     = string
-    models   = list(string)
-    strategy = optional(string, "priority")
-    weights  = optional(list(number), [])
-  }))
-  default = []
-}
-
-variable "aws_region" { 
-  type = string
-  default = ""
-}
-
-variable "key_vault_name" { 
-  type = string
-  default = ""
-}
-# -----------------------------------------------------------------------------
-# Logger credentials in Key Vault (see logger-credentials.tf)
-# -----------------------------------------------------------------------------
-variable "logger_credentials_in_key_vault" {
-  description = "Store the logger credentials (App Insights connection string, managed identity client ID) in Key Vault (secrets apim-logger-*) and have the loggers reference Key Vault-backed named values, so APIM generates no secret Logger-Credentials--* named values. false = APIM stores them in the secret named values it generates."
-  type        = bool
-  default     = false
-  nullable    = false
-}
-
-variable "secrets_key_vault" {
-  description = "Key Vault for the secrets APIM reads through Key Vault-backed named values: the logger credentials (logger_credentials_in_key_vault) and the Redis connection string (enable_redis_cache). Written through ARM. managed_identity_client_id needs Key Vault Secrets User on it. public_access_open = APIM can reach it without a VNet (public network access with default action Allow)."
-  type = object({
-    id                 = string
-    uri                = string
-    rbac_enabled       = bool
-    public_access_open = bool
-  })
-  default = null
-}
-
-# -----------------------------------------------------------------------------
-# Redis external cache + semantic cache
-# -----------------------------------------------------------------------------
-variable "enable_redis_cache" {
-  description = "Attach Azure Managed Redis as the APIM external cache (redis_cache_connection_string, stored in secrets_key_vault)."
-  type        = bool
-  default     = false
-  nullable    = false
-}
-
-variable "redis_cache_id" {
-  description = "Resource ID of the Azure Managed Redis cluster (shown on the APIM external cache)."
-  type        = string
-  default     = ""
-}
-
-variable "redis_public_network_access_enabled" {
-  description = "Whether Azure Managed Redis accepts public traffic (APIM without a VNet can only reach it then)."
-  type        = bool
-  default     = false
-}
-
-variable "semantic_cache" {
-  description = "Semantic cache for the LLM APIs (llm-semantic-cache-lookup / -store). enabled needs enable_redis_cache and the embeddings backend; it also gives APIM a system-assigned identity (the lookup calls the embeddings backend only as that identity). Products opt in by setting semanticCacheEnabled = \"true\" (citadel-access-contracts services[*].semantic_cache)."
-  type = object({
-    enabled                = optional(bool, false)
-    score_threshold        = optional(number, 0.05)
-    ttl_seconds            = optional(number, 300)
-    ignore_system_messages = optional(bool, true)
-    max_message_count      = optional(number, 10)
-  })
-  default  = {}
-  nullable = false
-
-  validation {
-    condition     = var.semantic_cache.score_threshold >= 0 && var.semantic_cache.score_threshold <= 1
-    error_message = "semantic_cache.score_threshold must be between 0.0 and 1.0."
-  }
-  validation {
-    condition     = var.semantic_cache.ttl_seconds >= 1 && floor(var.semantic_cache.ttl_seconds) == var.semantic_cache.ttl_seconds
-    error_message = "semantic_cache.ttl_seconds must be a positive whole number."
-  }
+  default     = null
 }

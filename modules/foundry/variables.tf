@@ -1,15 +1,15 @@
 # =============================================================================
 # MODULE: Foundry - Input Variables
-# Mirrors parameters of bicep/infra/modules/foundry/foundry.bicep
 # =============================================================================
 
-variable "resource_group_name" { type = string }
-variable "resource_group_id"   { type = string }
-variable "location"            { type = string }
-variable "tags"                { type = map(string) }
-variable "environment_name"    { type = string }
-variable "random_suffix"       { type = string }
-
+variable "resource_group_id" {
+  description = "Resource ID of the resource group the module deploys into."
+  type        = string
+}
+variable "tags" {
+  description = "Tags applied to every resource the module creates."
+  type        = map(string)
+}
 variable "foundry_external_access" {
   description = "If true, publicNetworkAccess=Enabled on Foundry accounts."
   type        = bool
@@ -17,9 +17,9 @@ variable "foundry_external_access" {
 }
 
 variable "disable_key_auth" {
-  description = "If true, only Entra ID auth is allowed (disableLocalAuth=true)."
+  description = "If true (default), only Entra ID auth is allowed (disableLocalAuth=true). The gateway reaches Foundry with its managed identity; no key is read."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "foundry_project_default_name" {
@@ -28,19 +28,18 @@ variable "foundry_project_default_name" {
   default     = "citadel-governance-project"
 }
 
-# Mirrors aiServicesConfig in foundry.bicep
 variable "foundry_instances" {
   description = "List of AI Foundry (AIServices) account definitions."
   type = list(object({
-    name                 = optional(string, "")
-    location             = string
-    custom_subdomain     = optional(string, "")
-    default_project_name = optional(string, "")
+    name                      = optional(string, "")
+    location                  = string
+    custom_subdomain          = optional(string, "")
+    default_project_name      = optional(string, "")
+    network_injection_enabled = optional(bool, true)
   }))
   default = []
 }
 
-# Mirrors modelsConfig in foundry.bicep
 variable "foundry_models" {
   description = "Model deployments to create across the Foundry accounts."
   type = list(object({
@@ -60,7 +59,7 @@ variable "apim_principal_id" {
 }
 
 variable "deployer_object_id" {
-  description = "Principal ID granted 'Azure AI Project Manager' on each Foundry (matches deployer() in Bicep)."
+  description = "Principal ID granted 'Azure AI Project Manager' on each Foundry."
   type        = string
 }
 
@@ -88,8 +87,8 @@ variable "app_insights_id" {
   default     = ""
 }
 
-variable "app_insights_instrumentation_key" {
-  description = "Application Insights instrumentation key used by the Foundry App Insights connection."
+variable "app_insights_connection_string" {
+  description = "Application Insights connection string used by the Foundry App Insights connection (the API rejects a bare instrumentation key)."
   type        = string
   default     = ""
   sensitive   = true
@@ -100,6 +99,12 @@ variable "subnet_id" {
   type        = string
 }
 
+variable "private_endpoint_location" {
+  description = "Region of the private endpoints: the region of subnet_id's VNet (a private endpoint must be in its VNet's region, whatever the account's). null = each account's own location."
+  type        = string
+  default     = null
+}
+
 variable "dns_zone_ids" {
   description = "Map of DNS zone IDs. Expected keys: cognitive_services, openai, ai_services."
   type        = map(string)
@@ -107,59 +112,38 @@ variable "dns_zone_ids" {
 }
 
 variable "agent_subnet_id" {
-  type    = string
-  default = ""
+  description = "Resource ID of the subnet used for Foundry agent network injection."
+  type        = string
+  default     = ""
 }
 
 variable "foundry_network_injection_enabled" {
-  type    = bool
-  default = true
+  description = "Inject the Foundry Agent Service into the agent subnet (needs enable_agent_subnet = true)."
+  type        = bool
+  default     = true
 }
 
 # ------------------------------------------------------------------------------
-# APIM → Foundry connection parameters (connection-apim.bicep parity)
-# ------------------------------------------------------------------------------
 
-variable "enable_apim_connections" {
-  description = "Create Foundry-project → APIM ApiKey connections."
+variable "account_names" {
+  description = "Foundry (AI Services) account names, one per entry in foundry_instances (from modules/naming)."
+  type        = list(string)
+}
+
+variable "outbound_allowed_fqdns" {
+  description = "Restrict the Foundry accounts' outbound network access to these FQDNs. null = unrestricted."
+  type        = list(string)
+  default     = null
+}
+
+variable "enable_telemetry" {
+  description = "Enable Azure Verified Modules usage telemetry."
+  type        = bool
+  default     = true
+}
+
+variable "dns_zone_group_managed_by_policy" {
+  description = "Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoints' DNS zone groups; Terraform leaves them alone."
   type        = bool
   default     = false
-}
-
-variable "apim_service_name" {
-  description = "APIM service name (used to construct default connection names)."
-  type        = string
-  default     = ""
-}
-
-variable "apim_gateway_url" {
-  description = "APIM gateway URL (https://...)."
-  type        = string
-  default     = ""
-}
-
-variable "apim_primary_key" {
-  description = "APIM master subscription primary key."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "apim_connections" {
-  description = "Per-API APIM connection definitions (one connection per Foundry project × api)."
-  type = list(object({
-    api_name               = string
-    api_path               = string
-    connection_name        = optional(string, "")
-    is_shared_to_all       = optional(bool, false)
-    deployment_in_path     = optional(string, "true")
-    inference_api_version  = optional(string, "")
-    deployment_api_version = optional(string, "")
-    list_models_endpoint   = optional(string, "")
-    get_model_endpoint     = optional(string, "")
-    deployment_provider    = optional(string, "")
-    static_models          = optional(list(any), [])
-    custom_headers         = optional(map(string), {})
-  }))
-  default = []
 }

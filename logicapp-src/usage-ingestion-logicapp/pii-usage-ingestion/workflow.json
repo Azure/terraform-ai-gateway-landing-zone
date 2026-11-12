@@ -26,7 +26,8 @@
             "New_Usage_Record_Received": {
                 "inputs": {
                     "parameters": {
-                        "eventHubName": "@appsetting('eventHub_pii_name')"
+                        "eventHubName": "@appsetting('eventHub_pii_name')",
+                        "consumerGroupName": "piiUsageIngestion"
                     },
                     "serviceProviderConfiguration": {
                         "connectionName": "eventHub",

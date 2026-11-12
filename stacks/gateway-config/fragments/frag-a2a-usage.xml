@@ -1,0 +1,18 @@
+<fragment>
+    <!-- Publish Contract: Agent (A2A) usage metric. A2A v1.0 is JSON-RPC (non-streaming), so usage is
+         counted per inbound request. Emits to the 'a2a-usage' App Insights namespace; a scheduled Logic
+         App aggregates these customMetrics into the agent-usage-container Cosmos collection. -->
+    <emit-metric name="A2ARequests" value="1" namespace="a2a-usage">
+        <!-- Access contract product (empty until the asset is governed by an access contract in phase 2) -->
+        <dimension name="productName" value="@(context.Product?.Name?.ToString() ?? "Unassigned")" />
+        <!-- Agent name (reuses the LLM 'deploymentName' dimension so dashboards align) -->
+        <dimension name="deploymentName" value="@(context.Api?.Name?.ToString() ?? "unknown-agent")" />
+        <!-- Backend serving the agent (set by the baseline policy; falls back to the API name) -->
+        <dimension name="backendId" value="@((string)context.Variables.GetValueOrDefault<string>("publishedBackendId", context.Api?.Name ?? "NA"))" />
+        <!-- Calling application / subscription id -->
+        <dimension name="appId" value="@(context.Subscription?.Id ?? "anonymous")" />
+        <!-- customDimension1 = asset type, customDimension2 = operation (per publish-contract convention) -->
+        <dimension name="customDimension1" value="a2a" />
+        <dimension name="customDimension2" value="@(context.Operation?.Name?.ToString() ?? "NA")" />
+    </emit-metric>
+</fragment>

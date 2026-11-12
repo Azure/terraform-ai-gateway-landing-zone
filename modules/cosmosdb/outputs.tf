@@ -1,11 +1,67 @@
-output "endpoint"     { value = azurerm_cosmosdb_account.citadel.endpoint }
-output "account_id"   { value = azurerm_cosmosdb_account.citadel.id }
-output "account_name" { value = azurerm_cosmosdb_account.citadel.name }
-output "database_name" { value = azurerm_cosmosdb_sql_database.usage.name }
+output "diagnostic_setting_names" {
+  description = "Workload diagnostic setting names (empty when policy owns diagnostics)."
+  value       = [for setting in azapi_resource_action.cosmos_diagnostics : "diag-cosmos-${var.account_name}"]
+}
 
-# Container outputs (Bicep parity)
-output "usage_container_name"                   { value = azurerm_cosmosdb_sql_container.usage.name }
-output "config_container_name"                  { value = azurerm_cosmosdb_sql_container.config.name }
-output "pii_container_name"                     { value = azurerm_cosmosdb_sql_container.pii.name }
-output "llm_usage_container_name"               { value = azurerm_cosmosdb_sql_container.llm_usage.name }
-output "model_pricing_container_name"           { value = azurerm_cosmosdb_sql_container.model_pricing.name }
+output "endpoint" {
+  description = "Cosmos DB account endpoint."
+  value       = module.cosmos.endpoint
+}
+output "account_id" {
+  description = "Resource ID of the Cosmos DB account."
+  value       = module.cosmos.resource_id
+}
+output "account_name" {
+  description = "Name of the Cosmos DB account."
+  value       = module.cosmos.name
+}
+output "database_name" {
+  description = "Name of the usage database."
+  value       = local.database_name
+  # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
+  depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
+}
+
+# Container outputs
+output "usage_container_name" {
+  description = "Name of the AI usage container."
+  value       = local.containers.usage.name
+  # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
+  depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
+}
+output "config_container_name" {
+  description = "Name of the configuration container."
+  value       = local.containers.config.name
+  # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
+  depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
+}
+output "pii_container_name" {
+  description = "Name of the PII usage container."
+  value       = local.containers.pii.name
+  # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
+  depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
+}
+output "llm_usage_container_name" {
+  description = "Name of the LLM usage container."
+  value       = local.containers.llm_usage.name
+  # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
+  depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
+}
+output "mcp_usage_container_name" {
+  description = "Name of the MCP (tool) usage container."
+  value       = local.containers.mcp_usage.name
+  # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
+  depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
+}
+output "agent_usage_container_name" {
+  description = "Name of the A2A (agent) usage container."
+  value       = local.containers.agent_usage.name
+  # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
+  depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
+}
+output "model_pricing_container_name" {
+  description = "Name of the model pricing container."
+  value       = local.containers.model_pricing.name
+  # Consumers (Logic App) use the data plane with a managed identity: wait for its role and the PE.
+  depends_on = [azurerm_cosmosdb_sql_role_assignment.uami_data_contributor, module.cosmos]
+}

@@ -1,0 +1,25 @@
+<fragment>
+    <!--
+        set-asset-kind — classify the current request as 'llm', 'tool', or 'agent' so an access-contract
+        PRODUCT policy can apply the right controls to a single product that mixes asset types.
+
+        APIM does not expose the API type (mcp / a2a / http) to policy at runtime, so classification is
+        driven by two comma-separated lists the product policy sets BEFORE including this fragment:
+          - contractToolApis  : APIM API resource names published as Tools  (MCP)   e.g. "weather-tool,ms-learn-tool"
+          - contractAgentApis : APIM API resource names published as Agents (A2A)   e.g. "hr-chat-agent"
+        Matching is on context.Api.Id (the API resource name, not the display name). Anything not listed
+        defaults to 'llm', so existing LLM-only contracts are unaffected (they never set these lists).
+
+        Output: context variable 'assetKind' ('llm' | 'tool' | 'agent').
+    -->
+    <set-variable name="assetKind" value="@{
+        var apiId = context.Api?.Id ?? string.Empty;
+        var toolCsv  = context.Variables.GetValueOrDefault<string>("contractToolApis", string.Empty);
+        var agentCsv = context.Variables.GetValueOrDefault<string>("contractAgentApis", string.Empty);
+        var agents = agentCsv.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim());
+        var tools  = toolCsv.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim());
+        if (agents.Contains(apiId, StringComparer.OrdinalIgnoreCase)) { return "agent"; }
+        if (tools.Contains(apiId, StringComparer.OrdinalIgnoreCase)) { return "tool"; }
+        return "llm";
+    }" />
+</fragment>

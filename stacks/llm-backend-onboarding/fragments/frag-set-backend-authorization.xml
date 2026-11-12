@@ -1,0 +1,382 @@
+<fragment>
+    <!--
+        Fragment: Set Target Authorization
+        Purpose: Configures authentication headers based on targetAuthType and URL rewriting based on
+                 targetPoolType (backend type). Auth and backend type are independent dimensions:
+                 - authType determines HOW to authenticate
+                 - poolType determines path patterns and URL rewriting rules
+                 
+                 Auth types:
+                 - native-backend-authorization: No policy auth needed — APIM backend resource has
+                   credentials.managedIdentity configured (handles token acquisition natively)
+                 - managed-identity: Alias for native-backend-authorization (backward compat)
+                 - aws-sigv4: AWS SigV4 signing in policy (cannot be done at backend resource level)
+                 - api-key-bearer / api-key-header / api-key-anthropic / api-key-gemini:
+                   Static auth headers configured on the APIM Backend resource via
+                   `credentials.header` (built by modules/llm-routing). APIM substitutes
+                   `{{namedValueKey}}` to the actual secret on backend create/update,
+                   so this fragment is a no-op for these types.
+                 - none: No auth (backend credentials configured on APIM backend resource)
+                 
+                 When skipBackendUrlRewrite is set (by request-processor for Unified AI API),
+                 URL rewriting is skipped because path-builder handles URI construction instead.
+                 The Azure OpenAI API rewrites the URI again after this fragment (its own
+                 deployments template), so the ai-foundry / azure-openai rewrites below only
+                 shape Universal LLM API requests.
+
+                 api-version: ai-foundry pools always use the OpenAI v1 endpoint family
+                 (/openai/v1/..., model in the body), which rejects a dated api-version, so the
+                 client's is dropped (not for the Azure OpenAI API, which needs it for its own
+                 rewrite). azure-openai pools use /openai/deployments/{model}/... when the client
+                 sends an api-version and the v1 endpoint family when it doesn't.
+        
+        Expected Input Variables:
+        - targetAuthType: The auth type for the target backend
+        - targetPoolType: The type of the target backend pool
+        - targetBackendPool: The selected backend pool name
+        - targetAuthConfigNamedValue: APIM named value key for api-key-based auth types
+        - requestedModel: The model name extracted from the request payload
+        - skipBackendUrlRewrite (optional): When set, skips URL rewriting
+    -->
+    
+    <!-- Configure authentication based on targetAuthType -->
+    <choose>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "non-llm-request")">
+            <!-- Non-LLM request - skip authentication and URL rewriting -->
+        </when>
+        <when condition="@{
+            var authType = context.Variables.GetValueOrDefault<string>("targetAuthType", "");
+            return authType == "native-backend-authorization" || authType == "managed-identity";
+        }">
+            <!-- Native backend authorization: APIM backend resource has credentials.managedIdentity configured.
+                 Token acquisition is handled natively by APIM — no policy expression needed.
+                 This works in both inbound and backend sections. -->
+        </when>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "aws-sigv4")">
+            <!-- Amazon Bedrock: AWS Signature Version 4 authentication -->
+            <!-- Uses named values: aws-access-key, aws-secret-key, aws-region -->
+            <!-- Validate that AWS credentials are configured (named values must not be placeholder defaults) -->
+            <choose>
+                <when condition="@{
+                    var accessKey = "{{aws-access-key}}";
+                    var secretKey = "{{aws-secret-key}}";
+                    var region = "{{aws-region}}";
+                    return accessKey == "NOT_CONFIGURED" || secretKey == "NOT_CONFIGURED" || region == "NOT_CONFIGURED";
+                }">
+                    <!-- usage-event status="500" reason="set-backend-authorization" -->
+                    <return-response>
+                        <set-status code="500" reason="Internal Server Error" />
+                        <set-header name="Content-Type" exists-action="override">
+                            <value>application/json</value>
+                        </set-header>
+                        <set-body>{"error": {"code": "AWSCredentialsNotConfigured", "message": "Amazon Bedrock credentials are not configured. Set the APIM named values: aws-access-key, aws-secret-key, and aws-region."}}</set-body>
+                    </return-response>
+                </when>
+            </choose>
+            <set-variable name="now" value="@(DateTime.UtcNow)" />
+            <set-header name="X-Amz-Date" exists-action="override">
+                <value>@(((DateTime)context.Variables["now"]).ToString("yyyyMMddTHHmmssZ"))</value>
+            </set-header>
+            <set-header name="X-Amz-Content-Sha256" exists-action="override">
+                <value>@{
+                    var body = context.Request.Body.As<string>(preserveContent: true);
+                    using (var sha256 = System.Security.Cryptography.SHA256.Create())
+                    {
+                        var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(body));
+                        return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                    }
+                }</value>
+            </set-header>
+            <set-header name="Authorization" exists-action="override">
+                <value>@{
+                    var accessKey = "{{aws-access-key}}";
+                    var secretKey = "{{aws-secret-key}}";
+                    var region = "{{aws-region}}";
+                    var service = "bedrock";
+
+                    var method = context.Request.Method;
+                    var uri = context.Request.Url;
+                    // Repo fix (differs from upstream): sign the Bedrock runtime host derived from the
+                    // SigV4 region. context.Request.Url.Host is null when the API has no serviceUrl
+                    // (NullReferenceException below) and is only a placeholder when it has one.
+                    var host = $"bedrock-runtime.{region}.amazonaws.com";
+
+                    // Create canonical path
+                    // modelId may contain '/' (inference-profile ARNs, e.g.
+                    // arn:aws:bedrock:eu-north-1:123:inference-profile/eu.amazon.nova-lite-v1:0).
+                    // APIM decodes any %2F in Url.Path back to '/', so we cannot rely on the
+                    // first '/' after "model/" to find the modelId boundary. The Bedrock
+                    // operation suffix (converse|converse-stream|invoke|invoke-with-response-stream)
+                    // is always the LAST path segment, so split on the last '/' instead.
+                    // The raw modelId is then percent-encoded (so ':' -> %3A, '/' -> %2F) per
+                    // AWS SigV4 canonical URI rules and the AWS Bedrock REST contract that
+                    // treats {modelId} as a single path parameter.
+                    var path = uri.Path;
+                    var modelSplit = path.Split(new[] { "model/" }, 2, StringSplitOptions.None);
+                    var afterModel = modelSplit.Length > 1 ? modelSplit[1] : "";
+                    var lastSlash = afterModel.LastIndexOf('/');
+                    var rawModel = lastSlash > 0 ? afterModel.Substring(0, lastSlash) : afterModel;
+                    var remainder = lastSlash > 0 ? afterModel.Substring(lastSlash + 1) : "";
+                    // Decode first (handles already-encoded inputs), then re-encode so any
+                    // embedded '/' or ':' inside the modelId is percent-encoded.
+                    var model = System.Uri.EscapeDataString(System.Uri.UnescapeDataString(rawModel));
+                    var canonicalPath = $"/model/{model}/{remainder}";
+
+                    var amzDate = ((DateTime)context.Variables["now"]).ToString("yyyyMMddTHHmmssZ");
+                    var dateStamp = ((DateTime)context.Variables["now"]).ToString("yyyyMMdd");
+
+                    // Hash the payload
+                    var body = context.Request.Body.As<string>(preserveContent: true);
+                    string hashedPayload;
+                    using (var sha256 = System.Security.Cryptography.SHA256.Create())
+                    {
+                        var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(body));
+                        hashedPayload = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                    }
+
+                    // Create canonical query string
+                    var queryDict = context.Request.Url.Query;
+                    var canonicalQueryString = "";
+                    if (queryDict != null && queryDict.Count > 0)
+                    {
+                        var encodedParams = new List<string>();
+                        foreach (var kvp in queryDict)
+                        {
+                            var encodedKey = System.Uri.EscapeDataString(kvp.Key);
+                            var encodedValue = System.Uri.EscapeDataString(kvp.Value.First() ?? "");
+                            encodedParams.Add($"{encodedKey}={encodedValue}");
+                        }
+                        canonicalQueryString = string.Join("&", encodedParams.OrderBy(p => p));
+                    }
+
+                    // Create signed headers and canonical headers
+                    var headers = context.Request.Headers;
+                    var canonicalHeaderList = new List<string[]>();
+
+                    var contentType = headers.GetValueOrDefault("Content-Type", "").ToLowerInvariant();
+                    if (!string.IsNullOrEmpty(contentType))
+                    {
+                        canonicalHeaderList.Add(new[] { "content-type", contentType });
+                    }
+
+                    canonicalHeaderList.Add(new[] { "host", host });
+
+                    foreach (var header in headers)
+                    {
+                        var name = header.Key.ToLowerInvariant();
+                        if (string.Equals(name, "x-amz-content-sha256", StringComparison.OrdinalIgnoreCase) || 
+                            string.Equals(name, "x-amz-date", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        if (name.StartsWith("x-amz-"))
+                        {
+                            var value = header.Value.First()?.Trim();
+                            canonicalHeaderList.Add(new[] { name, value });
+                        }
+                    }
+                    canonicalHeaderList.Add(new[] { "x-amz-content-sha256", hashedPayload });
+                    canonicalHeaderList.Add(new[] { "x-amz-date", amzDate });
+                    var canonicalHeadersOrdered = canonicalHeaderList.OrderBy(h => h[0]);
+                    var canonicalHeaders = string.Join("\n", canonicalHeadersOrdered.Select(h => $"{h[0]}:{h[1].Trim()}")) + "\n";
+                    var signedHeaders = string.Join(";", canonicalHeadersOrdered.Select(h => h[0]));
+
+                    // Create and hash the canonical request
+                    var canonicalRequest = $"{method}\n{canonicalPath}\n{canonicalQueryString}\n{canonicalHeaders}\n{signedHeaders}\n{hashedPayload}";
+                    string hashedCanonicalRequest = "";
+                    using (var sha256 = System.Security.Cryptography.SHA256.Create())
+                    {
+                        var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(canonicalRequest));
+                        hashedCanonicalRequest = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                    }
+
+                    // Build string to sign
+                    var credentialScope = $"{dateStamp}/{region}/{service}/aws4_request";
+                    var stringToSign = $"AWS4-HMAC-SHA256\n{amzDate}\n{credentialScope}\n{hashedCanonicalRequest}";
+
+                    // Derive signing key
+                    byte[] kSecret = System.Text.Encoding.UTF8.GetBytes("AWS4" + secretKey);
+                    byte[] kDate, kRegion, kService, kSigning;
+                    using (var h1 = new System.Security.Cryptography.HMACSHA256(kSecret))
+                    {
+                        kDate = h1.ComputeHash(System.Text.Encoding.UTF8.GetBytes(dateStamp));
+                    }
+                    using (var h2 = new System.Security.Cryptography.HMACSHA256(kDate))
+                    {
+                        kRegion = h2.ComputeHash(System.Text.Encoding.UTF8.GetBytes(region));
+                    }
+                    using (var h3 = new System.Security.Cryptography.HMACSHA256(kRegion))
+                    {
+                        kService = h3.ComputeHash(System.Text.Encoding.UTF8.GetBytes(service));
+                    }
+                    using (var h4 = new System.Security.Cryptography.HMACSHA256(kService))
+                    {
+                        kSigning = h4.ComputeHash(System.Text.Encoding.UTF8.GetBytes("aws4_request"));
+                    }
+
+                    // Create signature
+                    string signature;
+                    using (var hmac = new System.Security.Cryptography.HMACSHA256(kSigning))
+                    {
+                        var sigBytes = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(stringToSign));
+                        signature = BitConverter.ToString(sigBytes).Replace("-", "").ToLowerInvariant();
+                    }
+
+                    return $"AWS4-HMAC-SHA256 Credential={accessKey}/{credentialScope}, SignedHeaders={signedHeaders}, Signature={signature}";
+                }</value>
+            </set-header>
+            <set-header name="Host" exists-action="override">
+                <value>@("bedrock-runtime." + "{{aws-region}}" + ".amazonaws.com")</value>
+            </set-header>
+        </when>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-bearer" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-header" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-anthropic" || context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "api-key-gemini")">
+            <!-- All static-key auth types are configured natively on the APIM Backend
+                 resource (credentials.header, built by modules/llm-routing). APIM substitutes
+                 `{{namedValueKey}}` to the actual secret when the backend is created/
+                 updated, so no policy expression is needed here. -->
+        </when>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetAuthType", "") == "none")">
+            <!-- No auth: backend credentials configured on APIM backend resource -->
+        </when>
+        <otherwise>
+            <!-- Default: native backend authorization (backend resource handles auth) -->
+        </otherwise>
+    </choose>
+
+    <!-- URL rewriting based on targetPoolType (skip when path-builder handles it via skipBackendUrlRewrite) -->
+    <choose>
+        <when condition="@(context.Variables.ContainsKey("skipBackendUrlRewrite") || context.Variables.GetValueOrDefault<string>("targetPoolType", "") == "non-llm-request")">
+            <!-- Path-builder handles URI construction for Unified AI API, or non-LLM request -->
+        </when>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetPoolType", "") == "azure-openai")">
+            <set-variable name="rewriteTemplate" value="@{
+                string requestedModel = (string)context.Variables["requestedModel"];
+                // Derive from context.Request.OriginalUrl.Path (the IMMUTABLE original request
+                // path) rather than context.Request.Url.Path, because APIM's Url.Path DOES reflect
+                // prior <rewrite-uri> calls. When this fragment re-runs during an alias-fallback
+                // retry hop, reading the already-rewritten Url.Path and re-prepending the backend
+                // prefix stacks the segment (e.g. 'openai/openai/deployments/...' or
+                // 'models/models/chat/completions') -> backend 404. OriginalUrl.Path + API-prefix
+                // strip keeps the rewrite idempotent across re-runs.
+                string apiPath = (context.Api.Path ?? "").Trim('/');
+                string path = context.Request.OriginalUrl.Path.TrimStart('/');
+                if (!string.IsNullOrEmpty(apiPath))
+                {
+                    if (path.StartsWith(apiPath + "/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        path = path.Substring(apiPath.Length + 1);
+                    }
+                    else if (path.Equals(apiPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        path = "";
+                    }
+                }
+                // No api-version from the client (OpenAI SDK style): the v1 endpoint family.
+                if (string.IsNullOrEmpty(context.Request.OriginalUrl.Query.GetValueOrDefault("api-version", "")))
+                {
+                    return string.Format("openai/v1/{0}", path);
+                }
+                return string.Format("openai/deployments/{0}/{1}", requestedModel, path);
+            }" />
+            <rewrite-uri template="@((string)context.Variables["rewriteTemplate"])" copy-unmatched-params="true" />
+        </when>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetPoolType", "") == "ai-foundry")">
+            <set-variable name="rewriteTemplate" value="@{
+                // Derive from context.Request.OriginalUrl.Path (the IMMUTABLE original request
+                // path) rather than context.Request.Url.Path, because APIM's Url.Path DOES reflect
+                // prior <rewrite-uri> calls. When this fragment re-runs during an alias-fallback
+                // retry hop, reading the already-rewritten Url.Path and re-prepending 'models/'
+                // stacks the segment (e.g. 'models/models/chat/completions') -> backend 404.
+                // OriginalUrl.Path + API-prefix strip keeps the rewrite idempotent across re-runs.
+                string apiPath = (context.Api.Path ?? "").Trim('/');
+                string path = context.Request.OriginalUrl.Path.TrimStart('/');
+                if (!string.IsNullOrEmpty(apiPath))
+                {
+                    if (path.StartsWith(apiPath + "/", StringComparison.OrdinalIgnoreCase))
+                    {
+                        path = path.Substring(apiPath.Length + 1);
+                    }
+                    else if (path.Equals(apiPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        path = "";
+                    }
+                }
+                string lowerPath = path.ToLowerInvariant();
+
+                // If path contains "responses", use /openai/v1/{path}
+                if (lowerPath.Contains("responses"))
+                {
+                    return string.Format("openai/v1/{0}", path);
+                }
+
+                // If path is chat/completions, embeddings, or images/embeddings, use /models/{path}
+                //if (lowerPath.Contains("chat/completions"))
+                //{
+                //    return string.Format("models/{0}", path);
+                //}
+
+                // If embeddings endpoint, route to /openai/deployments/{model}/embeddings to leverage Azure OpenAI backend for embeddings
+                //if (lowerPath.Contains("embeddings"))
+                //{
+                //    string requestedModel = (string)context.Variables["requestedModel"];
+                //    return string.Format("openai/deployments/{0}/{1}", requestedModel, path);
+                //}
+
+                // Catch-all: /openai/v1/{path}
+                return string.Format("openai/v1/{0}", path);
+            }" />
+            <choose>
+                <when condition="@(!context.Variables.ContainsKey("openAIRewriteTemplate") && (context.Variables.GetValueOrDefault<string>("rewriteTemplate", "")).TrimStart('/').StartsWith("openai/v1/", StringComparison.OrdinalIgnoreCase))">
+                    <!-- The v1 endpoint must not inherit a dated client api-version. Not for the Azure OpenAI API
+                         (openAIRewriteTemplate is set): its own rewrite follows and needs the api-version. -->
+                    <set-query-parameter name="api-version" exists-action="delete" />
+                </when>
+            </choose>
+            <rewrite-uri template="@((string)context.Variables["rewriteTemplate"])" copy-unmatched-params="true" />
+        </when>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetPoolType", "") == "gemini-openai")">
+            <!-- Universal LLM API → Gemini OpenAI-compat path: /v1beta/openai/{op} -->
+            <!-- Gemini's OpenAI-compat surface rejects the Azure-style `api-version` query
+                 parameter ("Unknown name 'api-version'"). Strip it before rewriting so
+                 copy-unmatched-params="true" doesn't re-attach the client's value. -->
+            <set-query-parameter name="api-version" exists-action="delete" />
+            <set-variable name="rewriteTemplate" value="@{
+                string path = context.Request.Url.Path.TrimStart('/');
+                string lowerPath = path.ToLowerInvariant();
+                int idx = lowerPath.IndexOf("chat/completions");
+                if (idx >= 0) { return "v1beta/openai/chat/completions"; }
+                idx = lowerPath.IndexOf("embeddings");
+                if (idx >= 0) { return "v1beta/openai/embeddings"; }
+                idx = lowerPath.IndexOf("models");
+                if (idx >= 0) { return "v1beta/openai/models"; }
+                return string.Format("v1beta/openai/{0}", path);
+            }" />
+            <rewrite-uri template="@((string)context.Variables["rewriteTemplate"])" copy-unmatched-params="true" />
+        </when>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetPoolType", "") == "aws-bedrock-mantle")">
+            <!-- Universal LLM API → AWS Bedrock Mantle (OpenAI-compat) path: /v1/{op} -->
+            <!-- Bedrock's OpenAI-compat surface does not consume `api-version`. Strip it so
+                 the forwarded URL stays clean. -->
+            <set-query-parameter name="api-version" exists-action="delete" />
+            <set-variable name="rewriteTemplate" value="@{
+                string path = context.Request.Url.Path.TrimStart('/');
+                string lowerPath = path.ToLowerInvariant();
+                int idx = lowerPath.IndexOf("chat/completions");
+                if (idx >= 0) { return "v1/chat/completions"; }
+                idx = lowerPath.IndexOf("responses");
+                if (idx >= 0) { return "v1/responses"; }
+                idx = lowerPath.IndexOf("models");
+                if (idx >= 0) { return "v1/models"; }
+                return string.Format("v1/{0}", path);
+            }" />
+            <rewrite-uri template="@((string)context.Variables["rewriteTemplate"])" copy-unmatched-params="true" />
+        </when>
+    </choose>
+    
+    <!-- Route request to the selected backend pool (skip for non-LLM requests) -->
+    <choose>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("targetBackendPool", "") != "non-llm-request")">
+            <set-backend-service backend-id="@(context.Variables.GetValueOrDefault<string>("targetBackendPool", ""))" />
+        </when>
+    </choose>
+</fragment>

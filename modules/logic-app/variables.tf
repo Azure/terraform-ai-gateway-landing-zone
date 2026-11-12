@@ -1,11 +1,32 @@
-variable "resource_group_name"         { type = string }
-variable "location"                      { type = string }
-variable "tags"                          { type = map(string) }
-variable "environment_name"              { type = string }
-variable "random_suffix"                 { type = string }
-variable "sku_tier"                      { type = string }
-variable "sku_size"                      { type = string }
-variable "subnet_id"                     { type = string }
+variable "resource_group_id" {
+  description = "Resource ID of the resource group (scope of the Event Hubs Data Owner and Monitoring Reader assignments)."
+  type        = string
+}
+
+variable "resource_group_name" {
+  description = "Name of the resource group the module deploys into."
+  type        = string
+}
+variable "location" {
+  description = "Primary Azure region for deployment"
+  type        = string
+}
+variable "tags" {
+  description = "Tags applied to every resource the module creates."
+  type        = map(string)
+}
+variable "environment_name" {
+  description = "Environment name used for resource naming (e.g., citadel-dev, citadel-prod)"
+  type        = string
+}
+variable "sku_size" {
+  description = "Logic App (Standard) SKU size. Used only when logic_app_hosting_model = \"WorkflowStandard\"."
+  type        = string
+}
+variable "subnet_id" {
+  description = "Resource ID of the subnet used for regional VNet integration (Workflow Standard hosting)."
+  type        = string
+}
 
 # -----------------------------------------------------------------------------
 # Hosting model (WorkflowStandard | AppServiceEnvironmentV3) — see ase.tf
@@ -22,77 +43,82 @@ variable "hosting_model" {
   }
 }
 
-variable "ase_subnet_id" {
-  description = "Dedicated subnet (delegated to Microsoft.Web/hostingEnvironments) for the ASE v3."
-  type        = string
-  default     = ""
-}
-
-variable "vnet_id" {
-  description = "VNet ID used to link the ASE private DNS zone."
-  type        = string
-  default     = ""
-}
-
 variable "ase_sku_size" {
-  type    = string
-  default = "I1v2"
+  description = "Isolated v2 App Service plan SKU for the Logic App when logic_app_hosting_model = \"AppServiceEnvironmentV3\"."
+  type        = string
+  default     = "I1v2"
 }
 
-variable "ase_worker_count" {
-  type    = number
-  default = 1
+variable "worker_count" {
+  description = "Plan instances. workflow_standard: always-ready WS instances (elastic scale-out up to 20 on top). ase_v3: Isolated v2 instances, the autoscale minimum. 2 or more with zone_redundant."
+  type        = number
+  default     = 1
 }
 
-variable "ase_internal_load_balancing_mode" {
-  type    = string
-  default = "Web, Publishing"
+variable "zone_redundant" {
+  description = "Zone-redundant plan (both hosting models; ase_v3 needs a zone-redundant ASE) and, for a new storage account, ZRS storage. Azure sets a plan's zone redundancy at creation only. Region must support availability zones; Workflow Standard needs 'WS1 AZ VMs'-type quota."
+  type        = bool
+  default     = false
 }
 
-variable "ase_zone_redundant" {
-  type    = bool
-  default = false
+variable "eventhub_endpoint_host" {
+  type        = string
+  description = "EventHub namespace FQDN (e.g. evhns-xxx.servicebus.windows.net)"
+}
+variable "cosmos_db_endpoint" {
+  description = "Cosmos DB account endpoint the workflows write to."
+  type        = string
+}
+variable "app_insights_connection_string" {
+  description = "Application Insights connection string for the Logic App's own runtime telemetry (its component, not the one the usage workflow queries)."
+  type        = string
+  sensitive   = true
 }
 
-variable "ase_create_private_dns_zone" {
-  type    = bool
-  default = true
+variable "app_insights_managed_identity" {
+  description = "The runtime sends its telemetry with Microsoft Entra authentication as the user-assigned identity (managed_identity_client_id, which needs Monitoring Metrics Publisher on the component). Needed when the component disables local authentication."
+  type        = bool
+  default     = false
+  nullable    = false
 }
-variable "eventhub_endpoint_host"        { 
-    type = string
-    description = "EventHub namespace FQDN (e.g. evhns-xxx.servicebus.windows.net)"
+variable "managed_identity_id" {
+  description = "Resource ID of the user-assigned managed identity the service runs as."
+  type        = string
 }
-variable "cosmos_db_endpoint"            { type = string }
-variable "app_insights_connection_string" { 
-    type = string
-    sensitive = true
+variable "managed_identity_client_id" {
+  description = "Client ID of the user-assigned managed identity the service runs as."
+  type        = string
 }
-variable "managed_identity_id"           { type = string }
-variable "managed_identity_client_id"     { type = string }
-variable "managed_identity_principal_id"  { type = string }
-variable "log_analytics_id"              { 
-    type = string
-    default = "" 
+variable "managed_identity_principal_id" {
+  description = "Principal (object) ID of the user-assigned managed identity that is granted data-plane roles."
+  type        = string
+}
+variable "enable_diagnostics" {
+  description = "Create the workload diagnostic setting. false = Azure Policy owns diagnostics; do not adopt its settings."
+  type        = bool
+  default     = true
+}
+
+variable "log_analytics_id" {
+  description = "Resource ID of the Log Analytics workspace that receives diagnostic settings."
+  type        = string
+  default     = ""
 }
 
 # -----------------------------------------------------------------------------
 # Extended Logic App configuration
 # -----------------------------------------------------------------------------
 
-variable "eventhub_namespace_name" {
+variable "eventhub_ai_usage_hub_name" {
+  description = "Name of the Event Hub carrying AI usage events."
   type        = string
-  description = "EventHub namespace name (not FQDN)."
   default     = ""
 }
 
-variable "eventhub_ai_usage_hub_name" {
-  type    = string
-  default = ""
-}
-
 variable "eventhub_pii_usage_hub_name" {
-  type    = string
-  default = ""
+  description = "Name of the Event Hub carrying PII usage events."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_account_name" {
@@ -102,28 +128,45 @@ variable "cosmos_db_account_name" {
 }
 
 variable "cosmos_db_database_name" {
-  type    = string
-  default = ""
+  description = "Cosmos DB database that holds the usage containers."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_container_config" {
-  type    = string
-  default = ""
+  description = "Cosmos DB container holding configuration documents (model pricing, ...)."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_container_usage" {
-  type    = string
-  default = ""
+  description = "Cosmos DB container for AI usage records."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_container_pii" {
-  type    = string
-  default = ""
+  description = "Cosmos DB container for PII usage records."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_container_llm_usage" {
-  type    = string
-  default = ""
+  description = "Cosmos DB container for LLM usage records."
+  type        = string
+  default     = ""
+}
+
+variable "cosmos_db_container_mcp_usage" {
+  description = "Cosmos DB container for MCP (tool) usage records (mcp-usage-ingestion)."
+  type        = string
+  default     = ""
+}
+
+variable "cosmos_db_container_agent_usage" {
+  description = "Cosmos DB container for A2A (agent) usage records (agent-usage-ingestion)."
+  type        = string
+  default     = ""
 }
 
 variable "cosmos_db_account_id" {
@@ -145,8 +188,9 @@ variable "apim_app_insights_rg" {
 }
 
 variable "subscription_id" {
-  type    = string
-  default = ""
+  description = "Azure Subscription ID for the deployment"
+  type        = string
+  default     = ""
 }
 
 variable "content_share_name" {
@@ -174,23 +218,56 @@ variable "enable_cosmos_role_assignment" {
 }
 
 variable "dns_zone_id_blob" {
-  type    = string
-  default = ""
+  description = "Resource ID of the privatelink.blob.core.windows.net DNS zone for the storage private endpoint."
+  type        = string
+  default     = ""
 }
 
 variable "dns_zone_id_file" {
-  type    = string
-  default = ""
+  description = "Resource ID of the privatelink.file.core.windows.net DNS zone for the storage private endpoint."
+  type        = string
+  default     = ""
 }
 
 variable "dns_zone_id_table" {
-  type    = string
-  default = ""
+  description = "Resource ID of the privatelink.table.core.windows.net DNS zone for the storage private endpoint."
+  type        = string
+  default     = ""
 }
 
 variable "dns_zone_id_queue" {
-  type    = string
-  default = ""
+  description = "Resource ID of the privatelink.queue.core.windows.net DNS zone for the storage private endpoint."
+  type        = string
+  default     = ""
+}
+
+variable "use_private_endpoint" {
+  description = "Create a private endpoint (subresource `sites`) for the Workflow Standard Logic App: one endpoint serves both the website and SCM/Kudu. Not for ase_v3: an ILB ASE is already private and doesn't support private endpoints. Needs pe_subnet_id and, unless Azure Policy owns DNS, dns_zone_id_sites."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.use_private_endpoint || var.hosting_model == "WorkflowStandard"
+    error_message = "use_private_endpoint applies to Workflow Standard hosting only: a Logic App in an ILB App Service Environment v3 is already private and can't take a private endpoint."
+  }
+}
+
+variable "public_network_access_enabled" {
+  description = "Allow public network access to the Workflow Standard Logic App (website and SCM). false needs a working private endpoint and private DNS, and workflow publishing (zip_deploy) must then run from a connected network. Ignored for ase_v3, whose site is always private."
+  type        = bool
+  default     = true
+}
+
+variable "private_endpoint_name" {
+  description = "Name of the Logic App private endpoint. Empty = pe-<logic app name>."
+  type        = string
+  default     = ""
+}
+
+variable "dns_zone_id_sites" {
+  description = "Resource ID of the privatelink.azurewebsites.net DNS zone for the Logic App private endpoint. Empty = no zone group is created (the zone is linked and populated elsewhere)."
+  type        = string
+  default     = ""
 }
 
 variable "create_azuremonitor_api_connection" {
@@ -215,4 +292,63 @@ variable "code_source_path" {
   description = "Absolute path to the Logic App Standard project folder. Leave blank to skip when enable_code_deploy=false."
   type        = string
   default     = "src/usage-ingestion-logicapp"
+}
+
+variable "names" {
+  description = "Resource names from modules/naming."
+  type = object({
+    storage_account         = string
+    logic_app               = string
+    content_share           = string
+    app_service_plan        = string
+    app_service_environment = string
+    code_artifact           = string
+  })
+}
+
+variable "enable_telemetry" {
+  description = "Enable Azure Verified Modules usage telemetry."
+  type        = bool
+  default     = true
+}
+
+variable "dns_zone_group_managed_by_policy" {
+  description = "Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoints' DNS zone groups; Terraform leaves them alone."
+  type        = bool
+  default     = false
+}
+
+variable "app_service_environment_id" {
+  description = "ase_v3 hosting: resource ID of the App Service Environment v3 (modules/app-hosting or a shared ASE)."
+  type        = string
+  default     = null
+}
+
+variable "ase_max_worker_count" {
+  description = "ase_v3 hosting: upper bound for the CPU autoscale of the Isolated v2 plan."
+  type        = number
+  default     = 3
+}
+
+variable "deployment_method" {
+  description = "How workflow code is published on ase_v3: run_from_package (blob + managed identity, no SCM access needed) or zip_deploy (az CLI push to SCM, needs a runner inside the VNet). Workflow Standard always uses zip_deploy."
+  type        = string
+  default     = "run_from_package"
+
+  validation {
+    condition     = contains(["run_from_package", "zip_deploy"], var.deployment_method)
+    error_message = "deployment_method must be run_from_package or zip_deploy."
+  }
+}
+
+variable "storage_endpoint_suffix" {
+  description = "Storage endpoint suffix of the cloud (core.windows.net for Azure public)."
+  type        = string
+  default     = "core.windows.net"
+}
+
+variable "package_upload_ip_rules" {
+  description = "ase_v3 + run_from_package: public IPs / CIDRs allowed through the storage firewall to upload the workflow package from outside the VNet. Empty = private endpoint only."
+  type        = list(string)
+  default     = []
 }

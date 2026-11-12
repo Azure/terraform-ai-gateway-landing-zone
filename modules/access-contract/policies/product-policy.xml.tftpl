@@ -1,0 +1,77 @@
+<policies>
+    <inbound>
+        <base />
+%{ if usage_events }
+        <!-- Usage events (usage-event fragment): every outcome of this product's requests, including the
+             ones the gateway answers itself (rejections) and errors -->
+        <set-variable name="usageEventsEnabled" value="true" />
+%{ endif }
+%{ if jwt_required }
+        <!-- Require a valid JWT next to the api-key (read by the security-handler fragment). Unset values fall
+             back to the gateway's JWT-* named values (gateway-config entra_auth). -->
+        <set-variable name="jwtRequired" value="true" />
+%{ if jwt_audience != "" }
+        <set-variable name="jwtAudience" value="${jwt_audience}" />
+%{ endif }
+%{ if jwt_issuer != "" }
+        <set-variable name="jwtIssuer" value="${jwt_issuer}" />
+%{ endif }
+%{ if jwt_openid != "" }
+        <set-variable name="jwtOpenIdConfigUrl" value="${jwt_openid}" />
+%{ endif }
+%{ if jwt_roles != "" }
+        <!-- App role authorization: the token's roles claim must hold at least one of these (403 otherwise) -->
+        <set-variable name="requiredRoles" value="${jwt_roles}" />
+%{ endif }
+%{ endif }
+%{ if multi_asset }
+        <!-- Classify the request as llm | tool | agent. APIM doesn't expose the API type to policy, so the granted
+             tool (MCP) and agent (A2A) APIs are listed by resource name; any other API is an LLM request. -->
+        <set-variable name="contractToolApis" value="${tool_apis}" />
+        <set-variable name="contractAgentApis" value="${agent_apis}" />
+        <include-fragment fragment-id="set-asset-kind" />
+        <choose>
+            <!-- LLM: model RBAC + token capacity -->
+            <when condition="@(context.Variables.GetValueOrDefault<string>("assetKind","llm") == "llm")">
+                ${indent(16, llm_rules)}
+            </when>
+%{ if tool_rules != "" }
+            <!-- TOOL (MCP): request-based rate limit + call quota -->
+            <when condition="@(context.Variables.GetValueOrDefault<string>("assetKind","") == "tool")">
+                ${indent(16, tool_rules)}
+            </when>
+%{ endif }
+%{ if agent_rules != "" }
+            <!-- AGENT (A2A): request-based rate limit + call quota -->
+            <when condition="@(context.Variables.GetValueOrDefault<string>("assetKind","") == "agent")">
+                ${indent(16, agent_rules)}
+            </when>
+%{ endif }
+        </choose>
+%{ else }
+        ${indent(8, llm_rules)}
+%{ endif }
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+%{ if usage_events }
+        <!-- One usage event per request to the ai-usage Event Hub (usage-event fragment) -->
+        <include-fragment fragment-id="usage-event" />
+%{ endif }
+    </outbound>
+    <on-error>
+        <base />
+%{ if usage_events }
+        <include-fragment fragment-id="usage-event" />
+%{ endif }
+        <!-- Raising throttling events (http 429 only) can help in setting up alerts in App Insights -->
+        <!-- Set the following variables to customize the throttling event details -->
+        <!-- <set-variable name="productName" value="@(context.Product?.Name?.ToString() ?? "Portal-Admin")" />
+        <set-variable name="deploymentName" value="@((string)context.Variables.GetValueOrDefault<string>("requestedModel", "DefaultModel"))" />
+        <set-variable name="appId" value="@((string)context.Variables.GetValueOrDefault<string>("appId", context.Subscription?.Id ?? "Portal-Admin-Sub"))" />
+        <include-fragment fragment-id="raise-throttling-events" /> -->
+    </on-error>
+</policies>

@@ -1,0 +1,6 @@
+%{ if calls_per_minute != "" }
+<rate-limit-by-key calls="${calls_per_minute}" renewal-period="60" counter-key="@(context.Subscription.Id + ":${kind}")" remaining-calls-variable-name="${kind}RateRemaining" />
+%{ endif }
+%{ if call_quota != "" }
+<quota-by-key calls="${call_quota}" renewal-period="${quota_period_seconds}" counter-key="@(context.Subscription.Id + ":${kind}")" />
+%{ endif }

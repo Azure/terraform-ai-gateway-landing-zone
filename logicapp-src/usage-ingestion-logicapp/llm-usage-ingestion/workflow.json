@@ -33,7 +33,7 @@
                             "parameters": {
                                 "databaseId": "@appsetting('CosmosDBDatabase')",
                                 "containerId": "@appsetting('CosmosDBContainerLLMUsage')",
-                                "item": "{\n  \"id\": \"@{concat('llm-', guid())}\",\n  \"timestamp\": \"@{body('ParseMetricEntry')?['timestamp']}\",\n  \"appId\": \"@{body('ParseMetricEntry')?['appId']}\",\n  \"productName\": \"@{body('ParseMetricEntry')?['productName']}\",\n  \"deploymentName\": \"@{body('ParseMetricEntry')?['deploymentName']}\",\n  \"backendId\": \"@{body('ParseMetricEntry')?['backendId']}\",\n  \"customDimension1\": \"@{body('ParseMetricEntry')?['customDimension1']}\",\n  \"customDimension2\": \"@{body('ParseMetricEntry')?['customDimension2']}\",\n  \"gatewayName\": \"@{body('ParseMetricEntry')?['gatewayName']}\",\n  \"gatewayRegion\": \"@{body('ParseMetricEntry')?['gatewayRegion']}\",\n  \"promptTokens\": \"@{body('ParseMetricEntry')?['promptTokens']}\",\n  \"responseTokens\": \"@{body('ParseMetricEntry')?['responseTokens']}\",\n  \"totalTokens\": \"@{body('ParseMetricEntry')?['totalTokens']}\",\n  \"targetService\": \"NA\",\n  \"model\": \"@{body('ParseMetricEntry')?['deploymentName']}\",\n  \"aiGatewayId\": \"managed\",\n  \"RequestIp\": \"NA\",\n  \"operationName\": \"NA\"\n}",
+                                "item": "{\n  \"id\": \"@{concat('llm-', guid())}\",\n  \"timestamp\": \"@{body('ParseMetricEntry')?['timestamp']}\",\n  \"appId\": \"@{body('ParseMetricEntry')?['appId']}\",\n  \"productName\": \"@{body('ParseMetricEntry')?['productName']}\",\n  \"deploymentName\": \"@{body('ParseMetricEntry')?['deploymentName']}\",\n  \"backendId\": \"@{body('ParseMetricEntry')?['backendId']}\",\n  \"customDimension1\": \"@{body('ParseMetricEntry')?['customDimension1']}\",\n  \"customDimension2\": \"@{body('ParseMetricEntry')?['customDimension2']}\",\n  \"gatewayName\": \"@{body('ParseMetricEntry')?['gatewayName']}\",\n  \"gatewayRegion\": \"@{body('ParseMetricEntry')?['gatewayRegion']}\",\n  \"promptTokens\": \"@{body('ParseMetricEntry')?['promptTokens']}\",\n  \"responseTokens\": \"@{body('ParseMetricEntry')?['responseTokens']}\",\n  \"totalTokens\": \"@{body('ParseMetricEntry')?['totalTokens']}\",\n  \"completionAcceptedPredictionTokens\": \"@{body('ParseMetricEntry')?['completionAcceptedPredictionTokens']}\",\n  \"completionAudioTokens\": \"@{body('ParseMetricEntry')?['completionAudioTokens']}\",\n  \"completionReasoningTokens\": \"@{body('ParseMetricEntry')?['completionReasoningTokens']}\",\n  \"completionRejectedPredictionTokens\": \"@{body('ParseMetricEntry')?['completionRejectedPredictionTokens']}\",\n  \"promptAudioTokens\": \"@{body('ParseMetricEntry')?['promptAudioTokens']}\",\n  \"promptCachedTokens\": \"@{body('ParseMetricEntry')?['promptCachedTokens']}\",\n  \"targetService\": \"NA\",\n  \"model\": \"@{body('ParseMetricEntry')?['deploymentName']}\",\n  \"aiGatewayId\": \"managed\",\n  \"RequestIp\": \"NA\",\n  \"operationName\": \"NA\"\n}",
                                 "isUpsert": true
                             },
                             "serviceProviderConfiguration": {
@@ -88,6 +88,24 @@
                                         "type": "integer"
                                     },
                                     "totalTokens": {
+                                        "type": "integer"
+                                    },
+                                    "completionAcceptedPredictionTokens": {
+                                        "type": "integer"
+                                    },
+                                    "completionAudioTokens": {
+                                        "type": "integer"
+                                    },
+                                    "completionReasoningTokens": {
+                                        "type": "integer"
+                                    },
+                                    "completionRejectedPredictionTokens": {
+                                        "type": "integer"
+                                    },
+                                    "promptAudioTokens": {
+                                        "type": "integer"
+                                    },
+                                    "promptCachedTokens": {
                                         "type": "integer"
                                     }
                                 },
@@ -146,6 +164,24 @@
                                         },
                                         "totalTokens": {
                                             "type": "integer"
+                                        },
+                                        "completionAcceptedPredictionTokens": {
+                                            "type": "integer"
+                                        },
+                                        "completionAudioTokens": {
+                                            "type": "integer"
+                                        },
+                                        "completionReasoningTokens": {
+                                            "type": "integer"
+                                        },
+                                        "completionRejectedPredictionTokens": {
+                                            "type": "integer"
+                                        },
+                                        "promptAudioTokens": {
+                                            "type": "integer"
+                                        },
+                                        "promptCachedTokens": {
+                                            "type": "integer"
                                         }
                                     },
                                     "required": [
@@ -158,7 +194,13 @@
                                         "gatewayRegion",
                                         "promptTokens",
                                         "responseTokens",
-                                        "totalTokens"
+                                        "totalTokens",
+                                        "completionAcceptedPredictionTokens",
+                                        "completionAudioTokens",
+                                        "completionReasoningTokens",
+                                        "completionRejectedPredictionTokens",
+                                        "promptAudioTokens",
+                                        "promptCachedTokens"
                                     ],
                                     "type": "object"
                                 },
@@ -200,7 +242,7 @@
                         }
                     },
                     "method": "post",
-                    "body": "let startTime = todatetime('@{variables('LastExportDate')}');\nlet endTime = todatetime('@{variables('CurrentTime')}');\n\nlet timeInterval = 1h;\nlet timeBinFormat = \"M/dd/yyyy h:mm:ss tt\";\n\ncustomMetrics\n| extend appId = tostring(customDimensions[\"appId\"]),\n         productName = tostring(customDimensions[\"productName\"]),\n         deploymentName = tostring(customDimensions[\"deploymentName\"]),\n         backendId = tostring(customDimensions[\"Backend ID\"]),\n         gatewayName = tostring(customDimensions[\"Service Name\"]),\n         gatewayRegion = tostring(customDimensions[\"Region\"]),\n         timeBin = bin(timestamp, timeInterval)\n| where ingestion_time() between(startTime .. endTime) and name in ('Prompt Tokens', 'Completion Tokens', 'Total Tokens')\n| summarize totalTokens = sumif(value, name == \"Total Tokens\"),\n            responseTokens = sumif(value, name == \"Completion Tokens\"),\n            promptTokens = sumif(value, name == \"Prompt Tokens\")\n            by appId, deploymentName, productName, backendId, gatewayName, gatewayRegion, timeBin\n| project timestamp = format_datetime(timeBin, \"M/dd/yyyy h:mm:ss tt\"), appId, deploymentName, productName, backendId, gatewayName, gatewayRegion, promptTokens, responseTokens, totalTokens",
+                    "body": "let startTime = todatetime('@{variables('LastExportDate')}');\nlet endTime = todatetime('@{variables('CurrentTime')}');\n\nlet timeInterval = 1h;\nlet timeBinFormat = \"M/dd/yyyy h:mm:ss tt\";\n\ncustomMetrics\n| extend appId = tostring(customDimensions[\"appId\"]),\n         productName = tostring(customDimensions[\"productName\"]),\n         deploymentName = tostring(customDimensions[\"deploymentName\"]),\n         backendId = tostring(customDimensions[\"Backend ID\"]),\n         gatewayName = tostring(customDimensions[\"Service Name\"]),\n         gatewayRegion = tostring(customDimensions[\"Region\"]),\n         timeBin = bin(timestamp, timeInterval)\n| where ingestion_time() between(startTime .. endTime) and name in ('Prompt Tokens', 'Completion Tokens', 'Total Tokens', 'Completion Accepted Prediction Tokens', 'Completion Audio Tokens', 'Completion Reasoning Tokens', 'Completion Rejected Prediction Tokens', 'Prompt Audio Tokens', 'Prompt Cached Tokens')\n| summarize totalTokens = sumif(value, name == \"Total Tokens\"),\n            responseTokens = sumif(value, name == \"Completion Tokens\"),\n            promptTokens = sumif(value, name == \"Prompt Tokens\"),\n            completionAcceptedPredictionTokens = sumif(value, name == \"Completion Accepted Prediction Tokens\"),\n            completionAudioTokens = sumif(value, name == \"Completion Audio Tokens\"),\n            completionReasoningTokens = sumif(value, name == \"Completion Reasoning Tokens\"),\n            completionRejectedPredictionTokens = sumif(value, name == \"Completion Rejected Prediction Tokens\"),\n            promptAudioTokens = sumif(value, name == \"Prompt Audio Tokens\"),\n            promptCachedTokens = sumif(value, name == \"Prompt Cached Tokens\")\n            by appId, deploymentName, productName, backendId, gatewayName, gatewayRegion, timeBin\n| project timestamp = format_datetime(timeBin, \"M/dd/yyyy h:mm:ss tt\"), appId, deploymentName, productName, backendId, gatewayName, gatewayRegion, promptTokens, responseTokens, totalTokens, completionAcceptedPredictionTokens, completionAudioTokens, completionReasoningTokens, completionRejectedPredictionTokens, promptAudioTokens, promptCachedTokens",
                     "path": "/queryData",
                     "queries": {
                         "subscriptions": "@appsetting('AppInsights_SubscriptionId')",
@@ -271,9 +313,13 @@
                     "interval": 1,
                     "schedule": {
                         "hours": [
+                            "3",
                             "6",
+                            "9",
                             "12",
+                            "15",
                             "18",
+                            "21",
                             "23"
                         ]
                     },

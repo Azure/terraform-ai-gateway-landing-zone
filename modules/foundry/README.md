@@ -1,0 +1,91 @@
+# Microsoft Foundry
+
+Creates the Foundry accounts (`kind = AIServices`, on AVM `avm-res-cognitiveservices-account`) and, per account:
+
+- a default project (`foundry_project_default_name`, overridable per instance), with the account's default project set to it;
+- the model deployments of `foundry_models` that target the account (`ai_service_index`), created one at a time because the account rejects concurrent deployment PUTs;
+- a private endpoint with the three Foundry zones (`cognitiveservices`, `openai`, `ai.azure.com`) in the zone group `aif-dns-group`, created here unless Azure Policy owns it (`dns_zone_group_managed_by_policy`);
+- optional Agent Service network injection into `agent_subnet_id` (`foundry_network_injection_enabled`, and per instance) and an optional outbound FQDN allow-list (`outbound_allowed_fqdns`);
+- role assignments: *Azure AI Project Manager* for the deployer and *Cognitive Services User* for the APIM identity;
+- an `AllMetrics` diagnostic setting by idempotent PUT (`enable_diagnostics`) and an Application Insights connection (`enable_app_insights_connection`, on by default).
+
+Key authentication is off by default (`disable_key_auth`) and public access follows `foundry_external_access`. Deleting an account retries on the 409 Azure returns while its children are still deleting.
+
+The Foundry-to-APIM connections are not created here: they are access contracts ([modules/access-contract](../access-contract/README.md)). The module is optional: [stacks/platform](../../stacks/platform/foundry.tf) skips it with `foundry.enabled = false`. For a Language or Content Safety account without Foundry see [modules/cognitive-service](../cognitive-service/README.md). The caller passes the providers in.
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+| ---- | ------- |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.11 |
+| <a name="requirement_azapi"></a> [azapi](#requirement\_azapi) | >= 2.9, < 3.0 |
+| <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | >= 4.79, < 5.0 |
+
+## Providers
+
+| Name | Version |
+| ---- | ------- |
+| <a name="provider_azapi"></a> [azapi](#provider\_azapi) | >= 2.9, < 3.0 |
+| <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | >= 4.79, < 5.0 |
+
+## Modules
+
+| Name | Source | Version |
+| ---- | ------ | ------- |
+| <a name="module_account"></a> [account](#module\_account) | Azure/avm-res-cognitiveservices-account/azurerm | 0.11.1 |
+
+## Resources
+
+| Name | Type |
+| ---- | ---- |
+| [azapi_resource.app_insights_connection](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource.pe_dns_zone_group](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource.project](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource_action.foundry_diagnostics](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource_action) | resource |
+| [azurerm_role_assignment.apim_cognitive_services_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azurerm_role_assignment.deployer_project_manager](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azapi_resource.account_state](https://registry.terraform.io/providers/azure/azapi/latest/docs/data-sources/resource) | data source |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+| ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_account_names"></a> [account\_names](#input\_account\_names) | Foundry (AI Services) account names, one per entry in foundry\_instances (from modules/naming). | `list(string)` | n/a | yes |
+| <a name="input_apim_principal_id"></a> [apim\_principal\_id](#input\_apim\_principal\_id) | Principal ID granted 'Cognitive Services User' on each Foundry (typically APIM UAMI). | `string` | n/a | yes |
+| <a name="input_deployer_object_id"></a> [deployer\_object\_id](#input\_deployer\_object\_id) | Principal ID granted 'Azure AI Project Manager' on each Foundry. | `string` | n/a | yes |
+| <a name="input_resource_group_id"></a> [resource\_group\_id](#input\_resource\_group\_id) | Resource ID of the resource group the module deploys into. | `string` | n/a | yes |
+| <a name="input_subnet_id"></a> [subnet\_id](#input\_subnet\_id) | Subnet ID for private endpoints. | `string` | n/a | yes |
+| <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource the module creates. | `map(string)` | n/a | yes |
+| <a name="input_agent_subnet_id"></a> [agent\_subnet\_id](#input\_agent\_subnet\_id) | Resource ID of the subnet used for Foundry agent network injection. | `string` | `""` | no |
+| <a name="input_app_insights_connection_string"></a> [app\_insights\_connection\_string](#input\_app\_insights\_connection\_string) | Application Insights connection string used by the Foundry App Insights connection (the API rejects a bare instrumentation key). | `string` | `""` | no |
+| <a name="input_app_insights_id"></a> [app\_insights\_id](#input\_app\_insights\_id) | Application Insights resource ID for the Foundry App Insights connection. | `string` | `""` | no |
+| <a name="input_disable_key_auth"></a> [disable\_key\_auth](#input\_disable\_key\_auth) | If true (default), only Entra ID auth is allowed (disableLocalAuth=true). The gateway reaches Foundry with its managed identity; no key is read. | `bool` | `true` | no |
+| <a name="input_dns_zone_group_managed_by_policy"></a> [dns\_zone\_group\_managed\_by\_policy](#input\_dns\_zone\_group\_managed\_by\_policy) | Azure Policy (e.g. ALZ Deploy-Private-DNS-Zones) creates the private endpoints' DNS zone groups; Terraform leaves them alone. | `bool` | `false` | no |
+| <a name="input_dns_zone_ids"></a> [dns\_zone\_ids](#input\_dns\_zone\_ids) | Map of DNS zone IDs. Expected keys: cognitive\_services, openai, ai\_services. | `map(string)` | `{}` | no |
+| <a name="input_enable_app_insights_connection"></a> [enable\_app\_insights\_connection](#input\_enable\_app\_insights\_connection) | Create the App Insights connection on each Foundry account. | `bool` | `true` | no |
+| <a name="input_enable_diagnostics"></a> [enable\_diagnostics](#input\_enable\_diagnostics) | Create diagnostic settings sending AllMetrics to Log Analytics. | `bool` | `true` | no |
+| <a name="input_enable_telemetry"></a> [enable\_telemetry](#input\_enable\_telemetry) | Enable Azure Verified Modules usage telemetry. | `bool` | `true` | no |
+| <a name="input_foundry_external_access"></a> [foundry\_external\_access](#input\_foundry\_external\_access) | If true, publicNetworkAccess=Enabled on Foundry accounts. | `bool` | `false` | no |
+| <a name="input_foundry_instances"></a> [foundry\_instances](#input\_foundry\_instances) | List of AI Foundry (AIServices) account definitions. | <pre>list(object({<br/>    name                      = optional(string, "")<br/>    location                  = string<br/>    custom_subdomain          = optional(string, "")<br/>    default_project_name      = optional(string, "")<br/>    network_injection_enabled = optional(bool, true)<br/>  }))</pre> | `[]` | no |
+| <a name="input_foundry_models"></a> [foundry\_models](#input\_foundry\_models) | Model deployments to create across the Foundry accounts. | <pre>list(object({<br/>    name             = string<br/>    publisher        = optional(string, "OpenAI")<br/>    version          = string<br/>    sku              = optional(string, "GlobalStandard")<br/>    capacity         = optional(number, 100)<br/>    ai_service_index = optional(number, 0)<br/>  }))</pre> | `[]` | no |
+| <a name="input_foundry_network_injection_enabled"></a> [foundry\_network\_injection\_enabled](#input\_foundry\_network\_injection\_enabled) | Inject the Foundry Agent Service into the agent subnet (needs enable\_agent\_subnet = true). | `bool` | `true` | no |
+| <a name="input_foundry_project_default_name"></a> [foundry\_project\_default\_name](#input\_foundry\_project\_default\_name) | Default AI Foundry project name (used when an instance entry does not override it). | `string` | `"citadel-governance-project"` | no |
+| <a name="input_log_analytics_id"></a> [log\_analytics\_id](#input\_log\_analytics\_id) | Log Analytics workspace ID for diagnostic settings. | `string` | `""` | no |
+| <a name="input_outbound_allowed_fqdns"></a> [outbound\_allowed\_fqdns](#input\_outbound\_allowed\_fqdns) | Restrict the Foundry accounts' outbound network access to these FQDNs. null = unrestricted. | `list(string)` | `null` | no |
+| <a name="input_private_endpoint_location"></a> [private\_endpoint\_location](#input\_private\_endpoint\_location) | Region of the private endpoints: the region of subnet\_id's VNet (a private endpoint must be in its VNet's region, whatever the account's). null = each account's own location. | `string` | `null` | no |
+
+## Outputs
+
+| Name | Description |
+| ---- | ----------- |
+| <a name="output_diagnostic_setting_names"></a> [diagnostic\_setting\_names](#output\_diagnostic\_setting\_names) | Workload diagnostic setting names (empty when policy owns diagnostics). |
+| <a name="output_extended_ai_services_config"></a> [extended\_ai\_services\_config](#output\_extended\_ai\_services\_config) | Per-instance Foundry details including the Foundry project endpoint. |
+| <a name="output_foundry_endpoints"></a> [foundry\_endpoints](#output\_foundry\_endpoints) | Endpoint for each AI Foundry account. |
+| <a name="output_foundry_ids"></a> [foundry\_ids](#output\_foundry\_ids) | Resource IDs for each AI Foundry (AIServices) account. |
+| <a name="output_foundry_names"></a> [foundry\_names](#output\_foundry\_names) | Names of each AI Foundry account. |
+| <a name="output_foundry_principal_ids"></a> [foundry\_principal\_ids](#output\_foundry\_principal\_ids) | System-assigned managed identity principal IDs for each Foundry account. |
+| <a name="output_primary_foundry_endpoint"></a> [primary\_foundry\_endpoint](#output\_primary\_foundry\_endpoint) | Base AI Services endpoint of the primary (index 0) Foundry account; serves content-safety + PII. |
+| <a name="output_project_ids"></a> [project\_ids](#output\_project\_ids) | Resource IDs of the default Foundry projects (one per account). |
+| <a name="output_project_names"></a> [project\_names](#output\_project\_names) | Names of the default Foundry projects (one per account). |
+<!-- END_TF_DOCS -->

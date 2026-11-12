@@ -1,0 +1,78 @@
+# APIM telemetry
+
+Attaches loggers and diagnostics to an API Management service:
+
+- **Loggers**: `appinsights-logger` (the connection string when given, else the instrumentation key), `azuremonitor` (created with an idempotent ARM PUT, because APIM can create it server-side), `usage-eventhub-logger` and, with `enable_pii_redaction`, `pii-usage-eventhub-logger`. The Event Hub loggers use the APIM user-assigned identity (`managed_identity_client_id`). These logger names are a contract: gateway-config and llm-backend-onboarding reference them.
+- **API diagnostics**: the service-level `applicationinsights` diagnostic (100 % sampling, errors always logged, client IP, `log_verbosity`, `log_body_bytes`), with its `metrics` flag switched on (azurerm doesn't expose it; without it `emit-metric` samples are dropped).
+- **Diagnostic setting** `diag-<apim>` to Log Analytics (all logs and metrics, dedicated destination), written with an idempotent PUT so it succeeds when Azure Policy already created it. `enable_diagnostics = false` leaves it to Policy; the loggers and API diagnostics are unaffected.
+
+Called by [stacks/platform](../../stacks/platform/apim.tf); the caller passes the providers in.
+
+<!-- BEGIN_TF_DOCS -->
+## Requirements
+
+| Name | Version |
+| ---- | ------- |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.11 |
+| <a name="requirement_azapi"></a> [azapi](#requirement\_azapi) | >= 2.9, < 3.0 |
+| <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) | >= 4.79, < 5.0 |
+| <a name="requirement_time"></a> [time](#requirement\_time) | >= 0.11, < 1.0 |
+
+## Providers
+
+| Name | Version |
+| ---- | ------- |
+| <a name="provider_azapi"></a> [azapi](#provider\_azapi) | >= 2.9, < 3.0 |
+| <a name="provider_azurerm"></a> [azurerm](#provider\_azurerm) | >= 4.79, < 5.0 |
+| <a name="provider_time"></a> [time](#provider\_time) | >= 0.11, < 1.0 |
+
+## Resources
+
+| Name | Type |
+| ---- | ---- |
+| [azapi_resource.eventhub_logger](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource_action.apim_diagnostics](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource_action) | resource |
+| [azapi_resource_action.app_insights_logger](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource_action) | resource |
+| [azapi_resource_action.app_insights_logger_delete](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource_action) | resource |
+| [azapi_resource_action.azure_monitor_logger](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/resource_action) | resource |
+| [azapi_update_resource.global_appinsights_metrics](https://registry.terraform.io/providers/azure/azapi/latest/docs/resources/update_resource) | resource |
+| [azurerm_api_management_diagnostic.global](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_diagnostic) | resource |
+| [azurerm_api_management_named_value.logger_credential](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_named_value) | resource |
+| [azurerm_key_vault_secret.logger_credential](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/key_vault_secret) | resource |
+| [time_rotating.logger_credentials](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/rotating) | resource |
+
+## Inputs
+
+| Name | Description | Type | Default | Required |
+| ---- | ----------- | ---- | ------- | :------: |
+| <a name="input_api_management_id"></a> [api\_management\_id](#input\_api\_management\_id) | Resource ID of the API Management service. | `string` | n/a | yes |
+| <a name="input_api_management_name"></a> [api\_management\_name](#input\_api\_management\_name) | Name of the API Management service. | `string` | n/a | yes |
+| <a name="input_app_insights_id"></a> [app\_insights\_id](#input\_app\_insights\_id) | Resource ID of the Application Insights component used by the APIM logger. | `string` | n/a | yes |
+| <a name="input_app_insights_instrumentation_key"></a> [app\_insights\_instrumentation\_key](#input\_app\_insights\_instrumentation\_key) | Instrumentation key of the APIM Application Insights component (legacy logger credential). | `string` | n/a | yes |
+| <a name="input_enable_pii_redaction"></a> [enable\_pii\_redaction](#input\_enable\_pii\_redaction) | Create the PII usage Event Hub logger (pii-usage-eventhub-logger). | `bool` | n/a | yes |
+| <a name="input_eventhub_endpoint_uri"></a> [eventhub\_endpoint\_uri](#input\_eventhub\_endpoint\_uri) | EventHub namespace endpoint URI (https://<ns>.servicebus.windows.net) | `string` | n/a | yes |
+| <a name="input_log_analytics_id"></a> [log\_analytics\_id](#input\_log\_analytics\_id) | Resource ID of the Log Analytics workspace that receives diagnostic settings. | `string` | n/a | yes |
+| <a name="input_log_body_bytes"></a> [log\_body\_bytes](#input\_log\_body\_bytes) | Max bytes to log from request/response body | `number` | n/a | yes |
+| <a name="input_log_verbosity"></a> [log\_verbosity](#input\_log\_verbosity) | APIM diagnostic log verbosity: verbose, information, error | `string` | n/a | yes |
+| <a name="input_managed_identity_client_id"></a> [managed\_identity\_client\_id](#input\_managed\_identity\_client\_id) | Client ID of the user-assigned managed identity the service runs as. | `string` | n/a | yes |
+| <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Name of the resource group the module deploys into. | `string` | n/a | yes |
+| <a name="input_app_insights_connection_string"></a> [app\_insights\_connection\_string](#input\_app\_insights\_connection\_string) | Application Insights connection string — used in the AppInsights logger. | `string` | `""` | no |
+| <a name="input_app_insights_managed_identity"></a> [app\_insights\_managed\_identity](#input\_app\_insights\_managed\_identity) | The App Insights logger authenticates with the APIM managed identity (managed\_identity\_client\_id, which needs Monitoring Metrics Publisher on the component) instead of the instrumentation key. Requires app\_insights\_connection\_string. Needed when the component disables local authentication. | `bool` | `false` | no |
+| <a name="input_credentials_in_key_vault"></a> [credentials\_in\_key\_vault](#input\_credentials\_in\_key\_vault) | Logger credentials (identity client ID, App Insights connection string) in Key Vault (credentials\_key\_vault\_id): written as secrets apim-logger-*, read by APIM through Key Vault-backed named values (managed\_identity\_client\_id needs Key Vault Secrets User, and APIM must reach the vault). false = APIM stores them in the secret named values it generates (Logger-Credentials--*). | `bool` | `false` | no |
+| <a name="input_credentials_key_vault_id"></a> [credentials\_key\_vault\_id](#input\_credentials\_key\_vault\_id) | Key Vault for the logger credentials (credentials\_in\_key\_vault = true). | `string` | `null` | no |
+| <a name="input_enable_diagnostics"></a> [enable\_diagnostics](#input\_enable\_diagnostics) | Configure the workload Azure Monitor diagnostic setting by ARM PUT. false = Azure Policy owns it. APIM loggers and API diagnostics are unaffected. | `bool` | `true` | no |
+| <a name="input_eventhub_pii_hub_name"></a> [eventhub\_pii\_hub\_name](#input\_eventhub\_pii\_hub\_name) | Name of the PII usage event hub. | `string` | `"pii-usage"` | no |
+| <a name="input_eventhub_usage_hub_name"></a> [eventhub\_usage\_hub\_name](#input\_eventhub\_usage\_hub\_name) | Name of the APIM usage event hub inside the namespace. | `string` | `"ai-usage"` | no |
+
+## Outputs
+
+| Name | Description |
+| ---- | ----------- |
+| <a name="output_app_insights_logger_id"></a> [app\_insights\_logger\_id](#output\_app\_insights\_logger\_id) | Resource ID of the Application Insights logger (appinsights-logger). |
+| <a name="output_azure_monitor_logger_id"></a> [azure\_monitor\_logger\_id](#output\_azure\_monitor\_logger\_id) | Resource ID of the Azure Monitor logger (azuremonitor). |
+| <a name="output_dependency_ids"></a> [dependency\_ids](#output\_dependency\_ids) | IDs to depend on before creating API diagnostics that use the Azure Monitor logger. |
+| <a name="output_diagnostic_setting_names"></a> [diagnostic\_setting\_names](#output\_diagnostic\_setting\_names) | Workload Azure Monitor diagnostic setting names (empty when policy owns diagnostics). |
+| <a name="output_logger_credential_named_values"></a> [logger\_credential\_named\_values](#output\_logger\_credential\_named\_values) | Key Vault-backed named values holding the logger credentials (name => Key Vault secret versionless ID); empty when credentials\_in\_key\_vault = false. |
+| <a name="output_logger_identity_client_id"></a> [logger\_identity\_client\_id](#output\_logger\_identity\_client\_id) | Identity client ID the loggers are configured with: a {{named value}} reference with credentials\_in\_key\_vault, else the client ID. |
+| <a name="output_logger_names"></a> [logger\_names](#output\_logger\_names) | Names of the loggers this module creates (contract for API-level diagnostics). |
+<!-- END_TF_DOCS -->

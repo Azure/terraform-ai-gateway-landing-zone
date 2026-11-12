@@ -1,0 +1,60 @@
+<fragment>
+    <!--
+        Fragment: PII Audit (PII processing record, without the PII)
+        Purpose:  One event per request that went through pii-anonymization, on the pii-usage Event
+                  Hub (logger pii-usage-eventhub-logger). The pii-usage-ingestion Logic App upserts it
+                  into the Cosmos DB pii-usage-container (partition key /productName).
+                  Unlike pii-state-saving (a testing aid that stores the prompt, the response and every
+                  detected value), this event holds no content: only counts per entity category and
+                  the processing settings. Use it for production auditing.
+        Include:  in the outbound section, after pii-deanonymization (or anywhere after
+                  pii-anonymization when the response isn't de-anonymized). It runs when
+                  piiAuditEnabled = "true" and the request was analyzed (piiMappings is set).
+                  pii-anonymization includes it itself when it blocks a request (piiBlockingEnabled).
+        Fields:   id (pii-<request ID>, the CorrelationId of the gateway logs), timestamp, type
+                  PII_Audit, productName / productId, subscriptionId, apiId, operationId, model,
+                  entityCount, entityCategories { <category>: count }, confidenceThreshold,
+                  categoryExclusions, analysisFailure, deanonymized, blocked, statusCode.
+    -->
+    <choose>
+        <when condition="@(context.Variables.GetValueOrDefault<string>("piiAuditEnabled", "false") == "true" && context.Variables.ContainsKey("piiMappings"))">
+            <log-to-eventhub logger-id="pii-usage-eventhub-logger">@{
+                var categories = new JObject();
+                int count = 0;
+                try
+                {
+                    // Placeholders look like <Category_N> (pii-anonymization): count them per category.
+                    foreach (var mapping in JArray.Parse(context.Variables.GetValueOrDefault<string>("piiMappings", "[]")))
+                    {
+                        var placeholder = mapping["placeholder"]?.ToString() ?? "";
+                        var category = placeholder.Trim('<', '>');
+                        var cut = category.LastIndexOf('_');
+                        category = cut > 0 ? category.Substring(0, cut) : category;
+                        categories[category] = (categories[category]?.Value<int>() ?? 0) + 1;
+                        count++;
+                    }
+                }
+                catch (Exception) { }
+                return new JObject(
+                    new JProperty("id", "pii-" + context.RequestId.ToString()),
+                    new JProperty("timestamp", DateTime.UtcNow.ToString("o")),
+                    new JProperty("type", "PII_Audit"),
+                    new JProperty("productName", context.Product?.Name ?? "NA"),
+                    new JProperty("productId", context.Product?.Id ?? "NA"),
+                    new JProperty("subscriptionId", context.Subscription?.Id ?? "NA"),
+                    new JProperty("apiId", context.Api?.Id ?? "NA"),
+                    new JProperty("operationId", context.Operation?.Id ?? "NA"),
+                    new JProperty("model", context.Variables.GetValueOrDefault<string>("requestedModel", "NA")),
+                    new JProperty("entityCount", count),
+                    new JProperty("entityCategories", categories),
+                    new JProperty("confidenceThreshold", context.Variables.ContainsKey("piiConfidenceThreshold") ? Convert.ToDouble(context.Variables["piiConfidenceThreshold"]) : 0.0),
+                    new JProperty("categoryExclusions", context.Variables.GetValueOrDefault<string>("piiEntityCategoryExclusions", "")),
+                    new JProperty("analysisFailure", context.Variables.GetValueOrDefault<string>("piiAnalysisFailureReason", "")),
+                    new JProperty("deanonymized", context.Variables.ContainsKey("piiDeanonymizedContentOutput")),
+                    new JProperty("blocked", context.Variables.GetValueOrDefault<string>("piiBlocked", "false") == "true"),
+                    new JProperty("statusCode", context.Variables.ContainsKey("usageEventStatus") ? Convert.ToInt32(context.Variables["usageEventStatus"]) : (context.Response?.StatusCode ?? 0))
+                ).ToString(Newtonsoft.Json.Formatting.None);
+            }</log-to-eventhub>
+        </when>
+    </choose>
+</fragment>

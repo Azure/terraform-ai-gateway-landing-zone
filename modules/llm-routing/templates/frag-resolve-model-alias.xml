@@ -1,0 +1,66 @@
+<fragment>
+    <!--
+        Fragment: Resolve Model Alias (body / URL rewrite)
+        Purpose: Rewrites the JSON request body's `model` field so backends see the resolved real
+                 model name when the inbound request used an alias name. This fragment runs AFTER
+                 `set-target-backend-pool` has performed the actual alias→member resolution.
+
+        Refactor note (alias-as-virtual-pool):
+        The legacy version of this fragment owned the entire alias resolution pipeline (member
+        selection, weighted/priority strategy, body + URL rewrite). That logic now lives in
+        `frag-set-target-backend-pool.xml` so alias resolution participates in the same backend
+        pool selection that real models use, and so the picked member can be chosen with full
+        knowledge of the inbound api-type's `compatiblePoolTypes` filter (e.g. an alias spanning
+        Anthropic + Gemini will only resolve to its Anthropic member when called via /claude/).
+
+        This fragment is now a slim post-resolution rewrite step. It is a no-op when the request
+        was not made through an alias (`is-alias == false`).
+
+        Input Variables (set by frag-set-target-backend-pool.xml):
+        - is-alias: True when the request was made through an alias name.
+        - original-model-alias: Original alias name when `is-alias == true`.
+        - requestedModel: Already overwritten with the resolved real model name.
+
+        Output Variables: none (side-effects only — body rewrite).
+
+        URL rewrite responsibility: The Azure OpenAI API policy still owns its `/deployments/{alias}/...`
+        URL rewrite via `openAIRewriteTemplate`, because APIM's `context.Request.Url.Path` always returns
+        the ORIGINAL request path (it does not reflect prior `<rewrite-uri>` calls from this fragment).
+        Universal LLM API has no `/deployments/` segment in the URL (model is in the body — rewritten
+        below). The Unified AI API reconstructs the backend URL from `requestedModel` via the
+        `path-builder` fragment.
+    -->
+
+    <!-- Alias resolution itself (alias -> real model and pool) happens in set-target-backend-pool,
+         against the alias entries of set-backend-pools. -->
+
+    <choose>
+        <when condition="@(context.Variables.GetValueOrDefault<bool>("is-alias", false))">
+            <!-- Body rewrite: when the model field is present in the JSON body, replace it with
+                 the resolved model name so backends see the real model. Skip for GET/DELETE
+                 (those never carry a request body). -->
+            <choose>
+                <when condition="@(context.Request.Method != "GET" &amp;&amp; context.Request.Method != "DELETE")">
+                    <set-body>@{
+                        try {
+                            var bodyText = context.Request.Body.As<string>(preserveContent: true);
+                            if (string.IsNullOrEmpty(bodyText)) { return bodyText; }
+                            var body = JObject.Parse(bodyText);
+                            if (body["model"] != null) {
+                                body["model"] = (string)context.Variables["requestedModel"];
+                                return body.ToString();
+                            }
+                            return bodyText;
+                        } catch {
+                            return context.Request.Body.As<string>(preserveContent: true);
+                        }
+                    }</set-body>
+                </when>
+            </choose>
+
+            <trace source="Resolve-Model-Alias" severity="information">
+                <message>@($"Alias body rewrite: original='{context.Variables.GetValueOrDefault<string>("original-model-alias", "")}', resolved='{context.Variables.GetValueOrDefault<string>("requestedModel", "")}'")</message>
+            </trace>
+        </when>
+    </choose>
+</fragment>

@@ -1,5 +1,14 @@
 # =============================================================================
 # MODULE: Logic App — Workflow Code Publish
+#
+#   run_from_package (ase_v3 default, WP-2b.4): the zip is uploaded to the
+#     keyless storage account's "deployments" container (data plane, Entra ID;
+#     the storage account has no public endpoint, so apply runs from a runner
+#     with access to the storage private endpoint). The site reads it with the
+#     usage UAMI (WEBSITE_RUN_FROM_PACKAGE + _BLOB_MI_RESOURCE_ID); a new
+#     package changes the URL, then triggers are re-synced. No SCM access.
+#   zip_deploy (Workflow Standard, or ase_v3 opt-in): `az` pushes the zip to
+#     the site's SCM endpoint (below).
 # Mirrors: `azd deploy usageProcessingLogicApp` in ai-hub-gateway-*/azure.yaml
 #
 # Packages src/usage-ingestion-logicapp/ (host.json, connections.json,
@@ -12,18 +21,87 @@
 
 locals {
   code_deploy_enabled = var.enable_code_deploy && var.code_source_path != ""
+  zip_deploy_enabled  = local.code_deploy_enabled && !local.run_from_package
+  package_enabled     = local.code_deploy_enabled && local.run_from_package
+
+  # Content-addressed blob: a new package => a new URL => the site reloads it.
+  package_blob_name = local.package_enabled ? "usage-ingestion-${substr(data.archive_file.workflow_code[0].output_sha256, 0, 16)}.zip" : ""
+  package_url       = local.package_enabled ? "${local.storage_endpoints.blob}/deployments/${local.package_blob_name}" : ""
+}
+
+# The identity running apply writes the package (data plane, Entra ID).
+resource "azurerm_role_assignment" "deployer_package_writer" {
+  count                = local.package_enabled ? 1 : 0
+  scope                = "${module.storage.resource_id}/blobServices/default/containers/deployments"
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = data.azurerm_client_config.current.object_id
+
+  depends_on = [module.storage]
+}
+
+# Data-plane RBAC takes a while to propagate after the assignment is created.
+resource "time_sleep" "package_writer_rbac" {
+  count           = local.package_enabled ? 1 : 0
+  create_duration = "120s"
+
+  depends_on = [azurerm_role_assignment.deployer_package_writer]
+}
+
+resource "azurerm_storage_blob" "package" {
+  count                = local.package_enabled ? 1 : 0
+  name                 = local.package_blob_name
+  storage_container_id = module.storage.containers["deployments"].id
+  type                 = "Block"
+  source               = data.archive_file.workflow_code[0].output_path
+  content_md5          = data.archive_file.workflow_code[0].output_md5
+
+  depends_on = [time_sleep.package_writer_rbac]
+}
+
+# Re-sync the workflow triggers once the site runs the new package.
+resource "terraform_data" "package_version" {
+  count = local.package_enabled ? 1 : 0
+  input = local.package_blob_name
+}
+
+resource "azapi_resource_action" "restart" {
+  count       = local.package_enabled ? 1 : 0
+  type        = "Microsoft.Web/sites@2024-04-01"
+  resource_id = azapi_resource.usage_ingestion_ase[0].id
+  action      = "restart"
+  method      = "POST"
+
+  depends_on = [azurerm_storage_blob.package, azapi_resource.usage_ingestion_ase]
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.package_version]
+  }
+}
+
+resource "azapi_resource_action" "sync_triggers" {
+  count       = local.package_enabled ? 1 : 0
+  type        = "Microsoft.Web/sites@2024-04-01"
+  resource_id = azapi_resource.usage_ingestion_ase[0].id
+  action      = "syncfunctiontriggers"
+  method      = "POST"
+
+  depends_on = [azapi_resource_action.restart]
+
+  lifecycle {
+    replace_triggered_by = [terraform_data.package_version]
+  }
 }
 
 data "archive_file" "workflow_code" {
   count       = local.code_deploy_enabled ? 1 : 0
   type        = "zip"
   source_dir  = var.code_source_path
-  output_path = "${path.module}/.artifacts/usage-ingestion-logicapp-${var.random_suffix}.zip"
+  output_path = "${path.module}/.artifacts/${var.names.code_artifact}.zip"
   excludes    = ["workflow-designtime", ".funcignore", "local.settings.json"]
 }
 
 resource "null_resource" "publish_workflows" {
-  count = local.code_deploy_enabled ? 1 : 0
+  count = local.zip_deploy_enabled ? 1 : 0
 
   # Re-run whenever the site is re-created or any source file changes.
   triggers = {
@@ -71,16 +149,11 @@ resource "null_resource" "publish_workflows" {
   depends_on = [
     azurerm_logic_app_standard.usage_ingestion,
     azapi_resource.usage_ingestion_ase,
-    azurerm_private_dns_a_record.ase,
-    azurerm_private_dns_zone_virtual_network_link.ase,
     azurerm_role_assignment.logic_app_system_eh_owner,
     azurerm_role_assignment.logic_app_system_monitor_reader,
     azurerm_cosmosdb_sql_role_assignment.logic_app_system_mi,
     azapi_resource.azuremonitor_connection,
     azapi_resource.azuremonitor_connection_access,
-    azurerm_private_endpoint.storage_blob,
-    azurerm_private_endpoint.storage_file,
-    azurerm_private_endpoint.storage_table,
-    azurerm_private_endpoint.storage_queue,
+    module.storage,
   ]
 }

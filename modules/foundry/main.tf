@@ -1,24 +1,11 @@
 # =============================================================================
 # MODULE: Foundry
-# Terraform port of ai-hub-gateway-solution-accelerator-citadel-v1/bicep/infra/
-#   modules/foundry/foundry.bicep
 # Samples referenced:
 #   https://github.com/microsoft-foundry/foundry-samples/tree/main/
 #     infrastructure/infrastructure-setup-terraform
 # =============================================================================
 
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }
-    azapi = {
-      source  = "azure/azapi"
-      version = "~> 2.0"
-    }
-  }
-}
+
 
 locals {
   instances = var.foundry_instances
@@ -26,10 +13,8 @@ locals {
   # Built-in role: Azure AI Project Manager
   ai_project_manager_role_id = "eadc314b-1a2d-4efa-be10-5d325db5065e"
 
-  instance_names = [
-    for i, c in local.instances :
-    c.name != "" ? c.name : "aif-${var.environment_name}-${i}-${var.random_suffix}"
-  ]
+  # Names come from modules/naming (explicit name, else aif-<env>-<index>-<suffix>).
+  instance_names = var.account_names
 
   instance_subdomains = [
     for i, c in local.instances :
@@ -43,80 +28,145 @@ locals {
     c.default_project_name != "" ? c.default_project_name : var.foundry_project_default_name
   ]
 
-  # Preserve order matching Bicep: cognitiveservices, openai, ai.azure.com
-  dns_zone_ids_ordered = compact([
+  # Preserve order: cognitiveservices, openai, ai.azure.com
+  dns_zone_ids_ordered = [
     lookup(var.dns_zone_ids, "cognitive_services", ""),
     lookup(var.dns_zone_ids, "openai", ""),
     lookup(var.dns_zone_ids, "ai_services", ""),
-  ])
+  ]
 }
 
 # -----------------------------------------------------------------------------
 # AI Foundry (AIServices) accounts
-# Bicep: foundryResources (Microsoft.CognitiveServices/accounts@2026-05-01)
 # -----------------------------------------------------------------------------
-resource "azapi_resource" "foundry" {
-  count     = length(local.instances)
-  type      = "Microsoft.CognitiveServices/accounts@2026-05-01"
-  name      = local.instance_names[count.index]
-  location  = local.instances[count.index].location
-  parent_id = var.resource_group_id
-  tags      = var.tags
+module "account" {
+  source  = "Azure/avm-res-cognitiveservices-account/azurerm"
+  version = "0.11.1"
+  count   = length(local.instances)
 
-  # API version 2026-05-01 is newer than the latest schema validation in azapi.
-  schema_validation_enabled = false
+  name             = local.instance_names[count.index]
+  location         = local.instances[count.index].location
+  parent_id        = var.resource_group_id
+  tags             = var.tags
+  enable_telemetry = var.enable_telemetry
 
-  identity {
-    type = "SystemAssigned"
+  # Deleting the account can race the asynchronous delete of its projects and
+  # deployments: Azure answers 409 until the provisioning state is terminal.
+  retry = {
+    error_message_regex = ["RequestConflict", "provisioning state is not terminal"]
+    interval_seconds    = 30
   }
 
-  body = {
-    kind = "AIServices"
-    sku = {
-      name = "S0"
-    }
-    properties = {
-      # Required to enable AI Foundry (project management) on the account
-      allowProjectManagement = true
-      customSubDomainName = local.instance_subdomains[count.index]
-      disableLocalAuth = var.disable_key_auth
-      publicNetworkAccess = var.foundry_external_access ? "Enabled" : "Disabled"
-      networkAcls = {
-        defaultAction       = "Deny"
-        bypass               = "AzureServices"
-        ipRules             = []
-        virtualNetworkRules = []
+  kind                     = "AIServices"
+  sku_name                 = "S0"
+  allow_project_management = true # required to enable AI Foundry (projects) on the account
+  # The project is created below (azapi_resource.project); keep the account's
+  # project list and default as Azure sets them, so an update doesn't clear them.
+  associated_projects   = [local.instance_project_names[count.index]]
+  default_project       = local.instance_project_names[count.index]
+  custom_subdomain_name = local.instance_subdomains[count.index]
+  local_auth_enabled    = !var.disable_key_auth
+  managed_identities    = { system_assigned = true }
+
+  public_network_access_enabled = var.foundry_external_access
+  network_acls = {
+    default_action = "Deny"
+    bypass         = "AzureServices"
+    ip_rules       = []
+  }
+
+  # Optional egress lock-down: when set, the account (and the Agent Service)
+  # may only reach these FQDNs.
+  outbound_network_access_restricted = var.outbound_allowed_fqdns != null
+  fqdns                              = var.outbound_allowed_fqdns
+
+  # Model deployments of this account, created one
+  # at a time: the account rejects concurrent deployment PUTs (409).
+  deployment_serialization_enabled = true
+
+  cognitive_deployments = {
+    for m in var.foundry_models : m.name => {
+      name            = m.name
+      rai_policy_name = "Microsoft.DefaultV2"
+      model = {
+        format  = m.publisher
+        name    = m.name
+        version = m.version
       }
-      # Per-instance opt-in: config.network_injection_enabled (default true) AND
-      # the module-level flag AND an available agent subnet.
-      networkInjections = (
-        var.foundry_network_injection_enabled &&
-        try(local.instances[count.index].network_injection_enabled, true) &&
-        var.agent_subnet_id != ""
-      ) ? [
-        {
-          scenario                 = "agent"
-          subnetArmId              = var.agent_subnet_id
-          useMicrosoftManagedNetwork = false
-        }
-      ] : null
+      scale = {
+        type     = m.sku
+        capacity = m.capacity
+      }
+      # Warning: The multiplier attribute in the AVM module is deprecated and will be removed in a future version.
+      retry = {
+        error_message_regex = ["RequestConflict", "Another operation is being performed on the parent resource"]
+        interval_seconds    = 15
+      }
+    } if m.ai_service_index == count.index
+  }
 
+  # Private endpoint with all three Foundry DNS zones. With ALZ Deploy-Private-DNS-Zones the
+  # policy owns the zone group.
+  # The zone group is created below (azapi_resource.pe_dns_zone_group): the
+  # module names every zone config after the group, which Azure rejects with
+  # more than one zone ("two child resources with the same name").
+  private_endpoints_manage_dns_zone_group = false
+  private_endpoints = {
+    account = {
+      name                            = "pe-${local.instance_names[count.index]}"
+      private_service_connection_name = "psc-${local.instance_names[count.index]}"
+      subnet_resource_id              = var.subnet_id
+      location                        = var.private_endpoint_location
+      tags                            = var.tags
     }
   }
 
+  # Per-instance opt-in: config.network_injection_enabled (default true) AND
+  # the module-level flag AND an available agent subnet.
+  network_injections = (
+    var.foundry_network_injection_enabled &&
+    try(local.instances[count.index].network_injection_enabled, true) &&
+    var.agent_subnet_id != ""
+    ) ? {
+    scenario                          = "agent"
+    subnet_id                         = var.agent_subnet_id
+    microsoft_managed_network_enabled = false
+  } : null
+}
+
+# The principal ID and endpoint never change once an account exists, but an
+# in-place update of the account makes the module outputs unknown at plan time,
+# which would replace every role assignment on that principal. Read them from
+# the live account when it exists; new accounts use the module outputs.
+data "azapi_resource" "account_state" {
+  count = length(local.instances)
+
+  type                   = "Microsoft.CognitiveServices/accounts@2025-06-01"
+  resource_id            = "${var.resource_group_id}/providers/Microsoft.CognitiveServices/accounts/${local.instance_names[count.index]}"
+  ignore_not_found       = true
   response_export_values = ["identity.principalId", "properties.endpoint"]
+}
+
+locals {
+  account_ids   = module.account[*].resource_id
+  account_names = module.account[*].name
+  account_endpoints = [
+    for i, m in module.account : try(data.azapi_resource.account_state[i].output.properties.endpoint, null) != null ? data.azapi_resource.account_state[i].output.properties.endpoint : m.endpoint
+  ]
+  account_principal_ids = [
+    for i, m in module.account : try(data.azapi_resource.account_state[i].output.identity.principalId, null) != null ? data.azapi_resource.account_state[i].output.identity.principalId : m.system_assigned_mi_principal_id
+  ]
 }
 
 # -----------------------------------------------------------------------------
 # AI Foundry Project (one per account)
-# Bicep: aiProject (Microsoft.CognitiveServices/accounts/projects@2026-05-01)
 # -----------------------------------------------------------------------------
 resource "azapi_resource" "project" {
   count     = length(local.instances)
   type      = "Microsoft.CognitiveServices/accounts/projects@2026-05-01"
   name      = local.instance_project_names[count.index]
   location  = local.instances[count.index].location
-  parent_id = azapi_resource.foundry[count.index].id
+  parent_id = local.account_ids[count.index]
   tags      = var.tags
 
   # API version 2026-05-01 is newer than the latest schema validation in azapi.
@@ -135,22 +185,22 @@ resource "azapi_resource" "project" {
 
 # -----------------------------------------------------------------------------
 # RBAC: deployer → Azure AI Project Manager on each Foundry
-# Bicep: aiProjectManagerRoleAssignment
 # -----------------------------------------------------------------------------
 resource "azurerm_role_assignment" "deployer_project_manager" {
-  count              = length(local.instances)
-  scope              = azapi_resource.foundry[count.index].id
-  role_definition_id = "/providers/Microsoft.Authorization/roleDefinitions/${local.ai_project_manager_role_id}"
+  count = length(local.instances)
+  scope = local.account_ids[count.index]
+  # Subscription-scoped ID: Azure returns it in that form; the tenant-scoped
+  # form forces a replacement on every plan.
+  role_definition_id = "${regex("^/subscriptions/[^/]+", var.resource_group_id)}/providers/Microsoft.Authorization/roleDefinitions/${local.ai_project_manager_role_id}"
   principal_id       = var.deployer_object_id
 }
 
 # -----------------------------------------------------------------------------
 # RBAC: APIM MI → Cognitive Services User on each Foundry
-# Bicep: roleAssignmentCognitiveServicesUser
 # -----------------------------------------------------------------------------
 resource "azurerm_role_assignment" "apim_cognitive_services_user" {
   count                = length(local.instances)
-  scope                = azapi_resource.foundry[count.index].id
+  scope                = local.account_ids[count.index]
   role_definition_name = "Cognitive Services User"
   principal_id         = var.apim_principal_id
   principal_type       = "ServicePrincipal"
@@ -158,29 +208,33 @@ resource "azurerm_role_assignment" "apim_cognitive_services_user" {
 
 # -----------------------------------------------------------------------------
 # Diagnostic settings → Log Analytics (AllMetrics)
-# Bicep: diagnosticSettings
 # -----------------------------------------------------------------------------
-resource "azurerm_monitor_diagnostic_setting" "foundry" {
-  count                      = var.enable_diagnostics ? length(local.instances) : 0
-  name                       = "${local.instance_names[count.index]}-diagnostics"
-  target_resource_id         = azapi_resource.foundry[count.index].id
-  log_analytics_workspace_id = var.log_analytics_id
+# An ARM PUT is a create-or-update: it succeeds even when Azure Policy already
+# created a setting with this name. Azure deletes it with the account.
+resource "azapi_resource_action" "foundry_diagnostics" {
+  count = var.enable_diagnostics ? length(local.instances) : 0
 
-  enabled_metric {
-    category = "AllMetrics"
+  type        = "Microsoft.Insights/diagnosticSettings@2021-05-01-preview"
+  resource_id = "${local.account_ids[count.index]}/providers/Microsoft.Insights/diagnosticSettings/${local.instance_names[count.index]}-diagnostics"
+  method      = "PUT"
+
+  body = {
+    properties = {
+      workspaceId = var.log_analytics_id
+      metrics     = [{ category = "AllMetrics", enabled = true }]
+    }
   }
 }
 
 # -----------------------------------------------------------------------------
 # Application Insights connection on each Foundry
-# Bicep: appInsightsConnection
 # -----------------------------------------------------------------------------
 resource "azapi_resource" "app_insights_connection" {
   count = var.enable_app_insights_connection ? length(local.instances) : 0
 
   type      = "Microsoft.CognitiveServices/accounts/connections@2026-05-01"
   name      = "${local.instance_names[count.index]}-appInsights-connection"
-  parent_id = azapi_resource.foundry[count.index].id
+  parent_id = local.account_ids[count.index]
 
   # API version 2026-05-01 is newer than the latest schema validation in azapi.
   schema_validation_enabled = false
@@ -191,7 +245,7 @@ resource "azapi_resource" "app_insights_connection" {
       category                    = "AppInsights"
       target                      = var.app_insights_id
       useWorkspaceManagedIdentity = false
-      isSharedToAll               = false
+      isSharedToAll               = true # Azure always stores the App Insights connection as shared
       sharedUserList              = []
       peRequirement               = "NotRequired"
       peStatus                    = "NotApplicable"
@@ -200,85 +254,31 @@ resource "azapi_resource" "app_insights_connection" {
         ResourceId = var.app_insights_id
       }
       credentials = {
-        key = var.app_insights_instrumentation_key
+        key = var.app_insights_connection_string
       }
     }
   }
 }
 
-# -----------------------------------------------------------------------------
-# Model deployments
-# Bicep: modelDeployments (deployments.bicep)
-# -----------------------------------------------------------------------------
-resource "azapi_resource" "model_deployment" {
-  count = length(var.foundry_models)
 
-  type      = "Microsoft.CognitiveServices/accounts/deployments@2026-05-01"
-  name      = var.foundry_models[count.index].name
-  parent_id = azapi_resource.foundry[var.foundry_models[count.index].ai_service_index].id
 
-  # API version 2026-05-01 is newer than the latest schema validation in azapi.
-  schema_validation_enabled = false
+# Private DNS zone group of each Foundry private endpoint (all three zones).
+# Skipped when Azure Policy (ALZ Deploy-Private-DNS-Zones) owns the zone groups.
+resource "azapi_resource" "pe_dns_zone_group" {
+  count = var.dns_zone_group_managed_by_policy ? 0 : length(local.instances)
+
+  type      = "Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01"
+  name      = "aif-dns-group"
+  parent_id = module.account[count.index].private_endpoints["account"].id
 
   body = {
-    sku = {
-      name     = var.foundry_models[count.index].sku
-      capacity = var.foundry_models[count.index].capacity
-    }
     properties = {
-      model = {
-        format  = var.foundry_models[count.index].publisher
-        name    = var.foundry_models[count.index].name
-        version = var.foundry_models[count.index].version
-      }
-      raiPolicyName = "Microsoft.DefaultV2"
+      privateDnsZoneConfigs = [
+        for i, zone_id in local.dns_zone_ids_ordered : {
+          name       = ["cognitiveservices", "openai", "ai-services"][i]
+          properties = { privateDnsZoneId = zone_id }
+        }
+      ]
     }
   }
-
-  # Serialize deployments to the same Cognitive Services account: each deployment
-  # waits for the previous one to finish. The parent does not allow concurrent
-  # PUT /deployments/<name> operations (409 RequestConflict).
-  depends_on = [
-    azapi_resource.app_insights_connection,
-  ]
-
-  # Retry on the well-known transient 409 returned while another deployment is
-  # still being created on the same account.
-  retry = {
-    error_message_regex = [
-      "RequestConflict",
-      "Another operation is being performed on the parent resource",
-    ]
-    interval_seconds = 15
-  }
-}
-
-# -----------------------------------------------------------------------------
-# Private endpoints with all required Foundry DNS zones
-# Bicep: privateEndpoints (private-endpoint-multi-dns.bicep)
-# -----------------------------------------------------------------------------
-resource "azurerm_private_endpoint" "foundry" {
-  count               = length(local.instances)
-  name                = "pe-${local.instance_names[count.index]}"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  subnet_id           = var.subnet_id
-  tags                = var.tags
-
-  private_service_connection {
-    name                           = "psc-${local.instance_names[count.index]}"
-    private_connection_resource_id = azapi_resource.foundry[count.index].id
-    subresource_names              = ["account"]
-    is_manual_connection           = false
-  }
-
-  dynamic "private_dns_zone_group" {
-    for_each = length(local.dns_zone_ids_ordered) > 0 ? [1] : []
-    content {
-      name                 = "aif-dns-group"
-      private_dns_zone_ids = local.dns_zone_ids_ordered
-    }
-  }
-
-  depends_on = [azapi_resource.model_deployment]
 }

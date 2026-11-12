@@ -2,7 +2,7 @@
 # =============================================================================
 # AI Citadel Governance Hub — Validate Script
 # Runs post-deployment smoke tests against the live deployment.
-# Usage: ./scripts/validate.ps1 [dev|prod]
+# Usage: ./scripts/validate.ps1 <env>   (reads stacks/platform outputs)
 # =============================================================================
 
 [CmdletBinding()]
@@ -39,7 +39,7 @@ Write-Info "Environment: $Environment"
 Set-Location $RootDir
 
 # --- Pin subscription from tfvars so RG/KV lookups don't hit the wrong sub ---
-$Tfvars = "environments/$Environment.tfvars"
+$Tfvars = "environments/$Environment/common.tfvars"
 if (Test-Path $Tfvars) {
     $match = Select-String -Path $Tfvars -Pattern '^\s*subscription_id\s*=' | Select-Object -First 1
     $TfvarSub = ''
@@ -74,13 +74,13 @@ function Invoke-AzRetry {
 
 # --- Get Terraform outputs ---
 Write-Info 'Reading Terraform outputs...'
-$ApimUrl = (terraform output -raw apim_gateway_url 2>$null)
+$ApimUrl = (terraform -chdir=stacks/platform output -raw apim_gateway_url 2>$null)
 if ($LASTEXITCODE -ne 0) { Write-Warn 'Could not read apim_gateway_url output'; $ApimUrl = '' }
-$RgName = (terraform output -raw resource_group_name 2>$null)
+$RgName = (terraform -chdir=stacks/platform output -raw resource_group_name 2>$null)
 if ($LASTEXITCODE -ne 0) { $RgName = '' }
-$ApimName = (terraform output -raw apim_name 2>$null)
+$ApimName = (terraform -chdir=stacks/platform output -raw apim_name 2>$null)
 if ($LASTEXITCODE -ne 0) { $ApimName = '' }
-$CosmosEndpoint = (terraform output -raw cosmos_db_endpoint 2>$null)
+$CosmosEndpoint = (terraform -chdir=stacks/platform output -raw cosmos_db_endpoint 2>$null)
 if ($LASTEXITCODE -ne 0) { $CosmosEndpoint = '' }
 
 Write-Host ''
@@ -348,7 +348,8 @@ if ($ApimName -and $RgName -and $ApimUrl) {
         if ($ApimKey -and ($ApisTsv -match "`tmodels(`r?$|`n)" -or $ApisTsv -match "`tunified-ai(`r?$|`n)")) {
             Write-Info '  Functional probe: POST chat/completions on universal-llm-api...'
             $llmCode = '000'
-            $body = '{"model":"gpt-4o","messages":[{"role":"user","content":"ping"}],"max_tokens":4}'
+            $model = if ($env:VALIDATE_MODEL) { $env:VALIDATE_MODEL } else { 'gpt-5.4-mini' }
+            $body = '{"model":"' + $model + '","messages":[{"role":"user","content":"ping"}],"max_completion_tokens":16}'
             $llmHeaders = @{
                 'Ocp-Apim-Subscription-Key' = $ApimKey
                 'api-key'                   = $ApimKey
@@ -395,7 +396,7 @@ Write-Info 'Next steps:'
 Write-Host "  • Run LLM test: curl -X POST $ApimUrl/models/chat/completions \"
 Write-Host "      -H 'Content-Type: application/json' \"
 Write-Host "      -H 'api-key: <your-subscription-key>' \"
-Write-Host "      -d '{`"model`":`"gpt-4o`",`"messages`":[{`"role`":`"user`",`"content`":`"Hello`"}]}'"
+Write-Host "      -d '{`"model`":`"gpt-5.4-mini`",`"messages`":[{`"role`":`"user`",`"content`":`"Hello`"}]}'"
 Write-Host ''
 
 exit $script:Failed
