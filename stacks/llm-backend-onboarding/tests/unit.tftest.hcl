@@ -445,6 +445,32 @@ run "universal_llm_api_v2_spec" {
   }
 }
 
+# The Test tab of the Azure OpenAI API pre-fills the example body of the operation. GPT-5 and o-series
+# models reject max_tokens (400 unsupported_parameter: use max_completion_tokens), so the chat example
+# sends max_completion_tokens. The Universal LLM API imports this spec when inference_api_type is AzureOpenAI.
+run "azure_openai_chat_example_uses_max_completion_tokens" {
+  command = plan
+
+  assert {
+    condition = alltrue([for example in [jsondecode(file("${path.module}/apis/azure-openai-api/AIFoundryOpenAI.json")).paths["/deployments/{deployment-id}/chat/completions"].post.requestBody.content["application/json"].example] :
+    contains(keys(example), "max_completion_tokens") && !contains(keys(example), "max_tokens")])
+    error_message = "The chat example (the Test tab body) must send max_completion_tokens: GPT-5 and o-series models reject max_tokens."
+  }
+}
+
+# APIM takes the API's display name and description from the spec's `info` on every import, so they
+# must match the API (as for the Universal LLM v2 spec); otherwise each spec change leaves the live API
+# renamed and the next plan wants to change the name and description back.
+run "azure_openai_spec_info_matches_the_api" {
+  command = plan
+
+  assert {
+    condition = alltrue([for info in [jsondecode(file("${path.module}/apis/azure-openai-api/AIFoundryOpenAI.json")).info] :
+    info.title == local.llm_apis["azure-openai-api"].api.display_name && info.description == local.llm_apis["azure-openai-api"].api.description])
+    error_message = "The Azure OpenAI spec's info.title and info.description must equal the API's display_name and description."
+  }
+}
+
 # The Azure Monitor diagnostic of every LLM API logs the attribution headers clients send, on the
 # frontend request only.
 run "azure_monitor_diagnostics_log_the_attribution_headers" {
