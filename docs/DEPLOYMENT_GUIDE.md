@@ -90,8 +90,8 @@ platform team issues the rights instead, see
 
 ### 2.2 Deploying from Windows
 
-**Git Bash works and WSL2 isn't required, but plain PowerShell or cmd doesn't
-work with Task.** Task runs every command through its own POSIX shell
+**Deployment from Git Bash or WSL2 works, but plain PowerShell or cmd doesn't
+work with Task.** WSL2 is recommended. Task runs every command through its own POSIX shell
 interpreter, but takes `sort`, `sed`, `basename`, `seq`, `sleep`, `bash` and
 `python3` from `PATH`. `task validate` runs `bash scripts/validate.sh`, and the
 `zip_deploy` workflow publish
@@ -99,9 +99,50 @@ interpreter, but takes `sort`, `sed`, `basename`, `seq`, `sleep`, `bash` and
 
 | Shell | Works | Choose it when |
 |---|---|---|
-| **Git Bash** (Git for Windows) with the Windows builds of the tools | yes, with the settings below | the default on a Windows laptop |
 | **WSL2** (Ubuntu) with the Linux builds of the tools | yes, as on Linux; no Windows-specific settings | you want the same environment as CI (`ubuntu` runners), or `tmux` for the 2–4 h `app-hosting` apply |
+| **Git Bash** (Git for Windows) with the Windows builds of the tools | yes, with the settings below | the default on a Windows laptop |
 | PowerShell / cmd | Task: **no**. Plain Terraform (§4.4): yes, except the `zip_deploy` publish | neither of the above is allowed (see the end of this section) |
+
+
+#### WSL2
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+In Ubuntu, install the **Linux** builds:
+[Terraform](https://developer.hashicorp.com/terraform/install) (or `tenv`),
+[Task](https://taskfile.dev/docs/installation),
+[Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux)
+(`curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash`), and
+`sudo apt install -y git curl python3 python3-venv` (the venv is for the
+validation notebooks). Then deploy as on Linux:
+
+```bash
+mkdir -p ~/src && cd ~/src
+git clone https://github.com/Azure/terraform-ai-hub-gateway-landing-zone.git
+cd terraform-ai-hub-gateway-landing-zone
+command -v terraform task az python3   # every path under /usr or $HOME, none under /mnt/c
+az login                               # or: az login --use-device-code
+```
+
+- **Clone into the Linux file system** (`~/src`), not `/mnt/c/…`. Windows
+  drives are much slower from WSL2, and `terraform init` writes thousands of
+  module files. A clone made by Windows Git also has CRLF line endings.
+- **Linux tools only.** WSL appends the Windows `PATH`, so a tool missing in
+  Linux silently falls back to the Windows one (e.g. `/mnt/c/…/az`).
+  `command -v` shows which one runs.
+- **Private data planes over a corporate VPN** (§4.5). With WSL2's default
+  NAT networking, `privatelink` names may resolve to public addresses or be
+  unreachable. On Windows 11 22H2 and later, add this to
+  `%UserProfile%\.wslconfig`, then run `wsl --shutdown`:
+
+  ```ini
+  [wsl2]
+  networkingMode=mirrored
+  dnsTunneling=true
+  autoProxy=true
+  ```
 
 #### Git Bash
 
@@ -171,46 +212,6 @@ Everything in §3 onwards then works unchanged. Why each setting:
   `app-hosting` from WSL2 or CI. An interrupted apply leaves the state lock
   held; release it with
   `terraform -chdir=stacks/<stack> force-unlock <lock-id>`.
-
-#### WSL2
-
-```powershell
-wsl --install -d Ubuntu
-```
-
-In Ubuntu, install the **Linux** builds:
-[Terraform](https://developer.hashicorp.com/terraform/install) (or `tenv`),
-[Task](https://taskfile.dev/docs/installation),
-[Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli-linux)
-(`curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash`), and
-`sudo apt install -y git curl python3 python3-venv` (the venv is for the
-validation notebooks). Then deploy as on Linux:
-
-```bash
-mkdir -p ~/src && cd ~/src
-git clone https://github.com/Azure/terraform-ai-hub-gateway-landing-zone.git
-cd terraform-ai-hub-gateway-landing-zone
-command -v terraform task az python3   # every path under /usr or $HOME, none under /mnt/c
-az login                               # or: az login --use-device-code
-```
-
-- **Clone into the Linux file system** (`~/src`), not `/mnt/c/…`. Windows
-  drives are much slower from WSL2, and `terraform init` writes thousands of
-  module files. A clone made by Windows Git also has CRLF line endings.
-- **Linux tools only.** WSL appends the Windows `PATH`, so a tool missing in
-  Linux silently falls back to the Windows one (e.g. `/mnt/c/…/az`).
-  `command -v` shows which one runs.
-- **Private data planes over a corporate VPN** (§4.5). With WSL2's default
-  NAT networking, `privatelink` names may resolve to public addresses or be
-  unreachable. On Windows 11 22H2 and later, add this to
-  `%UserProfile%\.wslconfig`, then run `wsl --shutdown`:
-
-  ```ini
-  [wsl2]
-  networkingMode=mirrored
-  dnsTunneling=true
-  autoProxy=true
-  ```
 
 #### PowerShell only
 
