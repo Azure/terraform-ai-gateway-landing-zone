@@ -31,22 +31,3 @@ Declared identically in every stack's `variables.common.tf`.
 | gateway-config | `entra_auth`, `features`, `pii_service`, `content_safety_service`, `ai_search_instances`, `semantic_cache`, `ms_learn_mcp_backend_url`, `api_diagnostics`, `azure_monitor_request_headers` | [stacks/gateway-config](../stacks/gateway-config/README.md) |
 | llm-backend-onboarding | `foundry_backends` (incl. `circuit_breaker`), `llm_backends` (incl. a `circuit_breaker` per backend), `model_aliases`, `inference_api_type`, `features`, `aws`, `azure_monitor_request_headers` | [stacks/llm-backend-onboarding](../stacks/llm-backend-onboarding/README.md) |
 | access-contracts | `use_case`, `api_name_mapping`, `services`, `key_vault`, `foundry`, `foundry_config` (incl. `auth_type`, `managed_identity_audience`), `secret_rotation_days`, `secret_validity_days` | [stacks/access-contracts](../stacks/access-contracts/README.md) |
-
-## Where the old root inputs went
-
-| Old root input | Now |
-|---|---|
-| `environment_name`, `resource_group_name`, `*_name` overrides | `workload` + `environment` (+ `naming.name_overrides`); resource groups come from bootstrap |
-| `network.*` | `network.tfvars` (greenfield / alz_spoke) or `platform.tfvars` `network` (alz_spoke / byo) |
-| `apim`, `usage_pipeline`, `monitoring` | `platform.tfvars` (same shapes; `usage_pipeline.ase` keeps `app_service_environment_id` and `zone_redundant`; new: `apim.zone_redundant`, `usage_pipeline.logic_app.zone_redundant`, see [Deployment Guide 6.7](DEPLOYMENT_GUIDE.md#67-availability-zones)) |
-| `ai_foundry_instances`, `ai_foundry_models`, `ai_foundry_external_access`, `foundry_*` | `platform.tfvars` `foundry` |
-| `key_vault_sku`, `soft_delete_retention_days`, `purge_protection_enabled`, `kv_*`, `network_acl_default_action` | `platform.tfvars` `key_vault`; `kv_deployer_ip_rules` / `package_upload_ip_rules` → `dev_access.allowed_cidrs` |
-| `redis_*`, `api_center_sku`, `apic_location`, `apim_log_*` | `platform.tfvars` `redis`, `api_center`, `apim_logging` |
-| `features.semantic_cache`, `features.api_center` | `platform.tfvars` `features` |
-| `features.pii_*`, `content_safety`, `azure_ai_search`, `document_intelligence`, `mcp_sample`, `api_center_onboarding` | `gateway-config.tfvars` `features` |
-| `features.unified_ai_api`, `ai_model_inference`, `openai_realtime` | `llm-backend-onboarding.tfvars` `features` |
-| `entra_auth_enabled`, `entra_*`, `enable_jwt_auth`, `jwt_*`, `enable_entra_id_setup` | `identity.tfvars` (the app) + `gateway-config.tfvars` `entra_auth` |
-| `foundry_backends`, `llm_backends`, `inference_api_type` | `llm-backend-onboarding.tfvars` |
-| `enable_foundry_apim_connection`, `foundry_apim_connections` | an access contract with `foundry = { enabled = true }` |
-| `rollout_phase`, `skip_logic_app_code_deploy` | gone: each stack is its own phase; `task logic-app-code` republishes the workflows |
-| `create_apim_gateway_key_secret`, `kv_auto_detect_deployer_ip` | gone |

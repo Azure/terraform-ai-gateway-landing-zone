@@ -197,11 +197,11 @@ credentials are Key Vault references (`auth_config.key_vault_secret_uri`).
 ## 📚 Related documentation
 
 - [DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md) — stacks, commands, CI/CD, day-2, troubleshooting
-- [docs/deployment-scenarios.md](docs/deployment-scenarios.md) — the scenario templates
-- [docs/operations/platform-team-requests.md](docs/operations/platform-team-requests.md) — what to request from the ALZ platform team
-- [docs/operations/apim-network-modes.md](docs/operations/apim-network-modes.md) — APIM network modes and how to change them
-- [APIM_POLICY_ARCHITECTURE.md](docs/APIM_POLICY_ARCHITECTURE.md) — policies and fragments
-- [ACCESS_CONTRACTS_GUIDE.md](docs/ACCESS_CONTRACTS_GUIDE.md) — access contracts: products, policies, limits, authentication, keys, Foundry connections
+- [Deployment-Scenarios.md](docs/deployment-scenarios.md) — the scenario templates
+- [Platform-team-requests.md](docs/operations/platform-team-requests.md) — what to request from the ALZ platform team
+- [Apim-network-modes.md](docs/operations/apim-network-modes.md) — APIM network modes and how to change them
+- [Apim-policy-architecture.md](docs/APIM_POLICY_ARCHITECTURE.md) — policies and fragments
+- [Access-contracts-guide.md](docs/ACCESS_CONTRACTS_GUIDE.md) — access contracts: products, policies, limits, authentication, keys, Foundry connections
 - [CONTRIBUTING.md](CONTRIBUTING.md) — local checks and the rules CI enforces
 - Upstream: [AI Citadel Governance Hub](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/tree/citadel-v1) · [LLM routing](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/llm-routing-architecture.md) · [Network approach](https://github.com/Azure-Samples/ai-hub-gateway-solution-accelerator/blob/citadel-v1/guides/network-approach.md)
 
