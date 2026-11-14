@@ -201,8 +201,14 @@ locals {
   # App settings shared by both hosting models.
   common_app_settings = merge({
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = var.app_insights_connection_string
-    "FUNCTIONS_WORKER_RUNTIME"              = "node"
-    "WEBSITE_NODE_DEFAULT_VERSION"          = "~22"
+
+    # Microsoft requires dotnet for every Standard logic app (it used to be node). The platform keeps dotnet
+    # whatever is sent, so the old value left a permanent dotnet -> node diff in every plan.
+    "FUNCTIONS_WORKER_RUNTIME" = "dotnet"
+
+    # Node 24 on Windows has no 32-bit binaries: both hosting models must run a 64-bit worker process
+    # (use_32_bit_worker_process below, use32BitWorkerProcess on the ASE site), or ~24 finds no Node install.
+    "WEBSITE_NODE_DEFAULT_VERSION" = "~24"
 
     "eventHub_fullyQualifiedNamespace" = var.eventhub_endpoint_host
     "eventHub_name"                    = var.eventhub_ai_usage_hub_name
@@ -291,6 +297,11 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
   public_network_access      = var.public_network_access_enabled ? "Enabled" : "Disabled"
   tags                       = var.tags
 
+  # No FTP / SCM basic-auth publishing, as on the ASE site: `az` pushes the workflows with an Entra token.
+  # The provider default (true) re-enabled both on every apply until a policy turned them off again.
+  ftp_publish_basic_authentication_enabled = false
+  scm_publish_basic_authentication_enabled = false
+
   version = "~4"
 
   identity {
@@ -298,7 +309,7 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
     identity_ids = [var.managed_identity_id]
   }
 
-  # functionAppSiteConfig — TLS 1.2, FTPS-only, pre-warmed, CORS.
+  # functionAppSiteConfig — TLS 1.2, FTPS-only, pre-warmed, 64-bit worker, CORS.
   site_config {
     vnet_route_all_enabled           = true
     ftps_state                       = "FtpsOnly"
@@ -307,6 +318,7 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
     pre_warmed_instance_count        = 1
     elastic_instance_minimum         = 1
     runtime_scale_monitoring_enabled = true
+    use_32_bit_worker_process        = false # the provider defaults to 32-bit, which has no Node 24
 
     cors {
       allowed_origins     = ["https://portal.azure.com", "https://ms.portal.azure.com"]
