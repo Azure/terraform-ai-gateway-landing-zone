@@ -294,6 +294,11 @@ resource "azurerm_logic_app_standard" "usage_ingestion" {
   public_network_access      = var.public_network_access_enabled ? "Enabled" : "Disabled"
   tags                       = var.tags
 
+  # No FTP / SCM basic-auth publishing, as on the ASE site: `az` pushes the workflows with an Entra token.
+  # The provider default (true) re-enabled both on every apply until a policy turned them off again.
+  ftp_publish_basic_authentication_enabled = false
+  scm_publish_basic_authentication_enabled = false
+
   version = "~4"
 
   identity {
