@@ -201,10 +201,13 @@ locals {
   # App settings shared by both hosting models.
   common_app_settings = merge({
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = var.app_insights_connection_string
-    "FUNCTIONS_WORKER_RUNTIME"              = "node"
+
+    # Microsoft requires dotnet for every Standard logic app (it used to be node). The platform keeps dotnet
+    # whatever is sent, so the old value left a permanent dotnet -> node diff in every plan.
+    "FUNCTIONS_WORKER_RUNTIME" = "dotnet"
 
     # Node 24 on Windows has no 32-bit binaries: both hosting models must run a 64-bit worker process
-    # (use_32_bit_worker_process below, use32BitWorkerProcess on the ASE site), or the Node worker can't start.
+    # (use_32_bit_worker_process below, use32BitWorkerProcess on the ASE site), or ~24 finds no Node install.
     "WEBSITE_NODE_DEFAULT_VERSION" = "~24"
 
     "eventHub_fullyQualifiedNamespace" = var.eventhub_endpoint_host
