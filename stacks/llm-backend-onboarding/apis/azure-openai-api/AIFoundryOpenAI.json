@@ -81,8 +81,7 @@
                 "in": "path",
                 "required": true,
                 "schema": {
-                    "enum": [""],
-                    "type": ""
+                    "type": "string"
                 }
             }],
             "responses": {
@@ -2866,7 +2865,7 @@
       "post": {
         "operationId": "Update_Vector_Store_File_Attributes",
         "tags": [
-          "Vector stores"
+          "Vector Stores"
         ],
         "description": "Update attributes on a vector store file.",
         "parameters": [
@@ -2920,7 +2919,7 @@
       "get": {
         "operationId": "Retrieve_Vector_Store_File_Content",
         "tags": [
-          "Vector stores"
+          "Vector Stores"
         ],
         "description": "Retrieve the parsed contents of a vector store file.",
         "parameters": [
@@ -2964,7 +2963,7 @@
       "post": {
         "operationId": "Search_Vector_Store",
         "tags": [
-          "Vector stores"
+          "Vector Stores"
         ],
         "description": "Search a vector store for relevant chunks based on a query and file attributes filter.",
         "parameters": [
