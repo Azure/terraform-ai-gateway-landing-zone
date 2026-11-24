@@ -1,0 +1,63 @@
+<fragment>
+    <!-- AI FinOps gateway contract v2, outbound part (usage detail for costing; foundry-ops
+         docs/architecture/04-prerequisites.md, "Usage detail for costing"). Include it after <base /> in the
+         outbound section. It writes the usage detail of a non-streamed JSON response as an ai-gateway trace record:
+         cache reads and writes, thinking billed outside the output, the served tier, geography and speed, web
+         searches and the served model. Numbers and enums only, never content; a stream is never read. -->
+    <set-variable name="aifinops-usage" value="@{
+        try {
+            if (context.Response == null || context.Response.StatusCode >= 400
+                || !context.Response.Headers.GetValueOrDefault("Content-Type", "").Contains("json")) { return ""; }
+            var body = context.Response.Body.As<JObject>(preserveContent: true);
+            var o = new JObject();
+            var u = body["usage"] as JObject;
+            if (u != null) {
+                var pd = (u["prompt_tokens_details"] ?? u["input_tokens_details"]) as JObject;
+                var cd = (u["completion_tokens_details"] ?? u["output_tokens_details"]) as JObject;
+                if (u["cache_read_input_tokens"] != null || u["cache_creation_input_tokens"] != null
+                    || (string)body["type"] == "message") {
+                    // Anthropic Messages: input_tokens excludes cache reads and writes (disjoint).
+                    o["usageProfile"] = "anthropic-messages";
+                    o["cacheReadTokens"] = u["cache_read_input_tokens"] ?? 0;
+                    o["cacheWriteTokens"] = u["cache_creation_input_tokens"] ?? 0;
+                    var cc = u["cache_creation"] as JObject;
+                    if (cc?["ephemeral_1h_input_tokens"] != null) { o["cacheWriteLongTokens"] = cc["ephemeral_1h_input_tokens"]; }
+                    if (cd?["thinking_tokens"] != null) { o["reasoningTokens"] = cd["thinking_tokens"]; }
+                    if (u["service_tier"] != null) { o["serviceTier"] = u["service_tier"]; }
+                    if (u["inference_geo"] != null) { o["inferenceGeo"] = u["inference_geo"]; }
+                    if (u["speed"] != null) { o["speed"] = u["speed"]; }
+                    var tools = u["server_tool_use"] as JObject;
+                    if (tools?["web_search_requests"] != null) { o["webSearchRequests"] = tools["web_search_requests"]; }
+                } else if (u["prompt_tokens"] != null || u["input_tokens"] != null) {
+                    // OpenAI Chat Completions or Responses (and OpenAI-compatible APIs): cached is inside prompt.
+                    o["usageProfile"] = "openai";
+                    if (pd?["cached_tokens"] != null) { o["cacheReadTokens"] = pd["cached_tokens"]; }
+                    if (pd?["cache_write_tokens"] != null) { o["cacheWriteTokens"] = pd["cache_write_tokens"]; }
+                    if (cd?["reasoning_tokens"] != null) { o["reasoningTokens"] = cd["reasoning_tokens"]; }
+                    if (u["total_tokens"] != null && u["prompt_tokens"] != null && u["completion_tokens"] != null) {
+                        // Gemini's OpenAI-compatible API counts thinking in the total only.
+                        var hidden = (long)u["total_tokens"] - (long)u["prompt_tokens"] - (long)u["completion_tokens"];
+                        if (hidden > 0) { o["thoughtsTokens"] = hidden; }
+                    }
+                }
+            }
+            var g = body["usageMetadata"] as JObject;
+            if (g != null) {
+                // Gemini generateContent: thoughts are outside the candidates count.
+                o["usageProfile"] = "gemini-generate";
+                o["cacheReadTokens"] = g["cachedContentTokenCount"] ?? 0;
+                if (g["thoughtsTokenCount"] != null) { o["thoughtsTokens"] = g["thoughtsTokenCount"]; }
+            }
+            if (body["service_tier"] != null) { o["serviceTier"] = body["service_tier"]; }
+            if (body["model"] != null) { o["servedModel"] = body["model"]; }
+            return o.Count == 0 ? "" : o.ToString(Newtonsoft.Json.Formatting.None);
+        } catch { return ""; }
+    }" />
+    <choose>
+        <when condition="@(!string.IsNullOrEmpty((string)context.Variables["aifinops-usage"]))">
+            <trace source="ai-gateway" severity="information">
+                <message>@((string)context.Variables["aifinops-usage"])</message>
+            </trace>
+        </when>
+    </choose>
+</fragment>

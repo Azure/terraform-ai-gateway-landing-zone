@@ -79,6 +79,9 @@
 
         <!-- Step 6.1: Strip browser / App Service / X-Forwarded-* headers before forwarding to backend -->
         <include-fragment fragment-id="strip-backend-headers" />
+        <!-- AI FinOps contract v2: ask the backend for gzip (a Brotli body is unreadable, its tokens lost) and
+             trace the pricing qualifiers the request states. After strip-backend-headers, which keeps Accept-Encoding. -->
+        <include-fragment fragment-id="aifinops-request-detail" />
 
         <!-- Step 7: Configure collecting usage metrics -->
         <include-fragment fragment-id="set-llm-usage" />
@@ -168,6 +171,8 @@
     </backend>
     <outbound>
         <base />
+        <!-- AI FinOps contract v2: the usage detail of a non-streamed response (cache, thinking, tier), numbers only. -->
+        <include-fragment fragment-id="aifinops-usage-detail" />
         <!-- Semantic cache store after a lookup miss. -->
         <include-fragment fragment-id="semantic-cache-store" />
         <!-- Cache response_id → owner mapping for successful POST /responses (cross-API shared fragment). -->

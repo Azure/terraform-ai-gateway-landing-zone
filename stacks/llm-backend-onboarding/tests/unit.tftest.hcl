@@ -511,3 +511,26 @@ run "azure_monitor_request_headers_can_be_changed" {
     error_message = "azure_monitor_request_headers sets the headers logged by every LLM API."
   }
 }
+
+# AI FinOps gateway contract v2: a model response must be readable (API Management cannot read a Brotli body, so a
+# client offering br left the LLM log and the token metric without tokens), and its usage detail (cache, thinking,
+# tier) reaches the gateway logs as ai-gateway trace records. Both APIs that reach models include both fragments:
+# the request part after strip-backend-headers, the usage part in the outbound section.
+run "model_apis_ask_for_gzip_and_trace_the_usage_detail" {
+  command = plan
+
+  assert {
+    condition     = contains(keys(local.llm_fragments), "aifinops-request-detail") && contains(keys(local.llm_fragments), "aifinops-usage-detail")
+    error_message = "The stack owns the AI FinOps contract v2 fragments."
+  }
+  assert {
+    condition     = strcontains(file("${path.module}/fragments/frag-aifinops-request-detail.xml"), "<set-header name=\"Accept-Encoding\" exists-action=\"override\">") && strcontains(file("${path.module}/fragments/frag-aifinops-request-detail.xml"), "<value>gzip</value>")
+    error_message = "The request fragment overrides Accept-Encoding with gzip."
+  }
+  assert {
+    condition = alltrue([for f in ["universal-llm-api/universal-llm-api-policy-v2.xml", "unified-ai-api/unified-ai-api-policy.xml"] :
+      can(regex("(?s)<include-fragment fragment-id=\"strip-backend-headers\" />.*<include-fragment fragment-id=\"aifinops-request-detail\" />.*<outbound>\\s*<base />.*<include-fragment fragment-id=\"aifinops-usage-detail\" />", file("${path.module}/apis/${f}")))
+    ])
+    error_message = "Both model APIs include the request part after strip-backend-headers and the usage part in the outbound section."
+  }
+}

@@ -1,0 +1,35 @@
+<fragment>
+    <!-- AI FinOps gateway contract v2, inbound part (usage detail for costing; foundry-ops
+         docs/architecture/04-prerequisites.md, "Usage detail for costing").
+         1. Readable responses: ask the backend for gzip. API Management cannot read a Brotli body, so a client that
+            offers br (most HTTP libraries do) would leave the LLM log, the token metric and the token limit of a
+            successful call without tokens.
+         2. The pricing qualifiers a request states (service_tier, inference_geo, speed), and an OpenAI-shaped stream
+            that will end without usage, as an ai-gateway trace record: numbers and enums only, never content. -->
+    <set-header name="Accept-Encoding" exists-action="override">
+        <value>gzip</value>
+    </set-header>
+    <set-variable name="aifinops-request" value="@{
+        try {
+            if (context.Request.Method != "POST"
+                || !context.Request.Headers.GetValueOrDefault("Content-Type", "").Contains("json")) { return ""; }
+            var b = context.Request.Body.As<JObject>(preserveContent: true);
+            var o = new JObject();
+            if (b["service_tier"] != null) { o["requestedTier"] = b["service_tier"]; }
+            if (b["inference_geo"] != null) { o["requestedGeo"] = b["inference_geo"]; }
+            if (b["speed"] != null) { o["requestedSpeed"] = b["speed"]; }
+            var stream = b["stream"] != null && b["stream"].Type == JTokenType.Boolean && (bool)b["stream"];
+            var options = b["stream_options"] as JObject;
+            var includeUsage = options?["include_usage"] != null && (bool)options["include_usage"];
+            if (stream && !includeUsage && context.Request.Url.Path.EndsWith("/chat/completions")) { o["streamUsage"] = "missing"; }
+            return o.Count == 0 ? "" : o.ToString(Newtonsoft.Json.Formatting.None);
+        } catch { return ""; }
+    }" />
+    <choose>
+        <when condition="@(!string.IsNullOrEmpty((string)context.Variables["aifinops-request"]))">
+            <trace source="ai-gateway" severity="information">
+                <message>@((string)context.Variables["aifinops-request"])</message>
+            </trace>
+        </when>
+    </choose>
+</fragment>

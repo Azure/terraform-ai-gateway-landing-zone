@@ -42,8 +42,11 @@
             var isLlm = !string.IsNullOrEmpty(requestedModel) && requestedModel != "non-llm-request"
                 && context.Variables.GetValueOrDefault<string>("assetKind", "llm") == "llm";
             var contentType = outcome == "response" ? context.Response.Headers.GetValueOrDefault("Content-Type", "") : "";
+            // is-streaming is a bool when the Unified AI request-processor sets it: read it type-tolerantly
+            // (GetValueOrDefault<string> throws on a bool and fails the request after the backend answered).
             var stream = contentType.IndexOf("text/event-stream", StringComparison.OrdinalIgnoreCase) >= 0
-                || context.Variables.GetValueOrDefault<string>("is-streaming", "false") == "true";
+                || (context.Variables.ContainsKey("is-streaming")
+                    && string.Equals(Convert.ToString(context.Variables["is-streaming"]), "true", StringComparison.OrdinalIgnoreCase));
 
             long promptTokens = 0, responseTokens = 0, totalTokens = 0, cachedTokens = 0, reasoningTokens = 0;
             string tokensSource = "none";

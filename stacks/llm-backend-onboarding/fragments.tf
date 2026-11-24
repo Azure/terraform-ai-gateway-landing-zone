@@ -14,6 +14,10 @@ locals {
       "responses-id-security"     = "Per-subscription and per-product ownership enforcement for the Responses API"
       "responses-id-cache-store"  = "Records ownership of newly created Responses API objects"
       "ai-foundry-deployments"    = "AI Foundry deployments helper fragment"
+      # AI FinOps gateway contract v2: readable (gzip) responses, and the usage detail that prices models billed
+      # outside Azure (cache, thinking, tier, geography, speed), as ai-gateway trace records with numbers only.
+      "aifinops-request-detail" = "AI FinOps: gzip from the backend and the pricing qualifiers a request states"
+      "aifinops-usage-detail"   = "AI FinOps: the usage detail of a non-streamed model response"
     },
     var.features.unified_ai_api ? {
       "central-cache-manager" = "Caches metadata configuration for Unified AI API"

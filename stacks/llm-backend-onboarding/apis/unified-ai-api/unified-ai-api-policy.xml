@@ -88,6 +88,9 @@
         <include-fragment fragment-id="set-backend-pools" />
         <!-- Step 6.1: Strip browser / App Service / X-Forwarded-* headers before forwarding to backend -->
         <include-fragment fragment-id="strip-backend-headers" />
+        <!-- AI FinOps contract v2: ask the backend for gzip (a Brotli body is unreadable, its tokens lost) and
+             trace the pricing qualifiers the request states. After strip-backend-headers, which keeps Accept-Encoding. -->
+        <include-fragment fragment-id="aifinops-request-detail" />
         
         <!-- Step 7: Select target backend pool [SHARED]
              Performs MODEL ALIAS resolution as a first-class step: when `requestedModel` matches
@@ -231,6 +234,8 @@
     </backend>
     <outbound>
         <base />
+        <!-- AI FinOps contract v2: the usage detail of a non-streamed response (cache, thinking, tier), numbers only. -->
+        <include-fragment fragment-id="aifinops-usage-detail" />
         <!-- Semantic cache store after a lookup miss. -->
         <include-fragment fragment-id="semantic-cache-store" />
         <!-- Cache response_id → owner mapping for successful POST /responses [SHARED]. -->
